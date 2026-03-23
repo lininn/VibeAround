@@ -7,7 +7,6 @@ mod tray;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use common::config;
 use tauri::Manager;
 use tokio::sync::Notify;
 
@@ -20,8 +19,6 @@ pub struct AppServiceManager(pub Arc<common::service::ServiceStatusManager>);
 pub struct OnboardingActive(pub std::sync::atomic::AtomicBool);
 
 fn main() {
-    let _config = config::ensure_loaded();
-
     // Early check: if the port is already in use, another instance is likely running.
     let port = common::config::DEFAULT_PORT;
     if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
@@ -78,10 +75,6 @@ fn main() {
                     eprintln!("[VibeAround] Waiting for onboarding to complete…");
                     gate.notified().await;
                     eprintln!("[VibeAround] Onboarding complete, starting daemon…");
-
-                    // Reload config after onboarding wrote new settings
-                    // (config is a OnceLock singleton, so we just proceed —
-                    //  the daemon will re-read settings.json via its own paths)
 
                     // Mark onboarding as done for tray
                     if let Some(state) = app_handle.try_state::<OnboardingActive>() {

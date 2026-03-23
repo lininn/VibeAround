@@ -2,22 +2,23 @@
 //!
 //! - Gemini: speaks ACP natively (`gemini --experimental-acp`)
 //! - Claude: wrapped via `claude_acp` adapter (Claude SDK protocol → ACP translation)
-//!
-//! The worker only sees `AgentBackend` + `AgentEvent`, backed by ACP `ClientSideConnection`.
 
 pub mod claude_acp;
 pub mod claude_sdk;
 pub mod codex_acp;
 pub mod codex_jsonl;
 pub mod gemini_acp;
-pub mod manager_prompt;
 pub mod opencode_acp;
 pub mod opencode_jsonl;
+pub mod runtime_context;
 
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
 
-/// Which agent CLI to use.
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::sync::{broadcast, mpsc, oneshot};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentKind {
     Claude,
@@ -48,25 +49,18 @@ impl AgentKind {
         }
     }
 
-    /// All available agent kinds.
     pub fn all() -> &'static [AgentKind] {
         &[AgentKind::Claude, AgentKind::Gemini, AgentKind::OpenCode, AgentKind::Codex]
     }
 
-    /// Only agents enabled in config (settings.json `enabled_agents`).
-    /// Falls back to all agents if not configured.
     pub fn enabled() -> Vec<AgentKind> {
         crate::config::ensure_loaded().enabled_agents.clone()
     }
 
-    /// Whether this agent kind is enabled in config.
     pub fn is_enabled(&self) -> bool {
         crate::config::ensure_loaded().enabled_agents.contains(self)
     }
 
-    /// Emoji icon for this agent.
-
-    /// Short description of this agent.
     pub fn description(&self) -> &'static str {
         match self {
             AgentKind::Claude => "Anthropic Claude Code",
@@ -77,74 +71,34 @@ impl AgentKind {
     }
 }
 
-/// Events emitted by an agent backend, consumed by the IM worker.
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
-    /// Assistant text chunk (streaming).
     Text(String),
-    /// Thinking / reasoning text chunk.
     Thinking(String),
-    /// Progress indicator: "Thinking...", "Using tool: Bash", etc.
     Progress(String),
-    /// A tool call started (with optional input JSON).
     ToolUse { name: String, id: String, input: Option<String> },
-    /// A tool call produced a result.
     ToolResult { id: String, output: Option<String>, is_error: bool },
-    /// The agent's turn is complete.
     TurnComplete {
         session_id: Option<String>,
         cost_usd: Option<f64>,
     },
-    /// An error occurred.
     Error(String),
 }
 
-/// Unified interface for agent backends (Claude, Gemini, etc.).
-/// Both backends are backed by ACP `ClientSideConnection` under the hood.
 #[async_trait::async_trait]
 pub trait AgentBackend: Send + Sync {
-    /// Spawn the agent subprocess, establish ACP connection, create session.
-    /// `system_prompt` is injected for Manager agents only (None for Workers).
-    /// Returns the initial CLI session id if it is known at startup time.
     async fn start(&mut self, cwd: &Path, system_prompt: Option<&str>) -> Result<Option<String>, String>;
-
-    /// Send a user message via ACP `prompt()`. Blocks until the turn completes.
-    /// Events are delivered via `subscribe()`.
     async fn send_message(&self, text: &str) -> Result<(), String>;
-
-    /// Fire a prompt without waiting for the turn to complete.
-    /// Returns immediately after the command is queued.
-    /// Use `subscribe()` to consume events; the turn ends with `AgentEvent::TurnComplete`.
     async fn send_message_fire(&self, text: &str) -> Result<(), String>;
-
-    /// Subscribe to the agent's event stream.
     fn subscribe(&self) -> tokio::sync::broadcast::Receiver<AgentEvent>;
-
-    /// Gracefully shut down the agent subprocess.
     async fn shutdown(&mut self);
-
-    /// Which agent kind this backend represents.
     fn kind(&self) -> AgentKind;
 }
 
-/// Create a new (unstarted) agent backend for the given kind.
-/// All four agents now use the unified ACP backend:
-/// - Claude: in-process ACP bridge via claude_sdk
-/// - Gemini: `gemini --experimental-acp` subprocess
-/// - OpenCode: `opencode acp` subprocess (native ACP over stdio)
-/// - Codex: `codex-acp` subprocess (ACP bridge from cola-io/codex-acp)
 pub fn create_backend(kind: AgentKind) -> Box<dyn AgentBackend> {
     Box::new(AcpBackend::new(kind))
 }
 
-// ---------------------------------------------------------------------------
-// Unified ACP backend — wraps ClientSideConnection for both Claude and Gemini
-// ---------------------------------------------------------------------------
-
-use std::path::PathBuf;
-use tokio::sync::{broadcast, mpsc, oneshot};
-
-/// Commands sent from the main (Send) world to the ACP thread.
 enum AcpCmd {
     Prompt {
         text: String,
@@ -153,8 +107,6 @@ enum AcpCmd {
     Shutdown,
 }
 
-/// A single ACP-backed agent backend. Works for both Claude and Gemini.
-/// Runs the ACP event loop on a dedicated thread (ACP futures are `!Send`).
 pub struct AcpBackend {
     agent_kind: AgentKind,
     event_tx: broadcast::Sender<AgentEvent>,
@@ -222,7 +174,6 @@ impl AgentBackend for AcpBackend {
             })
             .await
             .map_err(|_| "ACP thread gone".to_string())?;
-        // Return immediately — caller uses event stream to detect completion
         Ok(())
     }
 
@@ -245,7 +196,6 @@ impl AgentBackend for AcpBackend {
     }
 }
 
-/// Runs on a dedicated thread with a single-threaded tokio runtime + LocalSet.
 fn run_acp_thread(
     agent_kind: AgentKind,
     cwd: PathBuf,
@@ -278,8 +228,6 @@ fn run_acp_thread(
     });
 }
 
-/// The actual ACP session lifecycle, running inside LocalSet.
-/// Handles both Claude (via in-process duplex pipe) and Gemini (via subprocess stdio).
 async fn acp_session_loop(
     agent_kind: AgentKind,
     cwd: PathBuf,
@@ -292,11 +240,9 @@ async fn acp_session_loop(
     use acp::Agent as _;
     use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-    // --- Write system prompt file for non-Claude agents (they read from files, not CLI flags) ---
     if let Some(ref prompt) = system_prompt {
         match agent_kind {
             AgentKind::Gemini => {
-                // Gemini reads system prompt from GEMINI_SYSTEM_MD env var pointing to a file
                 let prompt_path = cwd.join(".gemini").join("system.md");
                 if let Some(parent) = prompt_path.parent() {
                     let _ = std::fs::create_dir_all(parent);
@@ -304,20 +250,17 @@ async fn acp_session_loop(
                 let _ = std::fs::write(&prompt_path, prompt);
             }
             AgentKind::OpenCode => {
-                // OpenCode reads AGENTS.md from workspace root
                 let _ = std::fs::write(cwd.join("AGENTS.md"), prompt);
             }
             AgentKind::Codex => {
-                // Codex reads .codex/instructions.md from workspace
                 let dir = cwd.join(".codex");
                 let _ = std::fs::create_dir_all(&dir);
                 let _ = std::fs::write(dir.join("instructions.md"), prompt);
             }
-            AgentKind::Claude => {} // handled via --system-prompt flag
+            AgentKind::Claude => {}
         }
     }
 
-    // --- Obtain the read/write streams depending on agent kind ---
     let (read_stream, write_stream, _claude_thread, mut claude_real_session_id_rx): (
         tokio::io::DuplexStream,
         tokio::io::DuplexStream,
@@ -343,7 +286,6 @@ async fn acp_session_loop(
         }
     };
 
-    // --- Create ACP ClientSideConnection ---
     let client_handler = SharedAcpClientHandler {
         event_tx: event_tx.clone(),
     };
@@ -357,8 +299,6 @@ async fn acp_session_loop(
     );
     tokio::task::spawn_local(handle_io);
 
-    // --- Initialize ---
-    eprintln!("[{}-acp] sending initialize...", agent_kind);
     let _init_resp = conn
         .initialize(
             acp::InitializeRequest::new(acp::ProtocolVersion::V1)
@@ -366,18 +306,13 @@ async fn acp_session_loop(
         )
         .await
         .map_err(|e| format!("ACP initialize failed: {}", e))?;
-    eprintln!("[{}-acp] initialize ok", agent_kind);
 
-    // --- Create session ---
-    eprintln!("[{}-acp] creating session in {:?}...", agent_kind, &cwd);
     let session_resp = conn
         .new_session(acp::NewSessionRequest::new(cwd))
         .await
         .map_err(|e| format!("ACP new_session failed: {}", e))?;
 
     let session_id = session_resp.session_id;
-    eprintln!("[{}-acp] session created: {:?}", agent_kind, session_id);
-
     let startup_session_id = if matches!(agent_kind, AgentKind::Claude) {
         None
     } else {
@@ -387,7 +322,6 @@ async fn acp_session_loop(
 
     let mut real_cli_session_id: Option<String> = None;
 
-    // --- Command loop ---
     loop {
         let cmd = match cmd_rx.recv().await {
             Some(c) => c,
@@ -395,7 +329,6 @@ async fn acp_session_loop(
         };
         match cmd {
             AcpCmd::Prompt { text, done_tx } => {
-                eprintln!("[{}-acp] sending prompt: {}", agent_kind, &text);
                 let text_content = acp::ContentBlock::Text(acp::TextContent::new(text));
                 let result = conn
                     .prompt(acp::PromptRequest::new(
@@ -403,7 +336,6 @@ async fn acp_session_loop(
                         vec![text_content],
                     ))
                     .await;
-                eprintln!("[{}-acp] prompt returned: {:?}", agent_kind, result.is_ok());
                 if let Some(session_id_rx) = claude_real_session_id_rx.as_mut() {
                     while let Ok(discovered_session_id) = session_id_rx.try_recv() {
                         real_cli_session_id = Some(discovered_session_id);
@@ -431,12 +363,6 @@ async fn acp_session_loop(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Shared ACP Client handler — receives notifications from any ACP agent
-// ---------------------------------------------------------------------------
-
-/// Implements the ACP `Client` trait — translates ACP notifications into `AgentEvent`s.
-/// Used by both Claude (via adapter) and Gemini (native ACP).
 struct SharedAcpClientHandler {
     event_tx: broadcast::Sender<AgentEvent>,
 }
@@ -447,7 +373,6 @@ impl agent_client_protocol::Client for SharedAcpClientHandler {
         &self,
         args: agent_client_protocol::RequestPermissionRequest,
     ) -> agent_client_protocol::Result<agent_client_protocol::RequestPermissionResponse> {
-        // Auto-allow: pick the first option
         let option_id = args
             .options
             .first()
@@ -480,14 +405,12 @@ impl agent_client_protocol::Client for SharedAcpClientHandler {
             SessionUpdate::ToolCallUpdate(update) => {
                 let name = update.fields.title.clone().unwrap_or_else(|| "unknown".into());
                 let id = update.tool_call_id.to_string();
-                // Check if this is a completed tool call (has status or raw_output)
                 let has_output = update.fields.raw_output.is_some();
                 let status_completed = update.fields.status.as_ref().map(|s| {
                     matches!(s, agent_client_protocol::ToolCallStatus::Completed | agent_client_protocol::ToolCallStatus::Failed)
                 }).unwrap_or(false);
 
                 if has_output || status_completed {
-                    // This is a tool result update
                     let output = update.fields.raw_output.as_ref().map(|v| {
                         if let Some(s) = v.as_str() { s.to_string() } else { v.to_string() }
                     }).or_else(|| {
@@ -505,7 +428,6 @@ impl agent_client_protocol::Client for SharedAcpClientHandler {
                     let is_error = matches!(update.fields.status.as_ref(), Some(agent_client_protocol::ToolCallStatus::Failed));
                     let _ = self.event_tx.send(AgentEvent::ToolResult { id, output, is_error });
                 } else {
-                    // This is a tool use start/progress update
                     let input = update.fields.raw_input.as_ref().map(|v| {
                         if let Some(s) = v.as_str() { s.to_string() } else { v.to_string() }
                     });
@@ -581,17 +503,6 @@ impl agent_client_protocol::Client for SharedAcpClientHandler {
     }
 }
 
-// ---------------------------------------------------------------------------
-// JSONL-based backend — for Codex (per-prompt subprocess with --json output)
-// and OpenCode (opencode run --format json, per-prompt subprocess)
-// ---------------------------------------------------------------------------
-
-use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, BufReader};
-
-/// Subprocess-per-prompt agent backend for OpenCode and Codex.
-/// Each `send_message` spawns a new subprocess, reads JSONL/text from stdout,
-/// and waits for it to exit before returning.
 pub struct JsonlBackend {
     agent_kind: AgentKind,
     event_tx: broadcast::Sender<AgentEvent>,
@@ -608,7 +519,6 @@ impl JsonlBackend {
 #[async_trait::async_trait]
 impl AgentBackend for JsonlBackend {
     async fn start(&mut self, cwd: &Path, _system_prompt: Option<&str>) -> Result<Option<String>, String> {
-        // Just verify the CLI exists
         let cmd = match self.agent_kind {
             AgentKind::OpenCode => "opencode",
             AgentKind::Codex => "codex",
@@ -623,7 +533,6 @@ impl AgentBackend for JsonlBackend {
             return Err(format!("{} not found in PATH", cmd));
         }
         self.cwd = Some(cwd.to_path_buf());
-        eprintln!("[{}-jsonl] ready (per-prompt mode)", self.agent_kind);
         Ok(None)
     }
 
@@ -642,8 +551,6 @@ impl AgentBackend for JsonlBackend {
             _ => unreachable!(),
         };
 
-        eprintln!("[{}-jsonl] spawning: {} {:?}", agent_kind, cmd, &args[..args.len().min(3)]);
-
         let mut child = tokio::process::Command::new(cmd)
             .args(&args)
             .current_dir(cwd)
@@ -655,8 +562,6 @@ impl AgentBackend for JsonlBackend {
             .map_err(|e| format!("Failed to spawn {}: {}", cmd, e))?;
 
         let stdout = child.stdout.take().ok_or("No stdout")?;
-
-        // Read JSONL lines from stdout, parse into AgentEvents
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -664,7 +569,6 @@ impl AgentBackend for JsonlBackend {
             let msg: serde_json::Value = match serde_json::from_str(&line) {
                 Ok(v) => v,
                 Err(_) => {
-                    // Not JSON — treat as plain text output
                     if !line.trim().is_empty() {
                         let _ = event_tx.send(AgentEvent::Text(line));
                     }
@@ -678,13 +582,8 @@ impl AgentBackend for JsonlBackend {
             }
         }
 
-        // Wait for process to exit
-        let status = child.wait().await.map_err(|e| format!("{} wait: {}", cmd, e))?;
-        eprintln!("[{}-jsonl] process exited: {}", agent_kind, status);
-
-        // Emit TurnComplete so the worker's event loop knows we're done
+        let _status = child.wait().await.map_err(|e| format!("{} wait: {}", cmd, e))?;
         let _ = event_tx.send(AgentEvent::TurnComplete { session_id: None, cost_usd: None });
-
         Ok(())
     }
 
@@ -704,8 +603,6 @@ impl AgentBackend for JsonlBackend {
                 ]),
                 _ => unreachable!(),
             };
-
-            eprintln!("[{}-jsonl] spawning (fire): {} {:?}", agent_kind, cmd, &args[..args.len().min(3)]);
 
             let mut child = match tokio::process::Command::new(cmd)
                 .args(&args)
@@ -757,7 +654,6 @@ impl AgentBackend for JsonlBackend {
 
     async fn shutdown(&mut self) {
         self.cwd = None;
-        eprintln!("[{}-jsonl] shutdown", self.agent_kind);
     }
 
     fn kind(&self) -> AgentKind {

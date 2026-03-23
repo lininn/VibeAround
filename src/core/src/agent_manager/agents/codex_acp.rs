@@ -34,7 +34,6 @@ pub fn spawn_codex_process(
         .take()
         .ok_or("No stdin from codex-acp process")?;
 
-    // Bridge child stdout → duplex read side
     let (client_read, mut bridge_write) = tokio::io::duplex(64 * 1024);
     tokio::task::spawn_local(async move {
         let mut stdout = child_stdout;
@@ -53,7 +52,6 @@ pub fn spawn_codex_process(
         drop(child);
     });
 
-    // Bridge duplex write side → child stdin
     let (mut bridge_read, client_write) = tokio::io::duplex(64 * 1024);
     tokio::task::spawn_local(async move {
         let mut stdin = child_stdin;

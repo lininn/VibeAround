@@ -6,11 +6,6 @@ use tokio::sync::broadcast;
 use super::AgentEvent;
 
 /// Parse a single JSONL line from Codex CLI and emit AgentEvents.
-/// Codex `--json` emits events like:
-///   {"type": "message", "role": "assistant", "content": "..."}
-///   {"type": "function_call", "name": "...", "arguments": "..."}
-///   {"type": "function_call_output", "output": "..."}
-///   {"type": "error", "message": "..."}
 pub fn parse_event(msg: &serde_json::Value, event_tx: &broadcast::Sender<AgentEvent>) {
     let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -42,7 +37,6 @@ pub fn parse_event(msg: &serde_json::Value, event_tx: &broadcast::Sender<AgentEv
             let _ = event_tx.send(AgentEvent::Error(text.to_string()));
         }
         _ => {
-            // Try to extract text content from unknown events
             if let Some(text) = msg.get("content").and_then(|v| v.as_str()) {
                 if !text.is_empty() {
                     let _ = event_tx.send(AgentEvent::Text(text.to_string()));

@@ -298,7 +298,7 @@ impl SessionHub {
         agent_kind: &str,
     ) {
         let key = session_key(channel_kind, chat_id);
-        let Some(kind) = crate::agent::AgentKind::from_str_loose(agent_kind) else {
+        let Some(kind) = crate::agent_manager::agents::AgentKind::from_str_loose(agent_kind) else {
             self.publish_channel_event(ChannelEvent::OnSystemText {
                 channel_kind: channel_kind.to_string(),
                 chat_id: chat_id.to_string(),

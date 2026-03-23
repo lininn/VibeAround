@@ -156,7 +156,7 @@ async fn mcp_tools_call(
     let _kind = arguments
         .get("kind")
         .and_then(|v| v.as_str())
-        .and_then(common::agent::AgentKind::from_str_loose);
+        .and_then(common::agent_manager::agents::AgentKind::from_str_loose);
 
     // TODO: migrate to AgentManager
     jsonrpc_ok(id, serde_json::json!({

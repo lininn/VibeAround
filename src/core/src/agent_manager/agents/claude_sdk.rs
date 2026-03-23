@@ -16,11 +16,6 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, Mutex};
 
-// ---------------------------------------------------------------------------
-// SDK event types — Claude CLI protocol → structured Rust events
-// ---------------------------------------------------------------------------
-
-/// A content block from a Claude `assistant` message.
 #[derive(Debug, Clone)]
 pub enum ContentBlock {
     Text { text: String },
@@ -29,44 +24,26 @@ pub enum ContentBlock {
     ToolResult { id: String, output: Option<String>, is_error: bool },
 }
 
-/// Events emitted by the Claude CLI, parsed from stdout NDJSON.
 #[derive(Debug, Clone)]
 pub enum SdkEvent {
-    /// Claude produced an assistant message with content blocks.
     AssistantMessage { content: Vec<ContentBlock> },
-    /// A turn completed with a `result` message.
     TurnResult {
         session_id: Option<String>,
         is_error: bool,
         error_text: Option<String>,
     },
-    /// System init message received.
     SystemInit { session_id: Option<String> },
-    /// Control request that was auto-handled (logged for debugging).
     ControlHandled { subtype: String },
 }
 
-// ---------------------------------------------------------------------------
-// ClaudeSdk — the main handle
-// ---------------------------------------------------------------------------
-
-/// A running Claude CLI subprocess with bidirectional communication.
 pub struct ClaudeSdk {
-    /// Send raw JSON lines to claude's stdin.
     write_tx: mpsc::Sender<String>,
-    /// Receive parsed SDK events from claude's stdout.
     event_rx: Mutex<mpsc::Receiver<SdkEvent>>,
-    /// The subprocess handle.
     child: Mutex<Option<Child>>,
-    /// Current session ID once Claude has emitted a real one.
     session_id: Arc<Mutex<Option<String>>>,
 }
 
 impl ClaudeSdk {
-    /// Spawn the Claude CLI and return a ready-to-use SDK handle.
-    ///
-    /// The subprocess is initialized (control handshake sent) before returning.
-    /// Events start flowing immediately into the internal channel.
     pub async fn spawn(cwd: &Path, system_prompt: Option<&str>, resume_session_id: Option<&str>) -> Result<Self, String> {
         let mut args = vec![
             "--input-format".to_string(), "stream-json".to_string(),
@@ -96,7 +73,6 @@ impl ClaudeSdk {
         let stdin = child.stdin.take().ok_or("No stdin")?;
         let stdout = child.stdout.take().ok_or("No stdout")?;
 
-        // Writer task: drains write_tx → stdin
         let (write_tx, mut write_rx) = mpsc::channel::<String>(64);
         let stdin: Arc<Mutex<ChildStdin>> = Arc::new(Mutex::new(stdin));
         let stdin_w = stdin.clone();
@@ -109,7 +85,6 @@ impl ClaudeSdk {
             }
         });
 
-        // Send initialize control request
         let init_msg = serde_json::json!({
             "type": "control_request",
             "request_id": "req_init_1",
@@ -118,7 +93,6 @@ impl ClaudeSdk {
         write_tx.send(init_msg.to_string()).await
             .map_err(|e| format!("Failed to send init: {}", e))?;
 
-        // Reader task: parses stdout NDJSON → SdkEvent
         let (event_tx, event_rx) = mpsc::channel::<SdkEvent>(256);
         let session_id = Arc::new(Mutex::new(None::<String>));
         let session_id_for_reader = session_id.clone();
@@ -144,11 +118,9 @@ impl ClaudeSdk {
                             let _ = event_tx.send(SdkEvent::AssistantMessage { content: blocks }).await;
                         }
                     }
-
                     "control_request" => {
                         handle_control_request(&msg, &write_tx_for_reader, &event_tx).await;
                     }
-
                     "result" => {
                         let new_sid = msg.get("session_id").and_then(|v| v.as_str()).map(|s| s.to_string());
                         if let Some(ref s) = new_sid {
@@ -166,7 +138,6 @@ impl ClaudeSdk {
                             error_text,
                         }).await;
                     }
-
                     "system" => {
                         let sid = msg.get("session_id").and_then(|v| v.as_str()).map(|s| s.to_string());
                         if let Some(ref s) = sid {
@@ -174,8 +145,6 @@ impl ClaudeSdk {
                         }
                         let _ = event_tx.send(SdkEvent::SystemInit { session_id: sid }).await;
                     }
-
-                    // control_response, user — internal, no event needed
                     _ => {}
                 }
             }
@@ -192,7 +161,6 @@ impl ClaudeSdk {
         })
     }
 
-    /// Send a user message to the Claude CLI.
     pub async fn send_user_message(&self, text: &str) -> Result<(), String> {
         let session_id = self.session_id.lock().await.clone();
         let mut user_msg = serde_json::json!({
@@ -207,17 +175,14 @@ impl ClaudeSdk {
             .map_err(|e| format!("Failed to send user message: {}", e))
     }
 
-    /// Receive the next SDK event. Returns `None` if the reader task has ended.
     pub async fn recv_event(&self) -> Option<SdkEvent> {
         self.event_rx.lock().await.recv().await
     }
 
-    /// Get the current session ID.
     pub async fn session_id(&self) -> Option<String> {
         self.session_id.lock().await.clone()
     }
 
-    /// Shut down the Claude CLI subprocess.
     pub async fn shutdown(&self) {
         if let Some(mut child) = self.child.lock().await.take() {
             let _ = child.kill().await;
@@ -226,11 +191,6 @@ impl ClaudeSdk {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers — Claude CLI protocol parsing
-// ---------------------------------------------------------------------------
-
-/// Parse content blocks from an `assistant` message.
 fn parse_content_blocks(msg: &serde_json::Value) -> Vec<ContentBlock> {
     let mut blocks = Vec::new();
     if let Some(content) = msg.pointer("/message/content").and_then(|v| v.as_array()) {
@@ -268,7 +228,6 @@ fn parse_content_blocks(msg: &serde_json::Value) -> Vec<ContentBlock> {
     blocks
 }
 
-/// Handle a control_request from the Claude CLI (auto-allow tools, ack hooks).
 async fn handle_control_request(
     msg: &serde_json::Value,
     write_tx: &mpsc::Sender<String>,

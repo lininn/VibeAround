@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::agent::{AgentEvent, AgentKind};
+use crate::agent_manager::agents::{AgentEvent, AgentKind};
 
 // ---------------------------------------------------------------------------
 // Data types

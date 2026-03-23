@@ -12,7 +12,9 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use tokio::sync::{broadcast, OnceCell};
 
-use crate::agent::{self, AgentBackend, AgentEvent, AgentKind};
+pub mod agents;
+
+use self::agents::{AgentBackend, AgentEvent, AgentKind};
 use crate::config::{self, ImVerboseConfig};
 use crate::session_hub::types::*;
 use crate::session_hub::SessionHub;
@@ -121,7 +123,10 @@ impl AgentManager {
         let key = agent_key(&msg.channel_kind, &msg.chat_id, &profile_owned, &cli_kind_owned);
         let pfx = format!("[AgentManager][{}]", key);
 
-        let startup_session_id = match self.ensure_agent(&key, kind, &profile_owned).await {
+        let startup_session_id = match self
+            .ensure_agent(&key, kind, &profile_owned, &msg.channel_kind)
+            .await
+        {
             Ok(session_id) => session_id,
             Err(e) => {
                 eprintln!("{} failed to ensure agent: {}", pfx, e);
@@ -329,6 +334,7 @@ impl AgentManager {
         key: &str,
         kind: AgentKind,
         profile: &str,
+        channel_kind: &str,
     ) -> Result<Option<String>, String> {
         if let Some(entry) = self.agents.get(key) {
             return Ok(entry.cli_session_id.clone());
@@ -341,12 +347,11 @@ impl AgentManager {
         }
 
         let port = config::DEFAULT_PORT;
-        crate::agent::manager_prompt::ensure_mcp_config(kind, &workspace, port);
+        agents::runtime_context::ensure_mcp_config(kind, &workspace, port);
 
-        let system_prompt =
-            load_agent_profile(profile).or_else(|| Some(crate::agent::manager_prompt::load_manager_prompt()));
+        let system_prompt = Some(agents::runtime_context::build_runtime_context(channel_kind));
 
-        let mut backend = agent::create_backend(kind);
+        let mut backend = agents::create_backend(kind);
         let cli_session_id = backend.start(&workspace, system_prompt.as_deref()).await?;
 
         eprintln!("[AgentManager] spawned agent: {}", key);
@@ -396,32 +401,6 @@ impl AgentManager {
 
     async fn get_session_profile(&self, channel_kind: &str, chat_id: &str) -> Option<String> {
         self.session_hub().get_session_profile(channel_kind, chat_id).await
-    }
-}
-
-fn load_agent_profile(profile: &str) -> Option<String> {
-    let profile_dir = config::data_dir().join("agents").join(profile).join("profile");
-    if !profile_dir.exists() {
-        return None;
-    }
-
-    let prompt_files = &["identity.md", "capabilities.md", "workflow.md", "memory.md", "rules.md"];
-
-    let mut parts = Vec::new();
-    for file in prompt_files {
-        let path = profile_dir.join(file);
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            let trimmed = content.trim();
-            if !trimmed.is_empty() {
-                parts.push(trimmed.to_string());
-            }
-        }
-    }
-
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join("\n\n---\n\n"))
     }
 }
 

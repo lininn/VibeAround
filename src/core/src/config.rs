@@ -42,7 +42,6 @@ fn init_data_dir() {
     if let Err(e) = std::fs::create_dir_all(&ws_dir) {
         eprintln!("[VibeAround] Failed to create workspaces dir: {}", e);
     }
-    crate::agent::manager_prompt::ensure_manager_prompt_dir();
 }
 
 /// Install rustls default crypto provider once.
@@ -84,7 +83,7 @@ pub struct Config {
     pub tmux_detach_others: bool,
     // --- Agents ---
     pub default_agent: String,
-    pub enabled_agents: Vec<crate::agent::AgentKind>,
+    pub enabled_agents: Vec<crate::agent_manager::agents::AgentKind>,
     // --- Raw channels JSON (for dynamic plugin config) ---
     raw_channels: serde_json::Value,
 }
@@ -197,11 +196,11 @@ fn load_settings_from(path: &std::path::Path) -> Config {
         .map(|arr| {
             arr.iter()
                 .filter_map(|v| v.as_str())
-                .filter_map(crate::agent::AgentKind::from_str_loose)
+                .filter_map(crate::agent_manager::agents::AgentKind::from_str_loose)
                 .collect::<Vec<_>>()
         })
         .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| crate::agent::AgentKind::all().to_vec());
+        .unwrap_or_else(|| crate::agent_manager::agents::AgentKind::all().to_vec());
 
     Config {
         tunnel_provider,
@@ -260,7 +259,7 @@ impl Default for Config {
             preview_base_url: None,
             tmux_detach_others: true,
             default_agent: "claude".to_string(),
-            enabled_agents: crate::agent::AgentKind::all().to_vec(),
+            enabled_agents: crate::agent_manager::agents::AgentKind::all().to_vec(),
             raw_channels: serde_json::Value::Object(serde_json::Map::new()),
         }
     }

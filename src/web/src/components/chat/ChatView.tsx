@@ -16,13 +16,11 @@ import type { ToolType } from "@/lib/terminal-types";
 import { toolThemes } from "@/lib/terminal-types";
 import type { AgentInfo } from "@/api/agents";
 
-/** Map agent id to ToolType for theming. Falls back to "generic". */
 function agentIdToToolType(id: string): ToolType {
   if (id in toolThemes) return id as ToolType;
   return "generic";
 }
 
-/** Capitalize first letter. */
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -39,15 +37,19 @@ export function ChatView() {
   const [connected, setConnected] = useState(false);
   const [streaming, setStreaming] = useState(false);
 
-  // Agent state
   const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [currentAgent, setCurrentAgent] = useState<string>("claude");
+  const [selectedAgent, setSelectedAgent] = useState<string>("claude");
+  const [activeAgent, setActiveAgent] = useState<string>("claude");
   const wsRef = useRef<WebSocket | null>(null);
+  const pendingAgentSwitchRef = useRef<{
+    target: string;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  } | null>(null);
 
-  const toolType = agentIdToToolType(currentAgent);
-  const agentLabel = capitalize(currentAgent);
+  const toolType = agentIdToToolType(selectedAgent);
+  const agentLabel = capitalize(selectedAgent);
 
-  // Connect on mount, close on unmount
   useEffect(() => {
     const ws = new WebSocket(getWebSocketUrl("/ws/chat"));
     wsRef.current = ws;
@@ -56,6 +58,10 @@ export function ChatView() {
     ws.onclose = () => {
       setConnected(false);
       setStreaming(false);
+      if (pendingAgentSwitchRef.current) {
+        pendingAgentSwitchRef.current.reject(new Error("Connection closed during agent switch."));
+        pendingAgentSwitchRef.current = null;
+      }
     };
     ws.onerror = () => setConnected(false);
 
@@ -71,29 +77,58 @@ export function ChatView() {
         return;
       }
 
-      // {"type":"config","agents":[...],"default_agent":"claude"} — agent config push on connect
       if (j.type === "config" && Array.isArray(j.agents)) {
         setAgents(j.agents as AgentInfo[]);
         if (typeof j.default_agent === "string") {
-          setCurrentAgent(j.default_agent as string);
+          setSelectedAgent(j.default_agent as string);
+          setActiveAgent(j.default_agent as string);
         }
         return;
       }
 
-      // {"type":"agent_switched","agent":"opencode"} — backend confirmed agent switch
       if (j.type === "agent_switched" && typeof j.agent === "string") {
-        setCurrentAgent(j.agent as string);
+        const agent = j.agent as string;
+        setActiveAgent(agent);
+        if (pendingAgentSwitchRef.current?.target === agent) {
+          pendingAgentSwitchRef.current.resolve();
+          pendingAgentSwitchRef.current = null;
+        }
         return;
       }
 
-      // {"type":"system_text","text":"..."} — standalone system message
       if (j.type === "system_text" && typeof j.text === "string") {
-        setMessages((prev) => [...prev, { role: "system", content: j.text as string }]);
+        const text = j.text as string;
+        const switchedMatch = /^Switched agent to\s+(.+?)\.?$/i.exec(text.trim());
+        if (switchedMatch) {
+          const switchedAgent = switchedMatch[1].trim().toLowerCase();
+          setActiveAgent(switchedAgent);
+          if (pendingAgentSwitchRef.current?.target === switchedAgent) {
+            pendingAgentSwitchRef.current.resolve();
+            pendingAgentSwitchRef.current = null;
+          }
+          return;
+        }
+
+        if (pendingAgentSwitchRef.current && /^Unknown agent:|^Agent is disabled:/i.test(text.trim())) {
+          pendingAgentSwitchRef.current.reject(new Error(text));
+          pendingAgentSwitchRef.current = null;
+          setStreaming(false);
+          setMessages((prev) => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last?.role === "assistant" && last.content === "") {
+              next.pop();
+            }
+            return next;
+          });
+          return;
+        }
+
+        setMessages((prev) => [...prev, { role: "system", content: text }]);
         setStreaming(false);
         return;
       }
 
-      // {"done":true} — stream finished
       if (j.done === true) {
         setMessages((prev) => {
           const last = prev[prev.length - 1];
@@ -108,8 +143,11 @@ export function ChatView() {
         return;
       }
 
-      // {"error":"..."} — error
       if (typeof j.error === "string") {
+        if (pendingAgentSwitchRef.current) {
+          pendingAgentSwitchRef.current.reject(new Error(j.error as string));
+          pendingAgentSwitchRef.current = null;
+        }
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "assistant") {
@@ -127,7 +165,6 @@ export function ChatView() {
         return;
       }
 
-      // {"progress":"Thinking..."} — progress indicator
       if (typeof j.progress === "string") {
         setMessages((prev) => {
           const last = prev[prev.length - 1];
@@ -141,7 +178,6 @@ export function ChatView() {
         return;
       }
 
-      // {"text":"..."} — text content to append
       if (typeof j.text === "string") {
         appendToAssistant(j.text as string);
         return;
@@ -168,7 +204,24 @@ export function ChatView() {
     };
   }, []);
 
-  const sendMessage = useCallback(() => {
+  const switchAgentIfNeeded = useCallback(async () => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      throw new Error("WebSocket is not connected.");
+    }
+    if (selectedAgent === activeAgent) return;
+
+    if (pendingAgentSwitchRef.current) {
+      throw new Error("Agent switch already in progress.");
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      pendingAgentSwitchRef.current = { target: selectedAgent, resolve, reject };
+      ws.send(JSON.stringify({ type: "message", text: `/agent ${selectedAgent}` }));
+    });
+  }, [activeAgent, selectedAgent]);
+
+  const sendMessage = useCallback(async () => {
     const text = input.trim();
     if (!text || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
@@ -179,13 +232,31 @@ export function ChatView() {
       { role: "assistant", content: "" },
     ]);
     setStreaming(true);
-    wsRef.current.send(JSON.stringify({ type: "message", text }));
-  }, [input]);
+
+    try {
+      await switchAgentIfNeeded();
+      wsRef.current.send(JSON.stringify({ type: "message", text }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to switch agent.";
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last?.role === "assistant") {
+          next[next.length - 1] = {
+            ...last,
+            content: last.content + (last.content ? "\n\n" : "") + `Error: ${message}`,
+            progress: undefined,
+          };
+          return next;
+        }
+        return [...prev, { role: "assistant", content: `Error: ${message}` }];
+      });
+      setStreaming(false);
+    }
+  }, [input, switchAgentIfNeeded]);
 
   const handleAgentChange = useCallback((agentId: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    setCurrentAgent(agentId);
-    wsRef.current.send(JSON.stringify({ type: "message", text: `/agent ${agentId}` }));
+    setSelectedAgent(agentId);
   }, []);
 
   return (
@@ -237,7 +308,9 @@ export function ChatView() {
       <ChatInput
         value={input}
         onChange={setInput}
-        onSubmit={sendMessage}
+        onSubmit={() => {
+          void sendMessage();
+        }}
         disabled={!connected}
         isStreaming={streaming}
         placeholder={connected ? `Message ${agentLabel}…` : "Connecting…"}

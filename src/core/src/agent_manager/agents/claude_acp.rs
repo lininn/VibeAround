@@ -22,8 +22,8 @@ pub fn spawn_claude_acp(
     cwd: PathBuf,
     system_prompt: Option<String>,
 ) -> (
-    tokio::io::DuplexStream, // client reads from this
-    tokio::io::DuplexStream, // client writes to this
+    tokio::io::DuplexStream,
+    tokio::io::DuplexStream,
     std::thread::JoinHandle<()>,
     tokio::sync::mpsc::UnboundedReceiver<String>,
 ) {
@@ -55,10 +55,6 @@ pub fn spawn_claude_acp(
     (client_read, client_write, handle, real_session_id_rx)
 }
 
-// ---------------------------------------------------------------------------
-// ACP bridge — connects AgentSideConnection to ClaudeSdk
-// ---------------------------------------------------------------------------
-
 async fn run_acp_bridge(
     cwd: PathBuf,
     agent_read: tokio::io::DuplexStream,
@@ -69,7 +65,6 @@ async fn run_acp_bridge(
     use acp::Client as _;
     use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-    // Notification channel: event translator → ACP connection
     let (notif_tx, mut notif_rx) = mpsc::channel::<acp::SessionNotification>(256);
 
     let agent_impl = ClaudeAcpBridge::new(cwd.clone(), notif_tx, system_prompt, real_session_id_tx);
@@ -83,7 +78,6 @@ async fn run_acp_bridge(
         },
     );
 
-    // Drain notification channel → ACP connection
     let conn = Rc::new(conn);
     let conn_for_notif = conn.clone();
     tokio::task::spawn_local(async move {
@@ -97,19 +91,12 @@ async fn run_acp_bridge(
     handle_io.await.map_err(|e| format!("ACP IO error: {}", e))
 }
 
-// ---------------------------------------------------------------------------
-// ClaudeAcpBridge — ACP Agent that delegates to ClaudeSdk
-// ---------------------------------------------------------------------------
-
 struct ClaudeAcpBridge {
     cwd: PathBuf,
     notif_tx: mpsc::Sender<acp::SessionNotification>,
     system_prompt: Option<String>,
-    /// The underlying SDK handle, created on first `initialize`.
     sdk: tokio::sync::Mutex<Option<ClaudeSdk>>,
-    /// Stable ACP session id used by the in-process bridge.
     acp_session_id: String,
-    /// Real Claude CLI session ids observed from SDK events.
     real_session_id_tx: tokio::sync::mpsc::UnboundedSender<String>,
 }
 
@@ -143,7 +130,6 @@ impl ClaudeAcpBridge {
         Ok(())
     }
 
-    /// Translate SDK events into ACP notifications until a TurnResult arrives.
     async fn drain_until_turn_result(&self, session_id: &str) -> Result<(bool, Option<String>), acp::Error> {
         let lock = self.sdk.lock().await;
         let sdk = lock.as_ref().ok_or_else(|| acp::Error::new(-32603, "SDK not running"))?;
@@ -169,11 +155,8 @@ impl ClaudeAcpBridge {
                     if let Some(real_session_id) = session_id {
                         let _ = self.real_session_id_tx.send(real_session_id);
                     }
-                    // informational, no ACP notification needed
                 }
-                SdkEvent::ControlHandled { .. } => {
-                    // informational, no ACP notification needed
-                }
+                SdkEvent::ControlHandled { .. } => {}
             }
         }
     }
@@ -205,13 +188,11 @@ impl acp::Agent for ClaudeAcpBridge {
     async fn prompt(&self, args: acp::PromptRequest) -> acp::Result<acp::PromptResponse> {
         self.ensure_sdk().await?;
 
-        // Extract text from ACP content blocks
         let text = args.prompt.iter().filter_map(|block| match block {
             acp::ContentBlock::Text(t) => Some(t.text.as_str()),
             _ => None,
         }).collect::<Vec<_>>().join("\n");
 
-        // Send to Claude SDK
         {
             let lock = self.sdk.lock().await;
             let sdk = lock.as_ref().ok_or_else(|| acp::Error::new(-32603, "SDK not running"))?;
@@ -219,10 +200,7 @@ impl acp::Agent for ClaudeAcpBridge {
                 .map_err(|e| acp::Error::new(-32603, e))?;
         }
 
-        // Use the bridge session ID for ACP notifications.
         let sid = self.acp_session_id.clone();
-
-        // Drain events until turn completes
         let (is_error, error_text) = self.drain_until_turn_result(&sid).await?;
 
         if is_error {
@@ -248,10 +226,6 @@ impl acp::Agent for ClaudeAcpBridge {
         Ok(())
     }
 }
-
-// ---------------------------------------------------------------------------
-// Translation helpers — SdkEvent → ACP SessionNotification
-// ---------------------------------------------------------------------------
 
 fn translate_content_block(session_id: &str, block: &ContentBlock) -> acp::SessionNotification {
     match block {

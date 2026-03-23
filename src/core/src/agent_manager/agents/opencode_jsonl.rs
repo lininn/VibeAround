@@ -1,12 +1,5 @@
 //! OpenCode JSONL event parser.
 //! Parses JSON events from `opencode run --format json` stdout into AgentEvents.
-//!
-//! Known event types from OpenCode:
-//!   {"type":"step_start", ...}
-//!   {"type":"text", "part":{"text":"..."}}
-//!   {"type":"tool_start", "part":{"tool":"...", "input":{...}}}
-//!   {"type":"tool_finish", "part":{"output":"..."}}
-//!   {"type":"step_finish", "part":{"reason":"stop", "cost":0.0, "tokens":{...}}}
 
 use tokio::sync::broadcast;
 use super::AgentEvent;
