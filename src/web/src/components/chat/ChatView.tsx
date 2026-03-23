@@ -12,18 +12,8 @@ import { MessageResponse } from "./MessageResponse";
 import { ChatInput } from "./ChatInput";
 
 import { getWebSocketUrl } from "@/lib/ws-url";
-import type { ToolType } from "@/lib/terminal-types";
-import { toolThemes } from "@/lib/terminal-types";
+import { agentIdToToolType, getAgentDisplayName } from "@/lib/agents";
 import type { AgentInfo } from "@/api/agents";
-
-function agentIdToToolType(id: string): ToolType {
-  if (id in toolThemes) return id as ToolType;
-  return "generic";
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
 
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -43,7 +33,8 @@ export function ChatView() {
   const wsRef = useRef<WebSocket | null>(null);
 
   const toolType = agentIdToToolType(selectedAgent);
-  const agentLabel = capitalize(selectedAgent);
+  const selectedAgentInfo = agents.find((agent) => agent.id === selectedAgent);
+  const agentLabel = selectedAgentInfo?.name ?? getAgentDisplayName(selectedAgent);
 
   useEffect(() => {
     const ws = new WebSocket(getWebSocketUrl("/ws/chat"));

@@ -113,7 +113,7 @@ export function ChatInput({
                     onClick={() => onAgentChange!(agent.id)}
                     className="flex items-center justify-between gap-2"
                   >
-                    <span className="capitalize">{agent.id}</span>
+                    <span>{agent.name}</span>
                     {agent.id === targetTool && (
                       <span className="text-xs text-muted-foreground">current</span>
                     )}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { LayoutGrid, Rows3, Minimize2, MessageSquare, Plus, X, Sun, Moon } from "lucide-react";
 import type { ViewMode, TerminalGroup, TerminalSession, TerminalStatus, ToolType } from "@/lib/terminal-types";
 import { getGroupColor, TOOL_OPTIONS } from "@/lib/terminal-types";
+import { getToolDisplayName } from "@/lib/agents";
 import { TerminalPanel } from "@/components/TerminalPanel";
 import { ChatView } from "@/components/chat";
 import { getSessions, createSession, deleteSession, getTmuxSessions, type SessionListItem } from "@/api/sessions";
@@ -31,12 +32,7 @@ function estimateTerminalSize(): { cols: number; rows: number } {
 }
 
 function sessionToName(tool: string): string {
-  const t = tool.toLowerCase();
-  if (t === "claude") return "Claude";
-  if (t === "codex") return "Codex";
-  if (t === "gemini") return "Gemini";
-  if (t === "opencode") return "OpenCode";
-  return "Terminal";
+  return getToolDisplayName(tool);
 }
 
 function mapApiStatus(s: string): TerminalStatus {

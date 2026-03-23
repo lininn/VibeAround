@@ -61,6 +61,15 @@ impl AgentKind {
         crate::config::ensure_loaded().enabled_agents.contains(self)
     }
 
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            AgentKind::Claude => "Claude Code",
+            AgentKind::Gemini => "Gemini CLI",
+            AgentKind::OpenCode => "Opencode",
+            AgentKind::Codex => "Codex CLI",
+        }
+    }
+
     pub fn description(&self) -> &'static str {
         match self {
             AgentKind::Claude => "Anthropic Claude Code",

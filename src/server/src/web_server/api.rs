@@ -36,6 +36,7 @@ pub async fn list_agents_handler() -> Json<serde_json::Value> {
     let agents: Vec<serde_json::Value> = cfg.enabled_agents.iter().map(|kind| {
         serde_json::json!({
             "id": kind.to_string(),
+            "name": kind.display_name(),
             "description": kind.description(),
         })
     }).collect();

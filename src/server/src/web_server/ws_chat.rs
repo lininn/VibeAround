@@ -36,6 +36,7 @@ async fn handle_chat_socket(socket: WebSocket, state: AppState) {
         .map(|kind| {
             serde_json::json!({
                 "id": kind.to_string(),
+                "name": kind.display_name(),
                 "description": kind.description(),
             })
         })
@@ -145,6 +146,6 @@ fn notification_to_client_json(notif: ChannelNotification) -> serde_json::Value 
         ChannelNotification::AgentError { error, .. } => {
             serde_json::json!({ "kind": "error", "error": error })
         }
-        ChannelNotification::SendText { text, .. } => serde_json::json!({ "kind": "text", "text": text }),
+        ChannelNotification::SendSystemText { text, .. } => serde_json::json!({ "kind": "text", "text": text }),
     }
 }
