@@ -1,7 +1,7 @@
 //! AcpBridge: flat ACP bridge — northbound Agent + southbound Client.
 //!
 //! Each instance wraps a single `ClientSideConnection` to a real agent process.
-//! The northbound surface implements `acp::Agent` so that SessionHub (or any
+//! The northbound surface implements `acp::Agent` so that ACPHub (or any
 //! upstream caller) can call standard ACP methods directly.
 //!
 //! Southbound `Client` events (`session_notification`, `request_permission`)

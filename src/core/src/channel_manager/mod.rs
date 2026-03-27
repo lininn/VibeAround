@@ -1,6 +1,6 @@
 //! ACP-native channel manager: hosts channel plugins and routes traffic.
 //!
-//! The web channel path uses ACP directly (ws_chat calls SessionHub methods).
+//! The web channel path uses ACP directly (ws_chat dispatches via ACPHub).
 //! Stdio plugins still use the legacy ChannelInput/ChannelOutput for now.
 
 pub mod manifest;
@@ -16,9 +16,9 @@ use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
 
 use crate::acp::routing::{Attachment, MessageId, RouteEnvelope, RouteKey, TurnId};
-use crate::agent_manager::runtime::BridgeClientHandler;
+use crate::acp_hub::ACPHub;
+use crate::agent_factory::runtime::BridgeClientHandler;
 use crate::plugins::DiscoveredPlugin;
-use crate::session_hub::SessionHub;
 
 use agent_client_protocol as acp;
 
@@ -127,17 +127,17 @@ pub struct ChannelManager {
     /// `spawn_local` task so that `!Send` ACP futures are allowed.
     input_tx: mpsc::UnboundedSender<ChannelInput>,
     input_rx: StdMutex<Option<mpsc::UnboundedReceiver<ChannelInput>>>,
-    session_hub: Arc<SessionHub>,
+    acp_hub: Arc<ACPHub>,
 }
 
 impl ChannelManager {
-    pub fn new(session_hub: Arc<SessionHub>) -> Self {
+    pub fn new(acp_hub: Arc<ACPHub>) -> Self {
         let (input_tx, input_rx) = mpsc::unbounded_channel();
         Self {
             plugin_host: Arc::new(PluginHost::new(input_tx.clone())),
             input_tx,
             input_rx: StdMutex::new(Some(input_rx)),
-            session_hub,
+            acp_hub,
         }
     }
 
@@ -196,11 +196,11 @@ impl ChannelManager {
     /// This may await `!Send` ACP futures, so callers should run it on a
     /// `LocalSet` or other non-`Send`-compatible context when needed.
     pub async fn process_input(&self, input: ChannelInput) {
-        handle_channel_input(&self.session_hub, &self.plugin_host, input).await;
+        handle_channel_input(&self.acp_hub, &self.plugin_host, input).await;
     }
 
-    pub fn session_hub_ref(&self) -> Arc<SessionHub> {
-        Arc::clone(&self.session_hub)
+    pub fn acp_hub(&self) -> Arc<ACPHub> {
+        Arc::clone(&self.acp_hub)
     }
 
     pub async fn send_output(&self, output: ChannelOutput) {
@@ -212,87 +212,149 @@ impl ChannelManager {
     }
 }
 
+/// Parse system slash commands from prompt text.
+/// Returns None if the text is not a slash command (regular prompt).
+enum SlashAction {
+    /// /agent <rest> — strip prefix, send rest as prompt to agent CLI
+    AgentPassthrough(String),
+    /// /new — reset session (new conversation, same agent)
+    NewSession,
+    /// /switch <agent_kind> — switch agent
+    SwitchAgent(String),
+    /// /profile <profile> — switch profile
+    SwitchProfile(String),
+    /// /close — close route
+    Close,
+    /// Unknown slash command
+    Unknown(String),
+}
+
+fn parse_slash_command(text: &str) -> Option<SlashAction> {
+    let trimmed = text.trim();
+    if !trimmed.starts_with('/') {
+        return None;
+    }
+
+    // /agent <rest> — passthrough to agent CLI
+    if let Some(rest) = trimmed.strip_prefix("/agent ") {
+        let rest = rest.trim();
+        if !rest.is_empty() {
+            return Some(SlashAction::AgentPassthrough(rest.to_string()));
+        }
+    }
+    if trimmed == "/agent" {
+        return Some(SlashAction::AgentPassthrough("/agent".to_string()));
+    }
+
+    let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
+    let cmd = parts[0];
+    let arg = parts.get(1).map(|s| s.trim().to_string());
+
+    match cmd {
+        "/new" => Some(SlashAction::NewSession),
+        "/switch" => match arg {
+            Some(kind) if !kind.is_empty() => Some(SlashAction::SwitchAgent(kind)),
+            _ => Some(SlashAction::Unknown(trimmed.to_string())),
+        },
+        "/profile" => match arg {
+            Some(profile) if !profile.is_empty() => Some(SlashAction::SwitchProfile(profile)),
+            _ => Some(SlashAction::Unknown(trimmed.to_string())),
+        },
+        "/close" => Some(SlashAction::Close),
+        _ => Some(SlashAction::Unknown(trimmed.to_string())),
+    }
+}
+
 pub async fn handle_channel_input(
-    session_hub: &Arc<SessionHub>,
+    acp_hub: &Arc<ACPHub>,
     plugin_host: &Arc<PluginHost>,
     input: ChannelInput,
 ) {
     match input {
-        ChannelInput::Message { envelope } => {
-            let route_envelope = envelope.into_route_envelope();
-            let route = route_envelope.route_key();
-            let text = route_envelope.text.clone();
-            let cli_kind = route_envelope.cli_kind.clone();
+        ChannelInput::Message { envelope }
+        | ChannelInput::Callback {
+            envelope,
+            action_value: _,
+        } => {
+            let route = envelope.route.clone();
+            let cli_kind = envelope.cli_kind.clone();
+            let mut text = envelope.text.clone();
+
+            // Check for slash commands
+            if let Some(action) = parse_slash_command(&text) {
+                match action {
+                    SlashAction::AgentPassthrough(agent_text) => {
+                        text = agent_text; // forward to agent
+                    }
+                    SlashAction::NewSession => {
+                        acp_hub.reset_session(&route).await;
+                        send_system_text(plugin_host, &route, "Session reset.").await;
+                        return;
+                    }
+                    SlashAction::SwitchAgent(kind) => {
+                        acp_hub.switch_agent(&route, kind.clone()).await;
+                        send_system_text(plugin_host, &route, &format!("Switched to {}.", kind))
+                            .await;
+                        return;
+                    }
+                    SlashAction::SwitchProfile(profile) => {
+                        acp_hub.switch_profile(&route, profile.clone()).await;
+                        send_system_text(
+                            plugin_host,
+                            &route,
+                            &format!("Switched to profile {}.", profile),
+                        )
+                        .await;
+                        return;
+                    }
+                    SlashAction::Close => {
+                        acp_hub.close(&route, Some("user closed".to_string())).await;
+                        send_system_text(plugin_host, &route, "Conversation closed.").await;
+                        return;
+                    }
+                    SlashAction::Unknown(cmd) => {
+                        send_system_text(
+                            plugin_host,
+                            &route,
+                            &format!("Unknown command: {}", cmd),
+                        )
+                        .await;
+                        return;
+                    }
+                }
+            }
+
+            if text.is_empty() {
+                return;
+            }
+
             eprintln!(
-                "[ChannelManager] handle_channel_input Message route={} cli_kind={:?} text_len={}",
+                "[ChannelManager] prompt route={} cli_kind={:?} text_len={}",
                 route, cli_kind, text.len()
             );
-            let handler = Arc::new(ChannelBridgeHandler {
+
+            let handler: Arc<dyn BridgeClientHandler> = Arc::new(ChannelBridgeHandler {
                 plugin_host: Arc::clone(plugin_host),
                 route: route.clone(),
             });
-            let bridge_handler: Arc<dyn BridgeClientHandler> = handler.clone();
-            match session_hub
-                .prompt_on_route_with_initialize(route.clone(), cli_kind, text, bridge_handler)
-                .await
-            {
-                Ok((_resp, initialize)) => {
-                    let _ = handler.send_raw_acp(&initialize).await;
-                    eprintln!(
-                        "[ChannelManager] prompt_on_route OK route={}",
-                        route
-                    );
+
+            match acp_hub.prompt(route.clone(), cli_kind, text, handler).await {
+                Ok(_resp) => {
+                    eprintln!("[ChannelManager] prompt OK route={}", route);
                 }
-                Err(e) => eprintln!(
-                    "[ChannelManager] prompt_on_route ERR route={} error={}",
-                    route, e
-                ),
-            }
-        }
-        ChannelInput::Callback {
-            envelope,
-            action_value,
-        } => {
-            let mut route_envelope = envelope.into_route_envelope();
-            if route_envelope.text.is_empty() {
-                route_envelope.text = action_value
-                    .map(|value| format!("[button:{}]", value))
-                    .unwrap_or_else(|| "[button]".to_string());
-            }
-            let route = route_envelope.route_key();
-            let text = route_envelope.text.clone();
-            let cli_kind = route_envelope.cli_kind.clone();
-            let handler = Arc::new(ChannelBridgeHandler {
-                plugin_host: Arc::clone(plugin_host),
-                route: route.clone(),
-            });
-            let bridge_handler: Arc<dyn BridgeClientHandler> = handler.clone();
-            match session_hub
-                .prompt_on_route_with_initialize(route.clone(), cli_kind, text, bridge_handler)
-                .await
-            {
-                Ok((_resp, initialize)) => {
-                    let _ = handler.send_raw_acp(&initialize).await;
+                Err(e) => {
+                    eprintln!("[ChannelManager] prompt ERR route={} error={}", route, e);
                 }
-                Err(_e) => {}
             }
         }
         ChannelInput::Stop { route } => {
-            if let Some(route_state) = session_hub.route_state(&route) {
-                if let Some(session_id) = route_state.runtime.lock().await.session_id.clone() {
-                    let _ = session_hub
-                        .cancel_on_route(&route, acp::CancelNotification::new(session_id))
-                        .await;
-                }
-            }
+            let _ = acp_hub.cancel(&route).await;
         }
-        ChannelInput::Close { route, reason: _ } => {
-            session_hub.kill_route(&route).await;
+        ChannelInput::Close { route, reason } => {
+            acp_hub.close(&route, reason).await;
         }
         ChannelInput::SwitchAgent { route, agent_kind } => {
-            if let Some(route_state) = session_hub.route_state(&route) {
-                route_state.runtime.lock().await.cli_kind = Some(agent_kind);
-            }
+            acp_hub.switch_agent(&route, agent_kind).await;
         }
         ChannelInput::Log { level, message } => {
             eprintln!(
@@ -302,6 +364,16 @@ pub async fn handle_channel_input(
             );
         }
     }
+}
+
+async fn send_system_text(plugin_host: &Arc<PluginHost>, route: &RouteKey, text: &str) {
+    plugin_host
+        .send_output(ChannelOutput::SystemText {
+            route: route.clone(),
+            text: text.to_string(),
+            reply_to: None,
+        })
+        .await;
 }
 
 struct ChannelBridgeHandler {

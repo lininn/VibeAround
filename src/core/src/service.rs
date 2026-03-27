@@ -17,6 +17,7 @@ use tokio::sync::broadcast;
 use tokio::task::AbortHandle;
 
 use crate::pty::{unix_now_secs, Registry, SessionId};
+use crate::runtime_status::RuntimeStatusStore;
 use crate::tunnels::TunnelProvider;
 
 // ---------------------------------------------------------------------------
@@ -108,8 +109,8 @@ pub struct TunnelEntry {
 /// Lightweight status registry for all running services.
 /// Data is synced by ServerDaemon via hub events.
 pub struct ServiceStatusManager {
-    /// Agent status table (synced from AgentManager events).
-    agents: DashMap<String, AgentStatusEntry>,
+    /// Runtime status store (event-driven, from ACPHub HubEvent stream).
+    runtime_status: std::sync::RwLock<Option<Arc<RuntimeStatusStore>>>,
     /// Channel plugin status (keyed by channel kind).
     channels: DashMap<String, ChannelEntry>,
     /// Tunnel status (at most one).
@@ -135,7 +136,7 @@ impl ServiceStatusManager {
     pub fn new(port: u16) -> Self {
         let (change_tx, _) = broadcast::channel(64);
         Self {
-            agents: DashMap::new(),
+            runtime_status: std::sync::RwLock::new(None),
             channels: DashMap::new(),
             tunnels: DashMap::new(),
             pty: Arc::new(DashMap::new()),
@@ -160,22 +161,17 @@ impl ServiceStatusManager {
         let _ = self.change_tx.send(());
     }
 
-    // -----------------------------------------------------------------------
-    // Agents (synced from AgentManager events via ServerDaemon)
-    // -----------------------------------------------------------------------
-
-    pub fn add_agent(&self, key: String, kind: String) {
-        self.agents.insert(key.clone(), AgentStatusEntry {
-            key,
-            kind,
-            started_at: unix_now_secs(),
-        });
-        self.notify_change();
+    /// Expose the change broadcast sender so RuntimeStatusStore can share it.
+    pub fn change_tx(&self) -> broadcast::Sender<()> {
+        self.change_tx.clone()
     }
 
-    pub fn remove_agent(&self, key: &str) {
-        self.agents.remove(key);
-        self.notify_change();
+    // -----------------------------------------------------------------------
+    // Runtime status (event-driven from ACPHub)
+    // -----------------------------------------------------------------------
+
+    pub fn set_runtime_status(&self, store: Arc<RuntimeStatusStore>) {
+        *self.runtime_status.write().unwrap() = Some(store);
     }
 
     // -----------------------------------------------------------------------
@@ -259,6 +255,14 @@ impl ServiceStatusManager {
     pub fn snapshot(&self) -> StatusSnapshot {
         let pty_count = self.pty.len();
 
+        let agents = self
+            .runtime_status
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|store| store.snapshot_agents())
+            .unwrap_or_default();
+
         StatusSnapshot {
             server: self.server_meta.clone(),
             tunnels: self.tunnels.iter().map(|entry| {
@@ -278,19 +282,7 @@ impl ServiceStatusManager {
                     },
                 }
             }).collect(),
-            agents: self.agents.iter().map(|entry| {
-                ServiceInfo {
-                    id: entry.key.clone(),
-                    name: format!("{} ({})", entry.kind, entry.key),
-                    status: "running".to_string(),
-                    uptime_secs: unix_now_secs().saturating_sub(entry.started_at),
-                    extra: {
-                        let mut m = serde_json::Map::new();
-                        m.insert("kind".into(), entry.kind.clone().into());
-                        m
-                    },
-                }
-            }).collect(),
+            agents,
             channels: self.channels.iter().map(|entry| {
                 let key = entry.key().clone();
                 ServiceInfo {

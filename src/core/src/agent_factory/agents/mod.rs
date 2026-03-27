@@ -8,4 +8,4 @@
 
 pub mod runtime_context;
 
-pub use crate::agent_manager::provider::AgentKind;
+pub use crate::agent_factory::provider::AgentKind;
