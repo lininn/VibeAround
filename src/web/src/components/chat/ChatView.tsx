@@ -93,6 +93,23 @@ export function ChatView() {
         return;
       }
 
+      if (j.kind === "agent_ready") {
+        setMeta((prev) => ({
+          ...prev,
+          agentName: typeof j.agent === "string" ? (j.agent as string) : prev.agentName,
+          agentVersion: typeof j.version === "string" ? (j.version as string) : prev.agentVersion,
+        }));
+        return;
+      }
+
+      if (j.kind === "session_ready") {
+        setMeta((prev) => ({
+          ...prev,
+          sessionId: typeof j.sessionId === "string" ? (j.sessionId as string) : prev.sessionId,
+        }));
+        return;
+      }
+
       if (typeof j.sessionId === "string") {
         setMeta((prev) => ({ ...prev, sessionId: j.sessionId as string }));
       }

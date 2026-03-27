@@ -53,6 +53,8 @@ pub struct AcpBridge {
     provider_session_id_rx: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
     /// Worker thread for the provider process (if any).
     _worker_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// Cancellation token — signals the bridge thread to shut down.
+    cancel_tx: tokio::sync::watch::Sender<bool>,
 }
 
 impl AcpBridge {
@@ -75,6 +77,7 @@ impl AcpBridge {
         let system_prompt_owned = system_prompt.map(str::to_string);
         let (ready_tx, ready_rx) =
             tokio::sync::oneshot::channel::<Result<BridgeReady, String>>();
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
 
         std::thread::Builder::new()
             .name(format!("{}-bridge", kind))
@@ -87,6 +90,8 @@ impl AcpBridge {
                     system_prompt_owned,
                     resume_session_id,
                     client_handler,
+                    cancel_tx,
+                    cancel_rx,
                 );
             })
             .map_err(|e| format!("Failed to spawn bridge thread: {}", e))?;
@@ -114,8 +119,8 @@ impl AcpBridge {
     }
 
     pub async fn shutdown(&self) {
-        // The connection will be dropped when the Arc is dropped,
-        // which will close the IO and the bridge thread will exit.
+        eprintln!("[{}-bridge] shutdown signaled", self.kind);
+        let _ = self.cancel_tx.send(true);
     }
 }
 
@@ -202,6 +207,8 @@ fn run_bridge_thread(
     system_prompt: Option<String>,
     resume_session_id: Option<String>,
     client_handler: Arc<dyn BridgeClientHandler>,
+    cancel_tx: tokio::sync::watch::Sender<bool>,
+    mut cancel_rx: tokio::sync::watch::Receiver<bool>,
 ) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -219,13 +226,15 @@ fn run_bridge_thread(
         local
             .run_until(async move {
                 match init_bridge(
-                    provider, kind, cwd, system_prompt, resume_session_id, client_handler,
+                    provider, kind, cwd, system_prompt, resume_session_id, client_handler, cancel_tx,
                 )
                 .await
                 {
                     Ok(ready) => {
                         let _ = ready_tx.send(Ok(ready));
-                        std::future::pending::<()>().await;
+                        // Wait for cancellation signal
+                        let _ = cancel_rx.wait_for(|v| *v).await;
+                        eprintln!("[{}-bridge] cancelled, exiting thread", kind);
                     }
                     Err(e) => {
                         let _ = ready_tx.send(Err(e));
@@ -243,6 +252,7 @@ async fn init_bridge(
     system_prompt: Option<String>,
     resume_session_id: Option<String>,
     client_handler: Arc<dyn BridgeClientHandler>,
+    cancel_tx: tokio::sync::watch::Sender<bool>,
 ) -> Result<BridgeReady, String> {
     use acp::Agent as _;
     use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
@@ -303,6 +313,7 @@ async fn init_bridge(
         session_id: Mutex::new(startup_session_id.clone()),
         provider_session_id_rx: Mutex::new(provider_session_id_rx),
         _worker_thread: Mutex::new(worker_thread),
+        cancel_tx,
     });
 
     Ok(BridgeReady {

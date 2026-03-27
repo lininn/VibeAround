@@ -15,7 +15,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
 
+use tokio::sync::broadcast;
+
 use crate::acp::routing::{Attachment, MessageId, RouteEnvelope, RouteKey, TurnId};
+use crate::acp_hub::event::SystemEvent;
 use crate::acp_hub::ACPHub;
 use crate::agent_factory::runtime::BridgeClientHandler;
 use crate::plugins::DiscoveredPlugin;
@@ -97,7 +100,7 @@ pub enum ChannelInput {
     },
 }
 
-/// Legacy stdio plugin output.
+/// Channel plugin output.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ChannelOutput {
@@ -110,12 +113,24 @@ pub enum ChannelOutput {
         text: String,
         reply_to: Option<MessageId>,
     },
+    AgentReady {
+        route: RouteKey,
+        agent: String,
+        version: String,
+    },
+    SessionReady {
+        route: RouteKey,
+        session_id: String,
+    },
 }
 
 impl ChannelOutput {
     pub fn route_key(&self) -> &RouteKey {
         match self {
-            Self::RawAcp { route, .. } | Self::SystemText { route, .. } => route,
+            Self::RawAcp { route, .. }
+            | Self::SystemText { route, .. }
+            | Self::AgentReady { route, .. }
+            | Self::SessionReady { route, .. } => route,
         }
     }
 }
@@ -210,6 +225,62 @@ impl ChannelManager {
     pub async fn shutdown_all(&self) {
         self.plugin_host.shutdown_all().await;
     }
+
+    /// Subscribe to ACPHub SystemEvents and forward relevant ones to channel plugins.
+    /// Call once during daemon startup. Returns a JoinHandle for the forwarder task.
+    pub fn start_event_forwarder(
+        &self,
+        mut event_rx: broadcast::Receiver<SystemEvent>,
+    ) -> tokio::task::JoinHandle<()> {
+        let plugin_host = Arc::clone(&self.plugin_host);
+        tokio::spawn(async move {
+            loop {
+                match event_rx.recv().await {
+                    Ok(event) => forward_system_event(&plugin_host, &event).await,
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        })
+    }
+}
+
+async fn forward_system_event(plugin_host: &Arc<PluginHost>, event: &SystemEvent) {
+    match event {
+        SystemEvent::AgentInitialized {
+            route,
+            cli_kind,
+            initialize,
+            ..
+        } => {
+            let agent_info = initialize.agent_info.as_ref();
+            let agent = agent_info
+                .map(|i| i.title.clone().unwrap_or_else(|| i.name.clone()))
+                .or_else(|| cli_kind.clone())
+                .unwrap_or_else(|| "agent".to_string());
+            let version = agent_info
+                .map(|i| i.version.clone())
+                .unwrap_or_default();
+            plugin_host
+                .send_output(ChannelOutput::AgentReady {
+                    route: route.clone(),
+                    agent,
+                    version,
+                })
+                .await;
+        }
+        SystemEvent::SessionReady {
+            route, session_id,
+        } => {
+            plugin_host
+                .send_output(ChannelOutput::SessionReady {
+                    route: route.clone(),
+                    session_id: session_id.clone(),
+                })
+                .await;
+        }
+        _ => {}
+    }
 }
 
 /// Parse system slash commands from prompt text.
@@ -235,11 +306,26 @@ fn parse_slash_command(text: &str) -> Option<SlashAction> {
         return None;
     }
 
-    // /agent <rest> — passthrough to agent CLI
+    // /agent <rest> — passthrough to agent CLI as a slash command
+    // /agent help → sends "/help" to agent
+    // /agent /help → sends "/help" to agent
+    // /agent/status → sends "/status" to agent (no space variant)
+    if let Some(rest) = trimmed.strip_prefix("/agent/") {
+        let rest = rest.trim();
+        if !rest.is_empty() {
+            return Some(SlashAction::AgentPassthrough(format!("/{}", rest)));
+        }
+    }
     if let Some(rest) = trimmed.strip_prefix("/agent ") {
         let rest = rest.trim();
         if !rest.is_empty() {
-            return Some(SlashAction::AgentPassthrough(rest.to_string()));
+            // If the rest already starts with /, send as-is; otherwise prepend /
+            let cmd = if rest.starts_with('/') {
+                rest.to_string()
+            } else {
+                format!("/{}", rest)
+            };
+            return Some(SlashAction::AgentPassthrough(cmd));
         }
     }
     if trimmed == "/agent" {
@@ -279,6 +365,10 @@ pub async fn handle_channel_input(
             let route = envelope.route.clone();
             let cli_kind = envelope.cli_kind.clone();
             let mut text = envelope.text.clone();
+            eprintln!(
+                "[ChannelManager] input route={} cli_kind={:?} text={:?}",
+                route, cli_kind, text
+            );
 
             // Check for slash commands
             if let Some(action) = parse_slash_command(&text) {

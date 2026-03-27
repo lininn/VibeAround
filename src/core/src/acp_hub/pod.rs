@@ -3,10 +3,11 @@
 //! Owns the agent bridge directly (no external cache). Calls acp::Agent
 //! methods on the bridge without command enum intermediaries.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use serde::Serialize;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, Mutex, Notify};
 
 use crate::acp::routing::RouteKey;
 use crate::agent_factory::runtime::{AcpBridge, BridgeClientHandler};
@@ -62,6 +63,9 @@ pub struct ACPPod {
     failed: Mutex<Option<String>>,
     started_at: u64,
     event_tx: broadcast::Sender<SystemEvent>,
+    // Prompt queue — serialize concurrent prompts on the same route
+    in_flight: Mutex<bool>,
+    pending: Mutex<VecDeque<Arc<Notify>>>,
 }
 
 impl ACPPod {
@@ -78,6 +82,8 @@ impl ACPPod {
             failed: Mutex::new(None),
             started_at: unix_now_secs(),
             event_tx,
+            in_flight: Mutex::new(false),
+            pending: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -93,6 +99,29 @@ impl ACPPod {
         text: String,
         downstream_handler: Arc<dyn BridgeClientHandler>,
     ) -> acp::Result<acp::PromptResponse> {
+        // Acquire turn slot — wait if another prompt is in-flight
+        let wait_turn = {
+            let mut in_flight = self.in_flight.lock().await;
+            if !*in_flight {
+                *in_flight = true;
+                None
+            } else {
+                let notify = Arc::new(Notify::new());
+                self.pending.lock().await.push_back(Arc::clone(&notify));
+                Some(notify)
+            }
+        };
+        if let Some(notify) = wait_turn {
+            notify.notified().await;
+        }
+
+        eprintln!(
+            "[ACPPod] prompt route={} cli_kind={:?} text_len={}",
+            self.route,
+            cli_kind,
+            text.len()
+        );
+
         // Mark busy
         *self.busy.lock().await = true;
         *self.failed.lock().await = None;
@@ -124,6 +153,14 @@ impl ACPPod {
         }
         self.emit_snapshot().await;
 
+        // Advance queue — let next pending prompt proceed
+        let next = self.pending.lock().await.pop_front();
+        if let Some(next) = next {
+            next.notify_one();
+        } else {
+            *self.in_flight.lock().await = false;
+        }
+
         result
     }
 
@@ -144,30 +181,28 @@ impl ACPPod {
         acp::Agent::cancel(&*bridge, acp::CancelNotification::new(session_id)).await
     }
 
-    /// Close this route — kill bridge, clear all state.
+    /// Close this route — kill bridge, drain queue, clear all state.
     pub async fn close(&self, reason: Option<String>) {
-        if let Some(bridge) = self.bridge.lock().await.take() {
-            bridge.shutdown().await;
-        }
-        *self.session_id.lock().await = None;
-        *self.initialize.lock().await = None;
-        *self.busy.lock().await = false;
+        self.full_reset().await;
         self.emit(SystemEvent::RouteClosed {
             route: self.route.clone(),
             reason,
         });
     }
 
-    /// Switch agent kind — kill current bridge, next prompt spawns new one.
+    /// Switch agent kind — kill current bridge, drain queue, next prompt spawns new one.
     pub async fn switch_agent(&self, agent_kind: String) {
-        self.reset_bridge().await;
-        *self.cli_kind.lock().await = Some(agent_kind);
+        eprintln!("[ACPPod] switch_agent route={} new_kind={}", self.route, agent_kind);
+        self.full_reset().await;
+        *self.cli_kind.lock().await = Some(agent_kind.clone());
         self.emit_snapshot().await;
+        eprintln!("[ACPPod] switch_agent done route={} cli_kind={:?}", self.route, agent_kind);
     }
 
-    /// Switch profile — kill current bridge, next prompt spawns new one.
+    /// Switch profile — kill current bridge, drain queue, next prompt spawns new one.
     pub async fn switch_profile(&self, profile: String) {
-        self.reset_bridge().await;
+        eprintln!("[ACPPod] switch_profile route={} new_profile={}", self.route, profile);
+        self.full_reset().await;
         *self.profile.lock().await = Some(profile);
         self.emit_snapshot().await;
     }
@@ -204,12 +239,44 @@ impl ACPPod {
         resume_session_id: Option<String>,
         downstream_handler: Arc<dyn BridgeClientHandler>,
     ) -> Result<Arc<AcpBridge>, String> {
-        // Return existing bridge if available
+        // Resolve which agent kind to use
+        let stored_cli_kind = self.cli_kind.lock().await.clone();
+        let resolved_cli_kind = stored_cli_kind
+            .clone()
+            .or(cli_kind.clone())
+            .unwrap_or_else(|| config::ensure_loaded().default_agent.clone());
+
+        // If bridge exists, check if caller requested a different agent (implicit switch)
         if let Some(existing) = self.bridge.lock().await.clone() {
-            return Ok(existing);
+            let needs_switch = cli_kind
+                .as_ref()
+                .map(|requested| {
+                    stored_cli_kind
+                        .as_ref()
+                        .map(|stored| stored != requested)
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+
+            if needs_switch {
+                let new_kind = cli_kind.unwrap();
+                eprintln!(
+                    "[ACPPod] ensure_bridge implicit switch route={} {} → {}",
+                    self.route, resolved_cli_kind, new_kind
+                );
+                self.full_reset().await;
+                *self.cli_kind.lock().await = Some(new_kind.clone());
+                // Fall through to spawn new bridge below
+            } else {
+                eprintln!("[ACPPod] ensure_bridge reusing existing bridge route={}", self.route);
+                return Ok(existing);
+            }
         }
 
-        let cli_kind = cli_kind.unwrap_or_else(|| config::ensure_loaded().default_agent.clone());
+        // Resolve again after potential switch
+        let cli_kind = self.cli_kind.lock().await.clone()
+            .unwrap_or_else(|| config::ensure_loaded().default_agent.clone());
+        eprintln!("[ACPPod] ensure_bridge spawning new bridge route={} kind={}", self.route, cli_kind);
         let profile = self
             .profile
             .lock()
@@ -246,6 +313,12 @@ impl ACPPod {
         };
 
         // Store bridge and metadata
+        eprintln!(
+            "[ACPPod] bridge ready route={} kind={} agent_info={:?}",
+            self.route,
+            cli_kind,
+            ready.initialize.agent_info
+        );
         *self.bridge.lock().await = Some(Arc::clone(&ready.bridge));
         *self.cli_kind.lock().await = Some(cli_kind.clone());
         *self.profile.lock().await = Some(profile.clone());
@@ -294,14 +367,27 @@ impl ACPPod {
     }
 
     /// Kill the current bridge and clear related state.
-    async fn reset_bridge(&self) {
+    /// Full reset: kill bridge, drain queue, clear all state.
+    /// Used by switch_agent/switch_profile to ensure clean slate.
+    async fn full_reset(&self) {
+        // Kill bridge
         if let Some(bridge) = self.bridge.lock().await.take() {
             bridge.shutdown().await;
+            eprintln!("[ACPPod] full_reset killed bridge route={}", self.route);
         }
+        // Drain queue — wake all pending prompts (they'll fail on missing bridge)
+        {
+            let mut pending = self.pending.lock().await;
+            while let Some(notify) = pending.pop_front() {
+                notify.notify_one();
+            }
+        }
+        *self.in_flight.lock().await = false;
         *self.session_id.lock().await = None;
         *self.initialize.lock().await = None;
         *self.failed.lock().await = None;
         *self.busy.lock().await = false;
+        eprintln!("[ACPPod] full_reset done route={}", self.route);
     }
 
     async fn spawn_provider_session_watcher(self: &Arc<Self>, bridge: &Arc<AcpBridge>) {

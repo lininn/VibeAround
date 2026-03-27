@@ -99,6 +99,9 @@ impl ServerDaemon {
         }
         services.set_runtime_status(Arc::clone(&runtime_status));
 
+        // 3. ChannelManager subscribes to SystemEvent for agent info forwarding
+        channel_hub.start_event_forwarder(acp_hub.subscribe());
+
         // Register built-in internal channels.
         let (web_outbound_tx, mut web_outbound_rx) = web_channel.sender();
         channel_hub.start_internal_plugin("web", web_outbound_tx);

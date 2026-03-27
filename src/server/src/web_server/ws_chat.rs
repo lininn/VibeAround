@@ -155,6 +155,23 @@ fn output_to_client_json(output: ChannelOutput) -> serde_json::Value {
         ChannelOutput::SystemText { text, .. } => {
             serde_json::json!({ "kind": "text", "text": text })
         }
+        ChannelOutput::AgentReady {
+            agent, version, ..
+        } => {
+            serde_json::json!({
+                "kind": "agent_ready",
+                "agent": agent,
+                "version": version,
+            })
+        }
+        ChannelOutput::SessionReady {
+            session_id, ..
+        } => {
+            serde_json::json!({
+                "kind": "session_ready",
+                "sessionId": session_id,
+            })
+        }
     }
 }
 
@@ -212,7 +229,10 @@ fn acp_to_frontend(payload: serde_json::Value) -> serde_json::Value {
                 .unwrap_or("unknown error");
             serde_json::json!({ "kind": "error", "error": text })
         }
-        _ => payload, // unknown variant, pass through raw
+        other => {
+            eprintln!("[ws_chat] unhandled ACP variant: {:?}", other);
+            return serde_json::json!({ "kind": "debug", "variant": other, "raw": payload });
+        }
     }
 }
 
