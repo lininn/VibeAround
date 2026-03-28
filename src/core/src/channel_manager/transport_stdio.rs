@@ -231,12 +231,15 @@ async fn forward_output_to_plugin(
                 }
             }
         }
-        ChannelOutput::SystemText { text, .. } => {
+        ChannelOutput::SystemText { route, text, .. } => {
             send_ext_notification(
                 conn,
                 channel_kind,
                 "channel/system_text",
-                &serde_json::json!({ "text": text }),
+                &serde_json::json!({
+                    "channelId": format!("{}:{}", channel_kind, route.chat_id),
+                    "text": text,
+                }),
             )
             .await;
         }

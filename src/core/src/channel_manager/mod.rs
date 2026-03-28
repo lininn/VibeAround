@@ -304,6 +304,8 @@ enum SlashAction {
     SwitchProfile(String),
     /// /close — close route
     Close,
+    /// /help or /commands — list available agent commands
+    ListAgentCommands,
     /// Unknown slash command
     Unknown(String),
 }
@@ -355,6 +357,7 @@ fn parse_slash_command(text: &str) -> Option<SlashAction> {
             _ => Some(SlashAction::Unknown(trimmed.to_string())),
         },
         "/close" => Some(SlashAction::Close),
+        "/help" | "/commands" | "/list_agent_commands" => Some(SlashAction::ListAgentCommands),
         _ => Some(SlashAction::Unknown(trimmed.to_string())),
     }
 }
@@ -452,6 +455,12 @@ pub(crate) async fn handle_prompt(
                 send_system_text(plugin_host, &route, "Conversation closed.").await;
                 return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
             }
+            SlashAction::ListAgentCommands => {
+                let commands = acp_hub.list_agent_commands(&route).await;
+                let text = format_agent_commands(&commands);
+                send_system_text(plugin_host, &route, &text).await;
+                return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
+            }
             SlashAction::Unknown(cmd) => {
                 send_system_text(
                     plugin_host,
@@ -490,6 +499,36 @@ async fn send_system_text(plugin_host: &Arc<PluginHost>, route: &RouteKey, text:
             reply_to: None,
         })
         .await;
+}
+
+/// Format cached agent commands into a readable text message.
+fn format_agent_commands(commands: &serde_json::Value) -> String {
+    let arr = match commands.as_array() {
+        Some(arr) if !arr.is_empty() => arr,
+        _ => return "No agent commands available. Send a message first to initialize the agent.".to_string(),
+    };
+
+    let mut lines = vec!["Available agent commands (use /agent <command>):".to_string()];
+    for cmd in arr {
+        let name = cmd.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+        let desc = cmd.get("description").and_then(|v| v.as_str()).unwrap_or("");
+        // Truncate long descriptions (char-safe)
+        let short_desc = if desc.chars().count() > 80 {
+            let truncated: String = desc.chars().take(77).collect();
+            format!("{}...", truncated)
+        } else {
+            desc.to_string()
+        };
+        lines.push(format!("  /{} — {}", name, short_desc));
+    }
+
+    lines.push("\nSystem commands:".to_string());
+    lines.push("  /new — reset session".to_string());
+    lines.push("  /switch <agent> — switch agent (claude, opencode, gemini, codex)".to_string());
+    lines.push("  /close — close conversation".to_string());
+    lines.push("  /help — show this list".to_string());
+
+    lines.join("\n")
 }
 
 struct ChannelBridgeHandler {
