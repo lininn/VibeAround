@@ -178,9 +178,12 @@ async fn run_acp_plugin_bridge(
             // Forward ChannelOutput → ACP Client methods
             let fwd_channel = channel_kind.clone();
             tokio::task::spawn_local(async move {
+                eprintln!("[{}] output forwarder started", fwd_channel);
                 while let Some(output) = output_rx.recv().await {
+                    eprintln!("[{}] forwarding output: {:?}", fwd_channel, std::mem::discriminant(&output));
                     forward_output_to_plugin(&conn, &fwd_channel, output).await;
                 }
+                eprintln!("[{}] output forwarder ended", fwd_channel);
             });
 
             // Keep alive until connection closes
@@ -199,10 +202,11 @@ async fn forward_output_to_plugin(
         ChannelOutput::RawAcp { route, payload } => {
             // RawAcp is a serialized SessionNotification from the real agent.
             // Replace the real agent's sessionId with the chatId the plugin expects.
-            match serde_json::from_value::<acp::SessionNotification>(payload) {
+            match serde_json::from_value::<acp::SessionNotification>(payload.clone()) {
                 Ok(mut notification) => {
                     // Translate: real session ID → chat ID (what plugin sent as sessionId)
                     notification.session_id = route.chat_id.clone().into();
+                    eprintln!("[{}] sending session_notification to plugin, session_id={}", channel_kind, notification.session_id);
                     if let Err(error) = acp::Client::session_notification(&*conn, notification).await {
                         eprintln!(
                             "[{}] failed to send session_notification: {}",
