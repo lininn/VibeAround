@@ -103,48 +103,10 @@ pub trait AgentProvider: Send + Sync {
 
 pub fn provider_for_kind(kind: AgentKind) -> Arc<dyn AgentProvider> {
     match kind {
-        AgentKind::Claude => Arc::new(UnimplementedProvider::new(AgentKind::Claude)),
+        AgentKind::Claude => Arc::new(StdioAcpProvider::claude()),
         AgentKind::Gemini => Arc::new(StdioAcpProvider::gemini()),
         AgentKind::OpenCode => Arc::new(StdioAcpProvider::opencode()),
-        AgentKind::Codex => Arc::new(UnimplementedProvider::new(AgentKind::Codex)),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Placeholder providers — kept for config/UI compatibility only
-// ---------------------------------------------------------------------------
-
-struct UnimplementedProvider {
-    agent_kind: AgentKind,
-}
-
-impl UnimplementedProvider {
-    fn new(agent_kind: AgentKind) -> Self {
-        Self { agent_kind }
-    }
-}
-
-#[async_trait]
-impl AgentProvider for UnimplementedProvider {
-    fn kind(&self) -> AgentKind {
-        self.agent_kind
-    }
-
-    fn prepare_workspace(
-        &self,
-        _workspace: &Path,
-        _system_prompt: Option<&str>,
-        _mcp_port: u16,
-    ) -> Result<(), String> {
-        Ok(())
-    }
-
-    async fn connect(
-        &self,
-        _workspace: &Path,
-        _system_prompt: Option<&str>,
-    ) -> Result<ProviderConnection, String> {
-        Err(format!("{} provider is not implemented yet", self.agent_kind))
+        AgentKind::Codex => Arc::new(StdioAcpProvider::codex()),
     }
 }
 
@@ -187,6 +149,24 @@ impl StdioAcpProvider {
             agent_kind: AgentKind::OpenCode,
             program: "opencode",
             args: &["acp"],
+            system_prompt_path: Some(SystemPromptTarget::File("AGENTS.md")),
+        }
+    }
+
+    fn claude() -> Self {
+        Self {
+            agent_kind: AgentKind::Claude,
+            program: "npx",
+            args: &["@agentclientprotocol/claude-agent-acp"],
+            system_prompt_path: Some(SystemPromptTarget::File("CLAUDE.md")),
+        }
+    }
+
+    fn codex() -> Self {
+        Self {
+            agent_kind: AgentKind::Codex,
+            program: "npx",
+            args: &["codex-acp"],
             system_prompt_path: Some(SystemPromptTarget::File("AGENTS.md")),
         }
     }

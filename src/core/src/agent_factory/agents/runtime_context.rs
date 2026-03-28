@@ -31,9 +31,20 @@ pub fn ensure_mcp_config(kind: AgentKind, workspace: &Path, port: u16) {
                 url
             ),
         ),
-        AgentKind::Claude | AgentKind::Codex => {
-            return;
-        }
+        AgentKind::Claude => (
+            ".claude/settings.local.json",
+            format!(
+                r#"{{"mcpServers":{{"vibearound":{{"url":"{}"}}}}}}"#,
+                url
+            ),
+        ),
+        AgentKind::Codex => (
+            "codex.json",
+            format!(
+                r#"{{"mcp":{{"vibearound":{{"type":"remote","url":"{}","enabled":true}}}}}}"#,
+                url
+            ),
+        ),
     };
 
     let path = workspace.join(rel_path);
