@@ -91,6 +91,7 @@ fn main() {
              This instance will exit.",
             port
         );
+        std::process::exit(0);
     }
 
     let daemon = Arc::new(server::ServerDaemon::new(port));
