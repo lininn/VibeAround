@@ -12,6 +12,7 @@ mod ngrok;
 #[allow(dead_code)] // Ngrok/Cloudflare for future use
 pub enum TunnelProvider {
     #[default]
+    None,
     Localtunnel,
     Ngrok,
     Cloudflare,
@@ -20,10 +21,16 @@ pub enum TunnelProvider {
 impl TunnelProvider {
     pub fn as_str(&self) -> &'static str {
         match self {
+            TunnelProvider::None => "none",
             TunnelProvider::Localtunnel => "localtunnel",
             TunnelProvider::Ngrok => "ngrok",
             TunnelProvider::Cloudflare => "cloudflare",
         }
+    }
+
+    /// Returns true if this provider actually creates a tunnel.
+    pub fn is_enabled(&self) -> bool {
+        !matches!(self, TunnelProvider::None)
     }
 
     /// Parse from config string (e.g. from settings.json "tunnel.provider").
@@ -31,16 +38,18 @@ impl TunnelProvider {
         match s.trim().to_lowercase().as_str() {
             "ngrok" => TunnelProvider::Ngrok,
             "cloudflare" => TunnelProvider::Cloudflare,
-            _ => TunnelProvider::Localtunnel,
+            "localtunnel" => TunnelProvider::Localtunnel,
+            _ => TunnelProvider::None,
         }
     }
 
     /// Return the backend for this provider (for unified start_web_tunnel).
-    fn backend(&self) -> &'static dyn TunnelBackend {
+    fn backend(&self) -> Option<&'static dyn TunnelBackend> {
         match self {
-            TunnelProvider::Localtunnel => &localtunnel::LocaltunnelBackend,
-            TunnelProvider::Ngrok => &ngrok::NgrokBackend,
-            TunnelProvider::Cloudflare => &cloudflare::CloudflareBackend,
+            TunnelProvider::None => Option::None,
+            TunnelProvider::Localtunnel => Some(&localtunnel::LocaltunnelBackend),
+            TunnelProvider::Ngrok => Some(&ngrok::NgrokBackend),
+            TunnelProvider::Cloudflare => Some(&cloudflare::CloudflareBackend),
         }
     }
 }
@@ -92,7 +101,10 @@ pub async fn start_web_tunnel_with_provider(
     provider: TunnelProvider,
     config: &crate::config::Config,
 ) -> Result<(TunnelGuard, String), Box<dyn std::error::Error + Send + Sync>> {
-    provider.backend().start_web_tunnel(config).await
+    match provider.backend() {
+        Some(backend) => backend.start_web_tunnel(config).await,
+        Option::None => Err("Tunnel provider is 'none' — no tunnel to start".into()),
+    }
 }
 
 // Re-export Localtunnel-specific API (used when default provider is Localtunnel).

@@ -66,6 +66,24 @@ export interface WechatQrWaitResponse {
   message: string;
 }
 
+export interface WhatsappPairStartResponse {
+  pairingCode: string | null;
+  message: string;
+  alreadyConnected: boolean;
+}
+
+export interface WhatsappPairWaitResponse {
+  connected: boolean;
+  message: string;
+}
+
+export type WhatsappPairStatus =
+  | "idle"
+  | "generating"
+  | "waiting"
+  | "connected"
+  | "error";
+
 export type WechatQrStatus =
   | "idle"
   | "generating"
@@ -92,6 +110,10 @@ export interface StepChannelsProps {
   onFeishuAppId: (value: string) => void;
   feishuAppSecret: string;
   onFeishuAppSecret: (value: string) => void;
+  discordEnabled: boolean;
+  onDiscordEnabledChange: (enabled: boolean) => void;
+  discordToken: string;
+  onDiscordToken: (value: string) => void;
   wechatEnabled: boolean;
   onWechatEnabledChange: (enabled: boolean) => void;
   wechatBaseUrl: string;
@@ -125,5 +147,6 @@ export interface StepConfirmProps {
   tunnelProvider: TunnelProvider;
   hasTelegram: boolean;
   hasFeishu: boolean;
+  hasDiscord: boolean;
   hasWechat: boolean;
 }

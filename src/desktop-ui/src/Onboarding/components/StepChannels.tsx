@@ -17,6 +17,10 @@ export function StepChannels({
   onFeishuAppId,
   feishuAppSecret,
   onFeishuAppSecret,
+  discordEnabled,
+  onDiscordEnabledChange,
+  discordToken,
+  onDiscordToken,
   wechatEnabled,
   onWechatEnabledChange,
   wechatBaseUrl,
@@ -117,6 +121,24 @@ export function StepChannels({
             />
           </label>
         </div>
+      </ChannelCard>
+
+      <ChannelCard
+        title="Discord"
+        description="Use a Discord bot token to chat with VibeAround via @mention or DM."
+        enabled={discordEnabled}
+        onEnabledChange={onDiscordEnabledChange}
+      >
+        <label className="block">
+          <span className="text-xs text-muted-foreground">Bot Token</span>
+          <input
+            type="password"
+            value={discordToken}
+            onChange={(event) => onDiscordToken(event.target.value)}
+            placeholder="MTIzNDU2Nzg5MDEyMzQ1…"
+            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
+          />
+        </label>
       </ChannelCard>
 
       <ChannelCard

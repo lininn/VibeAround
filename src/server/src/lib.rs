@@ -168,23 +168,29 @@ impl ServerDaemon {
             .map_err(|e| e.to_string())
         });
 
-        // 5. Tunnel
+        // 5. Tunnel (skip when provider is "none")
         let tunnel_provider = cfg.tunnel_provider;
         eprintln!("[VibeAround][daemon] Tunnel ({})", tunnel_provider.as_str());
-        let tunnel_services = Arc::clone(&services);
-        let tunnel_handle = tokio::spawn(async move {
-            match tunnels::start_web_tunnel_with_provider(tunnel_provider, &cfg).await {
-                Ok((guard, url)) => {
-                    eprintln!("[VibeAround][daemon] Tunnel URL: {}", url);
-                    tunnel_services.set_tunnel_url(tunnel_provider.as_str(), &url);
-                    guard.wait().await;
+        let tunnel_handle = if tunnel_provider.is_enabled() {
+            let tunnel_services = Arc::clone(&services);
+            let handle = tokio::spawn(async move {
+                match tunnels::start_web_tunnel_with_provider(tunnel_provider, &cfg).await {
+                    Ok((guard, url)) => {
+                        eprintln!("[VibeAround][daemon] Tunnel URL: {}", url);
+                        tunnel_services.set_tunnel_url(tunnel_provider.as_str(), &url);
+                        guard.wait().await;
+                    }
+                    Err(e) => {
+                        eprintln!("[VibeAround][daemon] Tunnel failed: {}", e);
+                    }
                 }
-                Err(e) => {
-                    eprintln!("[VibeAround][daemon] Tunnel failed: {}", e);
-                }
-            }
-        });
-        services.register_tunnel(tunnel_provider, tunnel_handle.abort_handle());
+            });
+            services.register_tunnel(tunnel_provider, handle.abort_handle());
+            handle
+        } else {
+            eprintln!("[VibeAround][daemon] Tunnel disabled (none)");
+            tokio::spawn(async { /* no-op: keep the JoinHandle type consistent */ })
+        };
 
         Ok(RunningDaemon {
             channel_hub,

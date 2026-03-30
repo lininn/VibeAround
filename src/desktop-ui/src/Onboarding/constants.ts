@@ -10,11 +10,12 @@ export const AGENT_LABELS: Record<AgentId, string> = {
   codex: "Codex CLI",
 };
 
-export const TUNNEL_PROVIDERS = ["none", "cloudflare", "ngrok"] as const;
+export const TUNNEL_PROVIDERS = ["none", "localtunnel", "cloudflare", "ngrok"] as const;
 export type TunnelProvider = (typeof TUNNEL_PROVIDERS)[number];
 
 export const TUNNEL_LABELS: Record<TunnelProvider, string> = {
   none: "None (local only)",
+  localtunnel: "Local Tunnel",
   cloudflare: "Cloudflare Tunnel",
   ngrok: "Ngrok",
 };

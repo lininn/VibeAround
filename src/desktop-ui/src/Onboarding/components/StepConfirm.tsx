@@ -9,6 +9,7 @@ export function StepConfirm({
   tunnelProvider,
   hasTelegram,
   hasFeishu,
+  hasDiscord,
   hasWechat,
 }: StepConfirmProps) {
   const agents = Array.from(enabledAgents)
@@ -18,6 +19,7 @@ export function StepConfirm({
   const channels: string[] = [];
   if (hasTelegram) channels.push("Telegram");
   if (hasFeishu) channels.push("Feishu");
+  if (hasDiscord) channels.push("Discord");
   if (hasWechat) channels.push("WeChat");
 
   return (

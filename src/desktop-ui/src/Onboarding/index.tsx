@@ -39,6 +39,9 @@ export default function Onboarding() {
   const [feishuAppId, setFeishuAppId] = useState("");
   const [feishuAppSecret, setFeishuAppSecret] = useState("");
 
+  const [discordEnabled, setDiscordEnabled] = useState(false);
+  const [discordToken, setDiscordToken] = useState("");
+
   const [wechatEnabled, setWechatEnabled] = useState(false);
   const [wechatBaseUrl, setWechatBaseUrl] = useState(DEFAULT_WECHAT_BASE_URL);
   const [wechatBotToken, setWechatBotToken] = useState("");
@@ -114,6 +117,10 @@ export default function Onboarding() {
         setFeishuAppSecret(loadedFeishuAppSecret);
         setFeishuEnabled(Boolean(loadedFeishuAppId || loadedFeishuAppSecret));
 
+        const discordBotToken = loadedSettings.channels?.discord?.bot_token ?? "";
+        setDiscordToken(discordBotToken);
+        setDiscordEnabled(Boolean(discordBotToken));
+
         const wechatConfig = loadedSettings.channels?.["weixin-openclaw-bridge"];
         if (wechatConfig?.base_url) {
           setWechatBaseUrl(String(wechatConfig.base_url));
@@ -133,7 +140,7 @@ export default function Onboarding() {
         }
 
         const provider = loadedSettings.tunnel?.provider;
-        if (provider === "cloudflare" || provider === "ngrok") {
+        if (provider === "cloudflare" || provider === "ngrok" || provider === "localtunnel") {
           setTunnelProvider(provider);
         }
         if (loadedSettings.tunnel?.ngrok?.auth_token) {
@@ -223,8 +230,10 @@ export default function Onboarding() {
 
   useEffect(() => {
     const currentStep = STEPS[step] as OnboardingStep;
-    if (currentStep !== "Channels" && (wechatQrSessionKey || waitingForWechatRef.current)) {
-      void cancelWechatSession({ nextMessage: "" });
+    if (currentStep !== "Channels") {
+      if (wechatQrSessionKey || waitingForWechatRef.current) {
+        void cancelWechatSession({ nextMessage: "" });
+      }
     }
   }, [cancelWechatSession, step, wechatQrSessionKey]);
 
@@ -276,6 +285,16 @@ export default function Onboarding() {
       };
     }
 
+    if (discordEnabled && discordToken.trim()) {
+      channels.discord = {
+        bot_token: discordToken.trim(),
+        verbose: settings.channels?.discord?.verbose ?? {
+          show_thinking: false,
+          show_tool_use: false,
+        },
+      };
+    }
+
     if (wechatEnabled) {
       channels["weixin-openclaw-bridge"] = {
         base_url: wechatBaseUrl.trim() || DEFAULT_WECHAT_BASE_URL,
@@ -296,6 +315,7 @@ export default function Onboarding() {
 
     if (tunnelProvider !== "none") {
       const tunnel: Settings["tunnel"] = { provider: tunnelProvider };
+      // localtunnel has no config fields
       if (tunnelProvider === "ngrok") {
         tunnel.ngrok = {};
         if (ngrokToken.trim()) tunnel.ngrok.auth_token = ngrokToken.trim();
@@ -321,6 +341,8 @@ export default function Onboarding() {
     feishuEnabled,
     feishuAppId,
     feishuAppSecret,
+    discordEnabled,
+    discordToken,
     wechatEnabled,
     wechatBaseUrl,
     wechatBotToken,
@@ -375,6 +397,7 @@ export default function Onboarding() {
   const hasTelegram = telegramEnabled && Boolean(tgToken.trim());
   const hasFeishu =
     feishuEnabled && Boolean(feishuAppId.trim() && feishuAppSecret.trim());
+  const hasDiscord = discordEnabled && Boolean(discordToken.trim());
   const hasWechat = wechatEnabled && Boolean(wechatBotToken.trim());
 
   return (
@@ -419,6 +442,10 @@ export default function Onboarding() {
             onFeishuAppId={setFeishuAppId}
             feishuAppSecret={feishuAppSecret}
             onFeishuAppSecret={setFeishuAppSecret}
+            discordEnabled={discordEnabled}
+            onDiscordEnabledChange={setDiscordEnabled}
+            discordToken={discordToken}
+            onDiscordToken={setDiscordToken}
             wechatEnabled={wechatEnabled}
             onWechatEnabledChange={setWechatEnabled}
             wechatBaseUrl={wechatBaseUrl}
@@ -456,6 +483,7 @@ export default function Onboarding() {
             tunnelProvider={tunnelProvider}
             hasTelegram={hasTelegram}
             hasFeishu={hasFeishu}
+            hasDiscord={hasDiscord}
             hasWechat={hasWechat}
           />
         )}

@@ -124,6 +124,9 @@ fn main() {
             onboarding::wechat_qr_start,
             onboarding::wechat_qr_wait,
             onboarding::wechat_qr_cancel,
+            onboarding::whatsapp_qr_start,
+            onboarding::whatsapp_qr_wait,
+            onboarding::whatsapp_qr_cancel,
             onboarding::finish_onboarding,
         ])
         .setup(move |app| {
