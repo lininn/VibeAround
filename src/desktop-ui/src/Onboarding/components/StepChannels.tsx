@@ -135,7 +135,7 @@ export function StepChannels({
             type="password"
             value={discordToken}
             onChange={(event) => onDiscordToken(event.target.value)}
-            placeholder="MTIzNDU2Nzg5MDEyMzQ1…"
+            placeholder="Paste your Discord bot token"
             className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
           />
         </label>
