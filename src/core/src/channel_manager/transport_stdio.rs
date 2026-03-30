@@ -316,6 +316,13 @@ impl acp::Agent for PluginAgentHandler {
         meta.insert("channelKind".into(), self.channel_kind.clone().into());
         meta.insert("config".into(), self.config.clone());
         meta.insert("hostVersion".into(), env!("CARGO_PKG_VERSION").into());
+        meta.insert(
+            "cacheDir".into(),
+            crate::config::data_dir()
+                .join(".cache")
+                .to_string_lossy()
+                .into(),
+        );
 
         Ok(
             acp::InitializeResponse::new(acp::ProtocolVersion::V1)
@@ -345,23 +352,27 @@ impl acp::Agent for PluginAgentHandler {
         let chat_id = args.session_id.to_string();
         let route = RouteKey::new(&self.channel_kind, &chat_id);
 
-        let text: String = args
-            .prompt
-            .iter()
-            .filter_map(|block| match block {
-                acp::ContentBlock::Text(t) => Some(t.text.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content_blocks = args.prompt;
 
-        if text.is_empty() {
+        if content_blocks.is_empty() {
             return Err(acp::Error::invalid_params());
         }
 
+        // Extract text preview for logging
+        let text_preview: String = content_blocks
+            .iter()
+            .find_map(|b| match b {
+                acp::ContentBlock::Text(t) => Some(t.text.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
         eprintln!(
-            "[{}] ACP prompt chat_id={} text_len={}",
-            self.channel_kind, chat_id, text.len()
+            "[{}] ACP prompt chat_id={} blocks={} text_preview={}",
+            self.channel_kind,
+            chat_id,
+            content_blocks.len(),
+            &text_preview[..text_preview.len().min(80)]
         );
 
         // Call through to handle_prompt — blocks until the turn completes.
@@ -372,7 +383,7 @@ impl acp::Agent for PluginAgentHandler {
             &self.plugin_host,
             route,
             None, // cli_kind: plugin prompts don't specify
-            text,
+            content_blocks,
         )
         .await
     }

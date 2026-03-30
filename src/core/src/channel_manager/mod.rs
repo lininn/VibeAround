@@ -381,7 +381,16 @@ pub async fn handle_channel_input(
                 route, cli_kind, text
             );
 
-            match handle_prompt(acp_hub, plugin_host, route.clone(), cli_kind, text).await {
+            // Wrap text into content blocks for backward compat (web chat path)
+            let content_blocks = if text.is_empty() {
+                vec![]
+            } else {
+                vec![acp::ContentBlock::Text(acp::TextContent::new(text))]
+            };
+
+            match handle_prompt(acp_hub, plugin_host, route.clone(), cli_kind, content_blocks)
+                .await
+            {
                 Ok(_resp) => {
                     eprintln!("[ChannelManager] prompt OK route={}", route);
                 }
@@ -419,15 +428,36 @@ pub(crate) async fn handle_prompt(
     plugin_host: &Arc<PluginHost>,
     route: RouteKey,
     cli_kind: Option<String>,
-    text: String,
+    mut content_blocks: Vec<acp::ContentBlock>,
 ) -> acp::Result<acp::PromptResponse> {
-    let mut text = text;
+    // Extract text from first Text block for slash command parsing
+    let text = content_blocks
+        .iter()
+        .find_map(|b| match b {
+            acp::ContentBlock::Text(t) => Some(t.text.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
 
     // Check for slash commands
     if let Some(action) = parse_slash_command(&text) {
         match action {
             SlashAction::AgentPassthrough(agent_text) => {
-                text = agent_text; // forward to agent
+                // Replace text in the first Text block, or insert one
+                let replaced = content_blocks.iter_mut().any(|b| {
+                    if let acp::ContentBlock::Text(t) = b {
+                        *t = acp::TextContent::new(&agent_text);
+                        true
+                    } else {
+                        false
+                    }
+                });
+                if !replaced {
+                    content_blocks.insert(
+                        0,
+                        acp::ContentBlock::Text(acp::TextContent::new(agent_text)),
+                    );
+                }
             }
             SlashAction::NewSession => {
                 acp_hub.reset_session(&route).await;
@@ -473,13 +503,15 @@ pub(crate) async fn handle_prompt(
         }
     }
 
-    if text.is_empty() {
+    if content_blocks.is_empty() {
         return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
     }
 
     eprintln!(
-        "[ChannelManager] prompt route={} cli_kind={:?} text_len={}",
-        route, cli_kind, text.len()
+        "[ChannelManager] prompt route={} cli_kind={:?} blocks={}",
+        route,
+        cli_kind,
+        content_blocks.len()
     );
 
     let handler: Arc<dyn BridgeClientHandler> = Arc::new(ChannelBridgeHandler {
@@ -488,7 +520,9 @@ pub(crate) async fn handle_prompt(
         route: route.clone(),
     });
 
-    acp_hub.prompt(route, cli_kind, text, handler).await
+    acp_hub
+        .prompt(route, cli_kind, content_blocks, handler)
+        .await
 }
 
 async fn send_system_text(plugin_host: &Arc<PluginHost>, route: &RouteKey, text: &str) {

@@ -49,11 +49,11 @@ impl ACPHub {
         &self,
         route: RouteKey,
         cli_kind: Option<String>,
-        text: String,
+        content_blocks: Vec<acp::ContentBlock>,
         handler: Arc<dyn BridgeClientHandler>,
     ) -> acp::Result<acp::PromptResponse> {
         let pod = self.get_or_create_pod(route);
-        pod.prompt(cli_kind, text, handler).await
+        pod.prompt(cli_kind, content_blocks, handler).await
     }
 
     /// Cancel the active turn on a route.
