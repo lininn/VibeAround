@@ -107,17 +107,41 @@ export default function Onboarding() {
     }));
   }, []);
 
+  const [installErrors, setInstallErrors] = useState<Record<string, string>>({});
+
   const installPlugin = useCallback(async (pluginId: string, githubUrl: string) => {
     setInstallingPlugins((prev) => new Set(prev).add(pluginId));
+    setInstallErrors((prev) => {
+      const next = { ...prev };
+      delete next[pluginId];
+      return next;
+    });
     try {
-      await invoke("install_plugin", {
-        request: { pluginId, githubUrl },
-      });
-      // Refresh discovered plugins
+      const result = await invoke<{ success: boolean; message: string; actualPluginId?: string }>(
+        "install_plugin",
+        { request: { pluginId, githubUrl } },
+      );
+
       const plugins = await invoke<DiscoveredChannelPlugin[]>("list_channel_plugins");
       setDiscoveredPlugins(plugins);
+
+      // Check whether the plugin actually appeared in discovery
+      const found = plugins.some((p) => p.id === pluginId || p.dirName === pluginId);
+      if (!found && result.actualPluginId) {
+        console.warn(
+          `[install] plugin.json id "${result.actualPluginId}" differs from registry id "${pluginId}"; using dirName fallback`,
+        );
+      }
+      if (!found && !result.actualPluginId) {
+        setInstallErrors((prev) => ({
+          ...prev,
+          [pluginId]: "Installed but not detected — check plugin.json has kind \"channel\".",
+        }));
+      }
     } catch (error) {
-      console.error(`Failed to install plugin ${pluginId}:`, error);
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to install plugin ${pluginId}:`, msg);
+      setInstallErrors((prev) => ({ ...prev, [pluginId]: msg }));
     } finally {
       setInstallingPlugins((prev) => {
         const next = new Set(prev);
@@ -136,7 +160,7 @@ export default function Onboarding() {
 
     try {
       // Build config from current channel config + schema defaults
-      const discovered = discoveredPlugins.find((p) => p.id === pluginId);
+      const discovered = discoveredPlugins.find((p) => p.id === pluginId || p.dirName === pluginId);
       const schemaProps = discovered?.configSchema?.properties ?? {};
       const configForAuth: Record<string, string> = {};
       for (const [key, prop] of Object.entries(schemaProps)) {
@@ -255,7 +279,7 @@ export default function Onboarding() {
       }
 
       // Fill defaults from schema for hidden fields
-      const discovered = discoveredPlugins.find((p) => p.id === id);
+      const discovered = discoveredPlugins.find((p) => p.id === id || p.dirName === id);
       if (discovered?.configSchema?.properties) {
         for (const [key, prop] of Object.entries(discovered.configSchema.properties)) {
           if (prop.hidden && prop.default && !config[key]) {
@@ -385,6 +409,7 @@ export default function Onboarding() {
             enabledChannels={enabledChannels}
             channelConfigs={channelConfigs}
             installingPlugins={installingPlugins}
+            installErrors={installErrors}
             authStates={authStates}
             onToggleChannel={toggleChannel}
             onConfigChange={updateChannelConfig}

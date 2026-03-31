@@ -259,6 +259,8 @@ pub struct InstallPluginRequest {
 pub struct InstallPluginResponse {
     pub success: bool,
     pub message: String,
+    /// The plugin ID as declared in the installed plugin.json (may differ from the requested pluginId).
+    pub actual_plugin_id: Option<String>,
 }
 
 #[tauri::command]
@@ -317,10 +319,36 @@ pub async fn install_plugin(request: InstallPluginRequest) -> Result<InstallPlug
         return Err(format!("npm run build failed: {}", stderr));
     }
 
-    eprintln!("[install_plugin] {} installed successfully", request.plugin_id);
+    // Verify the plugin is discoverable after build
+    let actual_id = match plugins::find_plugin(&request.plugin_id) {
+        Some(p) => {
+            eprintln!(
+                "[install_plugin] {} installed and discoverable (manifest id='{}')",
+                request.plugin_id, p.manifest.id
+            );
+            Some(p.manifest.id.clone())
+        }
+        None => {
+            // Plugin dir exists but wasn't discovered — likely an ID mismatch or missing kind.
+            // Try reading plugin.json directly to surface the actual id for the frontend.
+            let manifest_path = target_dir.join("plugin.json");
+            let fallback_id = std::fs::read_to_string(&manifest_path)
+                .ok()
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .and_then(|v| v.get("id").and_then(|id| id.as_str()).map(String::from));
+            eprintln!(
+                "[install_plugin] WARNING: {} built but not discoverable as channel plugin (manifest id={:?})",
+                request.plugin_id,
+                fallback_id
+            );
+            fallback_id
+        }
+    };
+
     Ok(InstallPluginResponse {
         success: true,
         message: format!("Plugin '{}' installed successfully", request.plugin_id),
+        actual_plugin_id: actual_id,
     })
 }
 

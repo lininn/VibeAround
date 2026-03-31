@@ -49,6 +49,8 @@ export interface DiscoveredChannelPlugin {
   runtime: string;
   entry: string;
   source: "user" | "project";
+  /** Directory name on disk — may differ from id when plugin.json declares a different id. */
+  dirName: string;
   supportsQrcodeLogin: boolean;
   configSchema?: ConfigSchema;
   capabilities: PluginCapabilities;
@@ -78,6 +80,7 @@ export interface StepChannelsProps {
   enabledChannels: Set<string>;
   channelConfigs: Record<string, Record<string, string>>;
   installingPlugins: Set<string>;
+  installErrors: Record<string, string>;
   authStates: Record<string, AuthFlowState>;
   onToggleChannel: (pluginId: string, enabled: boolean) => void;
   onConfigChange: (pluginId: string, key: string, value: string) => void;

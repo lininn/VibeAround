@@ -21,6 +21,7 @@ export function StepChannels({
   enabledChannels,
   channelConfigs,
   installingPlugins,
+  installErrors,
   authStates,
   onToggleChannel,
   onConfigChange,
@@ -28,7 +29,15 @@ export function StepChannels({
   onStartAuth,
   onCancelAuth,
 }: StepChannelsProps) {
-  const discoveredMap = new Map(discoveredPlugins.map((p) => [p.id, p]));
+  // Build lookup that matches by both plugin.json id AND directory name on disk,
+  // so plugins whose manifest id differs from the registry id are still found.
+  const discoveredMap = new Map<string, (typeof discoveredPlugins)[number]>();
+  for (const p of discoveredPlugins) {
+    discoveredMap.set(p.id, p);
+    if (p.dirName && p.dirName !== p.id) {
+      discoveredMap.set(p.dirName, p);
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -50,6 +59,7 @@ export function StepChannels({
         const enabled = enabledChannels.has(entry.id);
         const config = channelConfigs[entry.id] ?? {};
         const authState = authStates[entry.id];
+        const installError = installErrors[entry.id];
 
         return (
           <PluginCard
@@ -64,6 +74,7 @@ export function StepChannels({
             discovered={discovered}
             config={config}
             authState={authState}
+            installError={installError}
             onToggle={(v) => onToggleChannel(entry.id, v)}
             onConfigChange={(k, v) => onConfigChange(entry.id, k, v)}
             onInstall={() => onInstallPlugin(entry.id, entry.github)}
@@ -91,6 +102,7 @@ interface PluginCardProps {
   discovered?: StepChannelsProps["discoveredPlugins"][number];
   config: Record<string, string>;
   authState?: StepChannelsProps["authStates"][string];
+  installError?: string;
   onToggle: (enabled: boolean) => void;
   onConfigChange: (key: string, value: string) => void;
   onInstall: () => void;
@@ -109,6 +121,7 @@ function PluginCard({
   discovered,
   config,
   authState,
+  installError,
   onToggle,
   onConfigChange,
   onInstall,
@@ -140,6 +153,9 @@ function PluginCard({
             </a>
           </div>
           <div className="text-xs text-muted-foreground max-w-xl">{description}</div>
+          {installError && (
+            <div className="text-xs text-destructive mt-1">{installError}</div>
+          )}
         </div>
 
         {isReady ? (
@@ -158,23 +174,23 @@ function PluginCard({
               }`}
             />
           </button>
+        ) : installing ? (
+          <button
+            key="installing"
+            disabled
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium opacity-50 shrink-0"
+          >
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Installing…
+          </button>
         ) : (
           <button
+            key="install"
             onClick={onInstall}
-            disabled={installing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 disabled:opacity-50 transition-opacity shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 shrink-0"
           >
-            {installing ? (
-              <>
-                <Loader2 className="w-3 h-3 animate-spin" />
-                Installing…
-              </>
-            ) : (
-              <>
-                <Download className="w-3 h-3" />
-                Install
-              </>
-            )}
+            <Download className="w-3 h-3" />
+            Install
           </button>
         )}
       </div>
