@@ -4,7 +4,6 @@ import { ChevronLeft, ChevronRight, Rocket } from "lucide-react";
 
 import {
   ALL_AGENTS,
-  DEFAULT_WECHAT_BASE_URL,
   STEPS,
 } from "./constants";
 import { StepAgents } from "./components/StepAgents";
@@ -43,7 +42,9 @@ export default function Onboarding() {
   const [discordToken, setDiscordToken] = useState("");
 
   const [wechatEnabled, setWechatEnabled] = useState(false);
-  const [wechatBaseUrl, setWechatBaseUrl] = useState(DEFAULT_WECHAT_BASE_URL);
+  // WeChat base URL is a fixed internal value — not user-configurable.
+  // TODO: should come from the plugin's config schema defaults, not hardcoded here.
+  const wechatBaseUrl = "https://ilinkai.weixin.qq.com";
   const [wechatBotToken, setWechatBotToken] = useState("");
   const [wechatAccountId, setWechatAccountId] = useState("");
   const [wechatQrStatus, setWechatQrStatus] = useState<WechatQrStatus>("idle");
@@ -122,9 +123,6 @@ export default function Onboarding() {
         setDiscordEnabled(Boolean(discordBotToken));
 
         const wechatConfig = loadedSettings.channels?.["weixin-openclaw-bridge"];
-        if (wechatConfig?.base_url) {
-          setWechatBaseUrl(String(wechatConfig.base_url));
-        }
         if (wechatConfig?.bot_token) {
           setWechatBotToken(String(wechatConfig.bot_token));
           setWechatQrStatus("connected");
@@ -177,7 +175,6 @@ export default function Onboarding() {
         if (result.connected && result.botToken) {
           setWechatBotToken(result.botToken);
           setWechatAccountId(result.accountId ?? "");
-          if (result.baseUrl) setWechatBaseUrl(result.baseUrl);
           setWechatQrStatus("connected");
           setWechatQrCodeUrl("");
           setWechatQrSessionKey("");
@@ -204,7 +201,7 @@ export default function Onboarding() {
     setWechatQrSessionKey("");
 
     try {
-      const baseUrl = wechatBaseUrl.trim() || DEFAULT_WECHAT_BASE_URL;
+      const baseUrl = wechatBaseUrl;
       const result = await invoke<WechatQrStartResponse>("wechat_qr_start", {
         request: {
           baseUrl,
@@ -226,7 +223,7 @@ export default function Onboarding() {
         error instanceof Error ? error.message : String(error)
       );
     }
-  }, [resetWechatQrState, waitForWechatConfirmation, wechatBaseUrl]);
+  }, [resetWechatQrState, waitForWechatConfirmation]);
 
   useEffect(() => {
     const currentStep = STEPS[step] as OnboardingStep;
@@ -343,7 +340,6 @@ export default function Onboarding() {
     discordEnabled,
     discordToken,
     wechatEnabled,
-    wechatBaseUrl,
     wechatBotToken,
     wechatAccountId,
     tunnelProvider,

@@ -1,5 +1,3 @@
-export const DEFAULT_WECHAT_BASE_URL = "https://ilinkai.weixin.qq.com";
-
 export const ALL_AGENTS = ["claude", "opencode", "gemini", "codex"] as const;
 export type AgentId = (typeof ALL_AGENTS)[number];
 

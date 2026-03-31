@@ -2,7 +2,6 @@ import React, { useEffect, useRef } from "react";
 import { MessageSquare } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
-// DEFAULT_WECHAT_BASE_URL is used internally but not exposed in the UI
 import type { StepChannelsProps } from "../types";
 
 export function StepChannels({
