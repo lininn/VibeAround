@@ -263,6 +263,50 @@ pub struct InstallPluginResponse {
     pub actual_plugin_id: Option<String>,
 }
 
+/// Run an npm subcommand in `cwd`.
+///
+/// npm on Windows is a `.cmd` batch script, not an executable, so
+/// `Command::new("npm")` fails with "program not found". Instead we locate
+/// npm's CLI JS file relative to `node` (which IS an executable and works)
+/// and invoke it directly: `node <npm-cli.js> <args>`.
+///
+/// This works cross-platform and avoids all PATH / shell / .cmd issues.
+async fn npm_command(
+    args: &[&str],
+    cwd: &std::path::Path,
+) -> std::io::Result<std::process::Output> {
+    // Ask node where it lives so we can find npm-cli.js next to it.
+    let node_info = tokio::process::Command::new("node")
+        .args(["-p", "process.execPath"])
+        .output()
+        .await?;
+    let node_exec = String::from_utf8_lossy(&node_info.stdout).trim().to_string();
+    let node_dir = std::path::Path::new(&node_exec)
+        .parent()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "cannot determine node install directory"))?;
+
+    // npm ships alongside node at <node_dir>/node_modules/npm/bin/npm-cli.js
+    let npm_cli = node_dir.join("node_modules").join("npm").join("bin").join("npm-cli.js");
+    if !npm_cli.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("npm-cli.js not found at {:?} — is npm installed with Node.js?", npm_cli),
+        ));
+    }
+
+    let mut node_args: Vec<String> = vec![npm_cli.to_string_lossy().to_string()];
+    node_args.extend(args.iter().map(|s| s.to_string()));
+
+    eprintln!("[npm_command] running: node {} {}", npm_cli.display(), args.join(" "));
+    tokio::process::Command::new("node")
+        .args(&node_args)
+        .current_dir(cwd)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await
+}
+
 #[tauri::command]
 pub async fn install_plugin(request: InstallPluginRequest) -> Result<InstallPluginResponse, String> {
     let plugins_dir = config::data_dir().join("plugins");
@@ -271,8 +315,22 @@ pub async fn install_plugin(request: InstallPluginRequest) -> Result<InstallPlug
     // Create plugins dir if needed
     std::fs::create_dir_all(&plugins_dir).map_err(|e| e.to_string())?;
 
-    // Clone if not already present
-    if !target_dir.exists() {
+    // If the directory exists but has no dist/ (e.g. a previous failed install), wipe it so
+    // we get a clean clone. Otherwise skip cloning an already-built plugin.
+    let needs_clone = if target_dir.exists() {
+        if target_dir.join("dist").exists() {
+            eprintln!("[install_plugin] {} already built, skipping clone", request.plugin_id);
+            false
+        } else {
+            eprintln!("[install_plugin] {} has no dist (stale/failed install), re-cloning", request.plugin_id);
+            std::fs::remove_dir_all(&target_dir).map_err(|e| format!("failed to remove stale dir: {}", e))?;
+            true
+        }
+    } else {
+        true
+    };
+
+    if needs_clone {
         eprintln!("[install_plugin] cloning {} → {:?}", request.github_url, target_dir);
         let output = tokio::process::Command::new("git")
             .args(["clone", "--depth", "1", &request.github_url, &target_dir.to_string_lossy()])
@@ -285,19 +343,11 @@ pub async fn install_plugin(request: InstallPluginRequest) -> Result<InstallPlug
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!("git clone failed: {}", stderr));
         }
-    } else {
-        eprintln!("[install_plugin] {} already exists, skipping clone", request.plugin_id);
     }
 
     // npm install
     eprintln!("[install_plugin] running npm install in {:?}", target_dir);
-    let output = tokio::process::Command::new("npm")
-        .args(["install"])
-        .current_dir(&target_dir)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .await
+    let output = npm_command(&["install"], &target_dir).await
         .map_err(|e| format!("npm install failed: {}", e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -306,17 +356,22 @@ pub async fn install_plugin(request: InstallPluginRequest) -> Result<InstallPlug
 
     // npm run build
     eprintln!("[install_plugin] running npm run build in {:?}", target_dir);
-    let output = tokio::process::Command::new("npm")
-        .args(["run", "build"])
-        .current_dir(&target_dir)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .await
+    let output = npm_command(&["run", "build"], &target_dir).await
         .map_err(|e| format!("npm run build failed: {}", e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("npm run build failed: {}", stderr));
+    }
+
+    // Verify the auth script was produced by the build (missing = build emitted partial output)
+    let auth_script = target_dir.join("dist").join("auth-standalone.js");
+    if !auth_script.exists() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "build succeeded but auth-standalone.js was not produced — tsc may have emitted errors.\nstdout: {}\nstderr: {}",
+            stdout, stderr
+        ));
     }
 
     // Verify the plugin is discoverable after build
@@ -400,7 +455,7 @@ pub async fn plugin_auth_start(
 
     let mut session = spawn_auth_session(&request.plugin_id, request.config.clone()).await?;
 
-    // The auth script's start method name depends on the plugin
+    // The auth script's start method name depends on the plugin.
     let method = "login_qr_start";
     let result: Value = plugin_request(&mut session, method, request.config).await?;
 
