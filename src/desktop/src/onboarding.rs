@@ -265,63 +265,46 @@ pub struct InstallPluginResponse {
 
 /// Run an npm subcommand in `cwd`.
 ///
-/// On Windows, Tauri GUI processes inherit only the system PATH, not the user
-/// PATH. npm is typically installed under %APPDATA%\npm (user PATH), so it's
-/// invisible to the spawned process. We work around this by:
-///   1. Using the absolute path to cmd.exe so the shell is always found.
-///   2. Augmenting PATH with the known locations where npm/Node.js live.
+/// npm on Windows is a `.cmd` batch script, not an executable, so
+/// `Command::new("npm")` fails with "program not found". Instead we locate
+/// npm's CLI JS file relative to `node` (which IS an executable and works)
+/// and invoke it directly: `node <npm-cli.js> <args>`.
+///
+/// This works cross-platform and avoids all PATH / shell / .cmd issues.
 async fn npm_command(
     args: &[&str],
     cwd: &std::path::Path,
 ) -> std::io::Result<std::process::Output> {
-    #[cfg(target_os = "windows")]
-    {
-        // Build an augmented PATH that includes common Node.js install locations.
-        let current_path = std::env::var("PATH").unwrap_or_default();
-        let mut extra: Vec<String> = Vec::new();
+    // Ask node where it lives so we can find npm-cli.js next to it.
+    let node_info = tokio::process::Command::new("node")
+        .args(["-p", "process.execPath"])
+        .output()
+        .await?;
+    let node_exec = String::from_utf8_lossy(&node_info.stdout).trim().to_string();
+    let node_dir = std::path::Path::new(&node_exec)
+        .parent()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "cannot determine node install directory"))?;
 
-        // %APPDATA%\npm — user-global npm prefix (most common location for npm.cmd)
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            extra.push(format!("{}\\npm", appdata));
-        }
-        // nvm for Windows stores the active version here
-        if let Ok(nvm_symlink) = std::env::var("NVM_SYMLINK") {
-            extra.push(nvm_symlink);
-        }
-        if let Ok(nvm_home) = std::env::var("NVM_HOME") {
-            extra.push(nvm_home);
-        }
-        // Official Node.js installer default paths
-        extra.push(r"C:\Program Files\nodejs".to_string());
-        extra.push(r"C:\Program Files (x86)\nodejs".to_string());
-
-        let augmented_path = if extra.is_empty() {
-            current_path.clone()
-        } else {
-            format!("{};{}", current_path, extra.join(";"))
-        };
-
-        let npm_subcmd = args.join(" ");
-        // Use the absolute cmd.exe path so it's found even without PATH
-        tokio::process::Command::new(r"C:\Windows\System32\cmd.exe")
-            .args(["/C", &format!("npm {}", npm_subcmd)])
-            .env("PATH", &augmented_path)
-            .current_dir(cwd)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .await
+    // npm ships alongside node at <node_dir>/node_modules/npm/bin/npm-cli.js
+    let npm_cli = node_dir.join("node_modules").join("npm").join("bin").join("npm-cli.js");
+    if !npm_cli.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("npm-cli.js not found at {:?} — is npm installed with Node.js?", npm_cli),
+        ));
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        tokio::process::Command::new("npm")
-            .args(args)
-            .current_dir(cwd)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .await
-    }
+
+    let mut node_args: Vec<String> = vec![npm_cli.to_string_lossy().to_string()];
+    node_args.extend(args.iter().map(|s| s.to_string()));
+
+    eprintln!("[npm_command] running: node {} {}", npm_cli.display(), args.join(" "));
+    tokio::process::Command::new("node")
+        .args(&node_args)
+        .current_dir(cwd)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await
 }
 
 #[tauri::command]
