@@ -265,19 +265,47 @@ pub struct InstallPluginResponse {
 
 /// Run an npm subcommand in `cwd`.
 ///
-/// On Windows, GUI processes often don't inherit the user PATH, so bare
-/// `npm` or even `npm.cmd` may not resolve. Routing through `cmd /C npm`
-/// lets the Windows command processor find npm regardless.
+/// On Windows, Tauri GUI processes inherit only the system PATH, not the user
+/// PATH. npm is typically installed under %APPDATA%\npm (user PATH), so it's
+/// invisible to the spawned process. We work around this by:
+///   1. Using the absolute path to cmd.exe so the shell is always found.
+///   2. Augmenting PATH with the known locations where npm/Node.js live.
 async fn npm_command(
     args: &[&str],
     cwd: &std::path::Path,
 ) -> std::io::Result<std::process::Output> {
     #[cfg(target_os = "windows")]
     {
-        let mut cmd_args = vec!["/C", "npm"];
-        cmd_args.extend_from_slice(args);
-        tokio::process::Command::new("cmd")
-            .args(&cmd_args)
+        // Build an augmented PATH that includes common Node.js install locations.
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        let mut extra: Vec<String> = Vec::new();
+
+        // %APPDATA%\npm — user-global npm prefix (most common location for npm.cmd)
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            extra.push(format!("{}\\npm", appdata));
+        }
+        // nvm for Windows stores the active version here
+        if let Ok(nvm_symlink) = std::env::var("NVM_SYMLINK") {
+            extra.push(nvm_symlink);
+        }
+        if let Ok(nvm_home) = std::env::var("NVM_HOME") {
+            extra.push(nvm_home);
+        }
+        // Official Node.js installer default paths
+        extra.push(r"C:\Program Files\nodejs".to_string());
+        extra.push(r"C:\Program Files (x86)\nodejs".to_string());
+
+        let augmented_path = if extra.is_empty() {
+            current_path.clone()
+        } else {
+            format!("{};{}", current_path, extra.join(";"))
+        };
+
+        let npm_subcmd = args.join(" ");
+        // Use the absolute cmd.exe path so it's found even without PATH
+        tokio::process::Command::new(r"C:\Windows\System32\cmd.exe")
+            .args(["/C", &format!("npm {}", npm_subcmd)])
+            .env("PATH", &augmented_path)
             .current_dir(cwd)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
