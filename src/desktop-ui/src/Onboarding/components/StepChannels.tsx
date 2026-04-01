@@ -1,7 +1,6 @@
 import { MessageSquare, Download, ExternalLink, Loader2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
-import { PLUGIN_REGISTRY } from "../plugin-registry";
 import type { StepChannelsProps, ConfigSchemaProperty } from "../types";
 
 /** Determine if a config field should use password input. */
@@ -17,11 +16,11 @@ function fieldLabel(key: string, prop: ConfigSchemaProperty): string {
 }
 
 export function StepChannels({
+  pluginRegistry,
   discoveredPlugins,
   enabledChannels,
   channelConfigs,
   installingPlugins,
-  installErrors,
   authStates,
   onToggleChannel,
   onConfigChange,
@@ -29,15 +28,7 @@ export function StepChannels({
   onStartAuth,
   onCancelAuth,
 }: StepChannelsProps) {
-  // Build lookup that matches by both plugin.json id AND directory name on disk,
-  // so plugins whose manifest id differs from the registry id are still found.
-  const discoveredMap = new Map<string, (typeof discoveredPlugins)[number]>();
-  for (const p of discoveredPlugins) {
-    discoveredMap.set(p.id, p);
-    if (p.dirName && p.dirName !== p.id) {
-      discoveredMap.set(p.dirName, p);
-    }
-  }
+  const discoveredMap = new Map(discoveredPlugins.map((p) => [p.id, p]));
 
   return (
     <div className="space-y-5">
@@ -52,15 +43,13 @@ export function StepChannels({
         </p>
       </div>
 
-      {PLUGIN_REGISTRY.map((entry) => {
+      {pluginRegistry.map((entry) => {
         const discovered = discoveredMap.get(entry.id);
         const installing = installingPlugins.has(entry.id);
         const isReady = !!discovered;
         const enabled = enabledChannels.has(entry.id);
         const config = channelConfigs[entry.id] ?? {};
         const authState = authStates[entry.id];
-        const installError = installErrors[entry.id];
-
         return (
           <PluginCard
             key={entry.id}
@@ -74,7 +63,7 @@ export function StepChannels({
             discovered={discovered}
             config={config}
             authState={authState}
-            installError={installError}
+
             onToggle={(v) => onToggleChannel(entry.id, v)}
             onConfigChange={(k, v) => onConfigChange(entry.id, k, v)}
             onInstall={() => onInstallPlugin(entry.id, entry.github)}
@@ -102,7 +91,7 @@ interface PluginCardProps {
   discovered?: StepChannelsProps["discoveredPlugins"][number];
   config: Record<string, string>;
   authState?: StepChannelsProps["authStates"][string];
-  installError?: string;
+
   onToggle: (enabled: boolean) => void;
   onConfigChange: (key: string, value: string) => void;
   onInstall: () => void;
@@ -121,7 +110,6 @@ function PluginCard({
   discovered,
   config,
   authState,
-  installError,
   onToggle,
   onConfigChange,
   onInstall,
@@ -153,9 +141,6 @@ function PluginCard({
             </a>
           </div>
           <div className="text-xs text-muted-foreground max-w-xl">{description}</div>
-          {installError && (
-            <div className="text-xs text-destructive mt-1">{installError}</div>
-          )}
         </div>
 
         {isReady ? (

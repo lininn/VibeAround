@@ -1,9 +1,9 @@
 import { Globe } from "lucide-react";
 
-import { TUNNEL_LABELS, TUNNEL_PROVIDERS } from "../constants";
 import type { StepTunnelProps } from "../types";
 
 export function StepTunnel({
+  tunnels,
   provider,
   onProvider,
   ngrokToken,
@@ -29,17 +29,17 @@ export function StepTunnel({
       </div>
 
       <div className="flex gap-2">
-        {TUNNEL_PROVIDERS.map((tp) => (
+        {tunnels.map((tp) => (
           <button
-            key={tp}
-            onClick={() => onProvider(tp)}
+            key={tp.id}
+            onClick={() => onProvider(tp.id)}
             className={`flex-1 text-xs font-medium py-2 rounded-md border transition-colors ${
-              provider === tp
+              provider === tp.id
                 ? "border-primary bg-primary/10 text-primary"
                 : "border-border text-muted-foreground hover:border-border/80"
             }`}
           >
-            {TUNNEL_LABELS[tp]}
+            {tp.display_name}
           </button>
         ))}
       </div>

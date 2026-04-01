@@ -5,8 +5,6 @@ use async_trait::async_trait;
 use tokio::io::DuplexStream;
 use tokio::sync::mpsc;
 
-use super::agents::runtime_context;
-
 /// External CLI/provider session identifier.
 pub type ProviderSessionId = String;
 
@@ -39,11 +37,18 @@ impl std::fmt::Display for AgentKind {
 
 impl AgentKind {
     pub fn from_str_loose(s: &str) -> Option<Self> {
-        match s.trim().to_lowercase().as_str() {
-            "claude" | "claude-code" => Some(Self::Claude),
-            "gemini" | "gemini-cli" => Some(Self::Gemini),
-            "opencode" | "open-code" => Some(Self::OpenCode),
-            "codex" | "openai-codex" => Some(Self::Codex),
+        // Look up by alias in resources, then map the agent ID to the enum variant
+        let agent = crate::resources::agent_by_alias(s)?;
+        Self::from_id(&agent.id)
+    }
+
+    /// Map an agent ID string to the enum variant.
+    fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "claude" => Some(Self::Claude),
+            "gemini" => Some(Self::Gemini),
+            "opencode" => Some(Self::OpenCode),
+            "codex" => Some(Self::Codex),
             _ => None,
         }
     }
@@ -60,22 +65,16 @@ impl AgentKind {
         crate::config::ensure_loaded().enabled_agents.contains(self)
     }
 
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            Self::Claude => "Claude Code",
-            Self::Gemini => "Gemini CLI",
-            Self::OpenCode => "Opencode",
-            Self::Codex => "Codex CLI",
-        }
+    pub fn display_name(&self) -> &str {
+        crate::resources::agent_by_id(&self.to_string())
+            .map(|a| a.display_name.as_str())
+            .unwrap_or("Unknown")
     }
 
-    pub fn description(&self) -> &'static str {
-        match self {
-            Self::Claude => "Anthropic Claude Code",
-            Self::Gemini => "Google Gemini CLI",
-            Self::OpenCode => "OpenCode AI Agent",
-            Self::Codex => "OpenAI Codex CLI",
-        }
+    pub fn description(&self) -> &str {
+        crate::resources::agent_by_id(&self.to_string())
+            .map(|a| a.description.as_str())
+            .unwrap_or("Unknown agent")
     }
 }
 
@@ -87,27 +86,14 @@ impl AgentKind {
 pub trait AgentProvider: Send + Sync {
     fn kind(&self) -> AgentKind;
 
-    fn prepare_workspace(
-        &self,
-        workspace: &Path,
-        system_prompt: Option<&str>,
-        mcp_port: u16,
-    ) -> Result<(), String>;
-
     async fn connect(
         &self,
         workspace: &Path,
-        system_prompt: Option<&str>,
     ) -> Result<ProviderConnection, String>;
 }
 
 pub fn provider_for_kind(kind: AgentKind) -> Arc<dyn AgentProvider> {
-    match kind {
-        AgentKind::Claude => Arc::new(StdioAcpProvider::claude()),
-        AgentKind::Gemini => Arc::new(StdioAcpProvider::gemini()),
-        AgentKind::OpenCode => Arc::new(StdioAcpProvider::opencode()),
-        AgentKind::Codex => Arc::new(StdioAcpProvider::codex()),
-    }
+    Arc::new(StdioAcpProvider::new(kind))
 }
 
 // ---------------------------------------------------------------------------
@@ -116,59 +102,11 @@ pub fn provider_for_kind(kind: AgentKind) -> Arc<dyn AgentProvider> {
 
 struct StdioAcpProvider {
     agent_kind: AgentKind,
-    /// CLI command, e.g. "gemini", "opencode", "npx"
-    program: &'static str,
-    /// CLI arguments, e.g. &["--experimental-acp"]
-    args: &'static [&'static str],
-    /// Where to write the system prompt relative to workspace (None = skip)
-    system_prompt_path: Option<SystemPromptTarget>,
-}
-
-enum SystemPromptTarget {
-    /// Write to a fixed relative path
-    File(&'static str),
-    /// Write to a path under a directory that must be created first
-    FileInDir { dir: &'static str, file: &'static str },
 }
 
 impl StdioAcpProvider {
-    fn gemini() -> Self {
-        Self {
-            agent_kind: AgentKind::Gemini,
-            program: "gemini",
-            args: &["--experimental-acp"],
-            system_prompt_path: Some(SystemPromptTarget::FileInDir {
-                dir: ".gemini",
-                file: ".gemini/system.md",
-            }),
-        }
-    }
-
-    fn opencode() -> Self {
-        Self {
-            agent_kind: AgentKind::OpenCode,
-            program: "opencode",
-            args: &["acp"],
-            system_prompt_path: Some(SystemPromptTarget::File("AGENTS.md")),
-        }
-    }
-
-    fn claude() -> Self {
-        Self {
-            agent_kind: AgentKind::Claude,
-            program: "npx",
-            args: &["@agentclientprotocol/claude-agent-acp"],
-            system_prompt_path: Some(SystemPromptTarget::File("CLAUDE.md")),
-        }
-    }
-
-    fn codex() -> Self {
-        Self {
-            agent_kind: AgentKind::Codex,
-            program: "npx",
-            args: &["codex-acp"],
-            system_prompt_path: Some(SystemPromptTarget::File("AGENTS.md")),
-        }
+    fn new(kind: AgentKind) -> Self {
+        Self { agent_kind: kind }
     }
 }
 
@@ -176,35 +114,15 @@ impl StdioAcpProvider {
 impl AgentProvider for StdioAcpProvider {
     fn kind(&self) -> AgentKind { self.agent_kind }
 
-    fn prepare_workspace(
-        &self,
-        workspace: &Path,
-        system_prompt: Option<&str>,
-        mcp_port: u16,
-    ) -> Result<(), String> {
-        runtime_context::ensure_mcp_config(self.agent_kind, workspace, mcp_port);
-        if let (Some(prompt), Some(target)) = (system_prompt, &self.system_prompt_path) {
-            let path = match target {
-                SystemPromptTarget::File(rel) => workspace.join(rel),
-                SystemPromptTarget::FileInDir { dir, file } => {
-                    std::fs::create_dir_all(workspace.join(dir))
-                        .map_err(|e| format!("Failed to create dir {}: {}", dir, e))?;
-                    workspace.join(file)
-                }
-            };
-            std::fs::write(&path, prompt)
-                .map_err(|e| format!("Failed to write system prompt {:?}: {}", path, e))?;
-        }
-        Ok(())
-    }
-
     async fn connect(
         &self,
         workspace: &Path,
-        _system_prompt: Option<&str>,
     ) -> Result<ProviderConnection, String> {
+        let agent_def = crate::resources::agent_by_id(&self.agent_kind.to_string())
+            .ok_or_else(|| format!("No resource definition for agent '{}'", self.agent_kind))?;
+        let args: Vec<&str> = agent_def.acp.args.iter().map(|s| s.as_str()).collect();
         let (read_stream, write_stream) =
-            spawn_stdio_acp(self.agent_kind, self.program, self.args, workspace)?;
+            spawn_stdio_acp(self.agent_kind, &agent_def.acp.program, &args, workspace)?;
         Ok(ProviderConnection {
             read_stream,
             write_stream,

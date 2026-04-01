@@ -306,6 +306,10 @@ enum SlashAction {
     Close,
     /// /help or /commands — list available agent commands
     ListAgentCommands,
+    /// /pickup <session_id> <cwd> — import a session from a coding agent (Direction 1)
+    Pickup { session_id: String, cwd: String },
+    /// /handover — export current session to a coding agent (Direction 2)
+    Handover,
     /// Unknown slash command
     Unknown(String),
 }
@@ -317,9 +321,6 @@ fn parse_slash_command(text: &str) -> Option<SlashAction> {
     }
 
     // /agent <rest> — passthrough to agent CLI as a slash command
-    // /agent help → sends "/help" to agent
-    // /agent /help → sends "/help" to agent
-    // /agent/status → sends "/status" to agent (no space variant)
     if let Some(rest) = trimmed.strip_prefix("/agent/") {
         let rest = rest.trim();
         if !rest.is_empty() {
@@ -329,7 +330,6 @@ fn parse_slash_command(text: &str) -> Option<SlashAction> {
     if let Some(rest) = trimmed.strip_prefix("/agent ") {
         let rest = rest.trim();
         if !rest.is_empty() {
-            // If the rest already starts with /, send as-is; otherwise prepend /
             let cmd = if rest.starts_with('/') {
                 rest.to_string()
             } else {
@@ -358,6 +358,25 @@ fn parse_slash_command(text: &str) -> Option<SlashAction> {
         },
         "/close" => Some(SlashAction::Close),
         "/help" | "/commands" | "/list_agent_commands" => Some(SlashAction::ListAgentCommands),
+        "/pickup" => {
+            // /pickup <session_id> <cwd>
+            // session_id is the first token, cwd is everything after (may contain spaces)
+            match arg {
+                Some(rest) if !rest.is_empty() => {
+                    let parts: Vec<&str> = rest.splitn(2, ' ').collect();
+                    if parts.len() == 2 && !parts[1].is_empty() {
+                        Some(SlashAction::Pickup {
+                            session_id: parts[0].to_string(),
+                            cwd: parts[1].to_string(),
+                        })
+                    } else {
+                        Some(SlashAction::Unknown(trimmed.to_string()))
+                    }
+                }
+                _ => Some(SlashAction::Unknown(trimmed.to_string())),
+            }
+        }
+        "/handover" => Some(SlashAction::Handover),
         _ => Some(SlashAction::Unknown(trimmed.to_string())),
     }
 }
@@ -491,6 +510,61 @@ pub(crate) async fn handle_prompt(
                 send_system_text(plugin_host, &route, &text).await;
                 return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
             }
+            SlashAction::Pickup { session_id, cwd } => {
+                // Direction 1: Agent → IM. User sends /pickup <session_id> <cwd>
+                // to import a session from a coding agent.
+                let default_agent = crate::config::ensure_loaded().default_agent.clone();
+                acp_hub.prepare_pickup(
+                    route.clone(),
+                    default_agent.clone(),
+                    session_id.clone(),
+                    cwd.clone(),
+                ).await;
+                send_system_text(
+                    plugin_host,
+                    &route,
+                    &format!(
+                        "Session pickup ready (session={}, workspace={}).\nSend your next message to continue.",
+                        session_id, cwd
+                    ),
+                )
+                .await;
+                return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
+            }
+            SlashAction::Handover => {
+                // Direction 2: IM → Agent. User sends /handover to export
+                // current session to a coding agent CLI.
+                let snapshot = acp_hub.snapshot(&route).await;
+                match snapshot {
+                    Some(snap) if snap.session_id.is_some() => {
+                        let session_id = snap.session_id.unwrap();
+                        let cwd = snap.workspace.unwrap_or_else(|| "~".to_string());
+                        let cli_kind = snap.cli_kind.unwrap_or_else(|| "claude".to_string());
+                        let resume_cmd = crate::resources::agent_by_id(&cli_kind)
+                            .and_then(|a| a.resume_template.as_ref())
+                            .map(|tpl| tpl.replace("{cwd}", &cwd).replace("{session_id}", &session_id))
+                            .unwrap_or_else(|| format!("cd {} && {} (resume session {})", cwd, cli_kind, session_id));
+                        send_system_text(
+                            plugin_host,
+                            &route,
+                            &format!(
+                                "Run this in your terminal to continue the session:\n\n{}\n\nYou can close this chat after resuming.",
+                                resume_cmd
+                            ),
+                        )
+                        .await;
+                    }
+                    _ => {
+                        send_system_text(
+                            plugin_host,
+                            &route,
+                            "No active session to hand over. Send a message first to start a session.",
+                        )
+                        .await;
+                    }
+                }
+                return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
+            }
             SlashAction::Unknown(cmd) => {
                 send_system_text(
                     plugin_host,
@@ -557,10 +631,7 @@ fn format_agent_commands(commands: &serde_json::Value) -> String {
     }
 
     lines.push("\nSystem commands:".to_string());
-    lines.push("  /new — reset session".to_string());
-    lines.push("  /switch <agent> — switch agent (claude, opencode, gemini, codex)".to_string());
-    lines.push("  /close — close conversation".to_string());
-    lines.push("  /help — show this list".to_string());
+    lines.push(crate::resources::format_system_commands_help());
 
     lines.join("\n")
 }

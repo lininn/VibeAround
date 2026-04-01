@@ -1,0 +1,68 @@
+[
+  {
+    "name": "prepare_handover",
+    "description": "Prepare a session handover to an IM channel. Returns a /pickup command for the user to send in the target IM chat. Does NOT block — the user carries the command to the IM manually.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "target_channel": {
+          "type": "string",
+          "description": "Target IM channel: feishu, telegram, discord, weixin, or web."
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Your current session ID. If omitted, VibeAround will try to find the most recent session for the given cwd."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Absolute path to your current working directory / project workspace."
+        },
+        "agent_kind": {
+          "type": "string",
+          "description": "Your agent type."
+        }
+      },
+      "required": ["target_channel", "cwd", "agent_kind"]
+    }
+  },
+  {
+    "name": "register_workspace",
+    "description": "Register a project workspace directory in VibeAround. Required before handover if the workspace is not already registered.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string",
+          "description": "Absolute path to the project workspace directory to register."
+        },
+        "name": {
+          "type": "string",
+          "description": "Optional human-readable name for the workspace."
+        }
+      },
+      "required": ["cwd"]
+    }
+  },
+  {
+    "name": "dispatch_task",
+    "description": "Dispatch a task to a worker agent on a project workspace.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "workspace": {
+          "type": "string",
+          "description": "Absolute path to the project workspace directory."
+        },
+        "message": {
+          "type": "string",
+          "description": "The task or question for the worker agent"
+        },
+        "kind": {
+          "type": "string",
+          "description": "Agent type."
+        }
+      },
+      "required": ["workspace", "message"]
+    }
+  }
+]

@@ -130,6 +130,9 @@ fn main() {
             onboarding::plugin_auth_wait,
             onboarding::plugin_auth_cancel,
             onboarding::finish_onboarding,
+            onboarding::list_agents,
+            onboarding::list_tunnels,
+            onboarding::list_plugin_registry,
         ])
         .setup(move |app| {
             tray::setup(app)?;

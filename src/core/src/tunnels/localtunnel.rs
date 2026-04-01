@@ -40,16 +40,23 @@ fn parse_url_from_line(line: &str) -> Option<String> {
 /// Start localtunnel for the given port. Returns (guard, public URL) once the URL is printed.
 /// Caller must keep the guard and await `guard.wait()` to keep the tunnel alive.
 pub async fn start(port: u16) -> Result<(super::TunnelGuard, String), Box<dyn std::error::Error + Send + Sync>> {
-    let mut cmd = Command::new("npx");
-    cmd.args(["localtunnel", "--port", port.to_string().as_str()])
+    let tunnel_def = crate::resources::tunnel_by_id("localtunnel")
+        .expect("localtunnel not in tunnels.json");
+    let program = tunnel_def.program.as_deref().unwrap_or("npx");
+    let base_args: Vec<&str> = tunnel_def.args.as_ref()
+        .map(|a| a.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_else(|| vec!["localtunnel", "--port"]);
+
+    let mut cmd = Command::new(program);
+    cmd.args(&base_args)
+        .arg(port.to_string())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    let error_hint = crate::resources::tunnel_spawn_error_hint(tunnel_def)
+        .unwrap_or("is Node/npx installed?");
     let mut child = cmd.spawn().map_err(|e| {
-        format!(
-            "Failed to spawn localtunnel (is Node/npx installed?): {}",
-            e
-        )
+        format!("Failed to spawn {} ({}): {}", program, error_hint, e)
     })?;
 
     let stdout = child

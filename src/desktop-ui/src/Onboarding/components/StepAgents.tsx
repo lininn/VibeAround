@@ -1,9 +1,9 @@
 import { Bot, Check } from "lucide-react";
 
-import { AGENT_LABELS, ALL_AGENTS } from "../constants";
 import type { StepAgentsProps } from "../types";
 
 export function StepAgents({
+  agents,
   enabled,
   defaultAgent,
   onToggle,
@@ -21,18 +21,18 @@ export function StepAgents({
         </p>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        {ALL_AGENTS.map((id) => {
-          const isEnabled = enabled.has(id);
-          const isDefault = defaultAgent === id;
+        {agents.map((agent) => {
+          const isEnabled = enabled.has(agent.id);
+          const isDefault = defaultAgent === agent.id;
           return (
             <div
-              key={id}
+              key={agent.id}
               className={`relative flex flex-col gap-1.5 p-3 rounded-lg border cursor-pointer transition-colors ${
                 isEnabled
                   ? "border-primary/40 bg-primary/5"
                   : "border-border hover:border-border/80"
               }`}
-              onClick={() => onToggle(id)}
+              onClick={() => onToggle(agent.id)}
             >
               <div className="flex items-center justify-between">
                 <span
@@ -40,7 +40,7 @@ export function StepAgents({
                     isEnabled ? "text-foreground" : "text-muted-foreground"
                   }`}
                 >
-                  {AGENT_LABELS[id]}
+                  {agent.display_name}
                 </span>
                 <div
                   className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
@@ -58,7 +58,7 @@ export function StepAgents({
                 <button
                   onClick={(event) => {
                     event.stopPropagation();
-                    onSetDefault(id);
+                    onSetDefault(agent.id);
                   }}
                   className={`text-[10px] font-mono px-1.5 py-0.5 rounded self-start transition-colors ${
                     isDefault

@@ -1,5 +1,24 @@
 import type { AgentId, TunnelProvider } from "./constants";
 
+// Resource types — returned by Tauri commands
+export interface AgentSummary {
+  id: string;
+  display_name: string;
+  description: string;
+}
+
+export interface TunnelSummary {
+  id: string;
+  display_name: string;
+}
+
+export interface PluginRegistryEntry {
+  id: string;
+  name: string;
+  description: string;
+  github: string;
+}
+
 export interface Settings {
   onboarded?: boolean;
   workspaces?: string[];
@@ -69,6 +88,7 @@ export interface AuthFlowState {
 }
 
 export interface StepAgentsProps {
+  agents: AgentSummary[];
   enabled: Set<AgentId>;
   defaultAgent: AgentId;
   onToggle: (id: AgentId) => void;
@@ -76,11 +96,11 @@ export interface StepAgentsProps {
 }
 
 export interface StepChannelsProps {
+  pluginRegistry: PluginRegistryEntry[];
   discoveredPlugins: DiscoveredChannelPlugin[];
   enabledChannels: Set<string>;
   channelConfigs: Record<string, Record<string, string>>;
   installingPlugins: Set<string>;
-  installErrors: Record<string, string>;
   authStates: Record<string, AuthFlowState>;
   onToggleChannel: (pluginId: string, enabled: boolean) => void;
   onConfigChange: (pluginId: string, key: string, value: string) => void;
@@ -90,6 +110,7 @@ export interface StepChannelsProps {
 }
 
 export interface StepTunnelProps {
+  tunnels: TunnelSummary[];
   provider: TunnelProvider;
   onProvider: (value: TunnelProvider) => void;
   ngrokToken: string;
@@ -103,9 +124,11 @@ export interface StepTunnelProps {
 }
 
 export interface StepConfirmProps {
+  agents: AgentSummary[];
+  tunnels: TunnelSummary[];
+  pluginRegistry: PluginRegistryEntry[];
   enabledAgents: Set<AgentId>;
   defaultAgent: AgentId;
   tunnelProvider: TunnelProvider;
   enabledChannels: Set<string>;
-  discoveredPlugins: DiscoveredChannelPlugin[];
 }

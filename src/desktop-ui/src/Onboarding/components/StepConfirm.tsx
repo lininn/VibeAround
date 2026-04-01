@@ -1,22 +1,26 @@
 import { Rocket } from "lucide-react";
 
-import { AGENT_LABELS, TUNNEL_LABELS } from "../constants";
-import { PLUGIN_REGISTRY } from "../plugin-registry";
 import type { StepConfirmProps } from "../types";
 
 export function StepConfirm({
+  agents,
+  tunnels,
+  pluginRegistry,
   enabledAgents,
   defaultAgent,
   tunnelProvider,
   enabledChannels,
 }: StepConfirmProps) {
-  const agents = Array.from(enabledAgents)
-    .map((id) => `${AGENT_LABELS[id]}${id === defaultAgent ? " ★" : ""}`)
+  const agentLabels = new Map(agents.map((a) => [a.id, a.display_name]));
+  const tunnelLabels = new Map(tunnels.map((t) => [t.id, t.display_name]));
+
+  const agentSummary = Array.from(enabledAgents)
+    .map((id) => `${agentLabels.get(id) ?? id}${id === defaultAgent ? " ★" : ""}`)
     .join(", ");
 
   const channelNames = Array.from(enabledChannels)
     .map((id) => {
-      const registry = PLUGIN_REGISTRY.find((p) => p.id === id);
+      const registry = pluginRegistry.find((p) => p.id === id);
       return registry?.name ?? id;
     });
 
@@ -34,13 +38,19 @@ export function StepConfirm({
       </div>
 
       <div className="space-y-2 text-sm">
-        <SummaryRow label="Agents" value={agents} />
+        <SummaryRow label="Agents" value={agentSummary} />
         <SummaryRow
           label="Channels"
           value={channelNames.length > 0 ? channelNames.join(", ") : "None configured"}
         />
-        <SummaryRow label="Tunnel" value={TUNNEL_LABELS[tunnelProvider]} />
+        <SummaryRow label="Tunnel" value={tunnelLabels.get(tunnelProvider) ?? tunnelProvider} />
       </div>
+
+      <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
+        VibeAround will add an MCP server entry to your coding agents' global
+        settings and install a handover skill for session transfer between
+        devices. Your existing agent settings will not be overwritten.
+      </p>
     </div>
   );
 }

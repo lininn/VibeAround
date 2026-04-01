@@ -45,6 +45,7 @@ impl RuntimeStatusStore {
                     session_id: None,
                     cli_kind: None,
                     profile: None,
+                    workspace: None,
                     busy: false,
                     failed: None,
                     started_at: now_secs(),

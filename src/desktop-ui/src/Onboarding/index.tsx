@@ -2,16 +2,19 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ChevronLeft, ChevronRight, Rocket } from "lucide-react";
 
-import { ALL_AGENTS, STEPS } from "./constants";
+import { STEPS } from "./constants";
 import { StepAgents } from "./components/StepAgents";
 import { StepChannels } from "./components/StepChannels";
 import { StepConfirm } from "./components/StepConfirm";
 import { StepTunnel } from "./components/StepTunnel";
 import { StepWelcome } from "./components/StepWelcome";
 import type {
+  AgentSummary,
   AuthFlowState,
   DiscoveredChannelPlugin,
+  PluginRegistryEntry,
   Settings,
+  TunnelSummary,
 } from "./types";
 import type { AgentId, OnboardingStep, TunnelProvider } from "./constants";
 
@@ -21,8 +24,13 @@ export default function Onboarding() {
   const [discoveredPlugins, setDiscoveredPlugins] = useState<DiscoveredChannelPlugin[]>([]);
   const [loaded, setLoaded] = useState(false);
 
+  // Resource data from backend
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
+  const [tunnels, setTunnels] = useState<TunnelSummary[]>([]);
+  const [pluginRegistry, setPluginRegistry] = useState<PluginRegistryEntry[]>([]);
+
   // Agents
-  const [enabledAgents, setEnabledAgents] = useState<Set<AgentId>>(new Set(ALL_AGENTS));
+  const [enabledAgents, setEnabledAgents] = useState<Set<AgentId>>(new Set());
   const [defaultAgent, setDefaultAgent] = useState<AgentId>("claude");
 
   // Channels — generic state for all plugins
@@ -40,19 +48,27 @@ export default function Onboarding() {
 
   const [finishing, setFinishing] = useState(false);
 
-  // ---- Load existing settings ----
+  // ---- Load existing settings + resources ----
   useEffect(() => {
     Promise.all([
       invoke<Settings>("get_settings"),
       invoke<DiscoveredChannelPlugin[]>("list_channel_plugins"),
+      invoke<AgentSummary[]>("list_agents"),
+      invoke<TunnelSummary[]>("list_tunnels"),
+      invoke<PluginRegistryEntry[]>("list_plugin_registry"),
     ])
-      .then(([loadedSettings, plugins]) => {
+      .then(([loadedSettings, plugins, agentDefs, tunnelDefs, pluginDefs]) => {
         setSettings(loadedSettings);
         setDiscoveredPlugins(plugins);
+        setAgents(agentDefs);
+        setTunnels(tunnelDefs);
+        setPluginRegistry(pluginDefs);
 
-        // Agents
+        // Agents — default to all enabled
         if (loadedSettings.enabled_agents?.length) {
           setEnabledAgents(new Set(loadedSettings.enabled_agents as AgentId[]));
+        } else {
+          setEnabledAgents(new Set(agentDefs.map((a) => a.id)));
         }
         if (loadedSettings.default_agent) {
           setDefaultAgent(loadedSettings.default_agent as AgentId);
@@ -107,41 +123,17 @@ export default function Onboarding() {
     }));
   }, []);
 
-  const [installErrors, setInstallErrors] = useState<Record<string, string>>({});
-
   const installPlugin = useCallback(async (pluginId: string, githubUrl: string) => {
     setInstallingPlugins((prev) => new Set(prev).add(pluginId));
-    setInstallErrors((prev) => {
-      const next = { ...prev };
-      delete next[pluginId];
-      return next;
-    });
     try {
-      const result = await invoke<{ success: boolean; message: string; actualPluginId?: string }>(
-        "install_plugin",
-        { request: { pluginId, githubUrl } },
-      );
-
+      await invoke("install_plugin", {
+        request: { pluginId, githubUrl },
+      });
+      // Refresh discovered plugins
       const plugins = await invoke<DiscoveredChannelPlugin[]>("list_channel_plugins");
       setDiscoveredPlugins(plugins);
-
-      // Check whether the plugin actually appeared in discovery
-      const found = plugins.some((p) => p.id === pluginId || p.dirName === pluginId);
-      if (!found && result.actualPluginId) {
-        console.warn(
-          `[install] plugin.json id "${result.actualPluginId}" differs from registry id "${pluginId}"; using dirName fallback`,
-        );
-      }
-      if (!found && !result.actualPluginId) {
-        setInstallErrors((prev) => ({
-          ...prev,
-          [pluginId]: "Installed but not detected — check plugin.json has kind \"channel\".",
-        }));
-      }
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.error(`Failed to install plugin ${pluginId}:`, msg);
-      setInstallErrors((prev) => ({ ...prev, [pluginId]: msg }));
+      console.error(`Failed to install plugin ${pluginId}:`, error);
     } finally {
       setInstallingPlugins((prev) => {
         const next = new Set(prev);
@@ -160,7 +152,7 @@ export default function Onboarding() {
 
     try {
       // Build config from current channel config + schema defaults
-      const discovered = discoveredPlugins.find((p) => p.id === pluginId || p.dirName === pluginId);
+      const discovered = discoveredPlugins.find((p) => p.id === pluginId);
       const schemaProps = discovered?.configSchema?.properties ?? {};
       const configForAuth: Record<string, string> = {};
       for (const [key, prop] of Object.entries(schemaProps)) {
@@ -176,7 +168,6 @@ export default function Onboarding() {
           ...prev,
           [pluginId]: { status: "connected", message: String(result.message ?? "Already authenticated.") },
         }));
-        // Store auth result data back into channel config
         if (result.botToken) updateChannelConfig(pluginId, "bot_token", String(result.botToken));
         if (result.accountId) updateChannelConfig(pluginId, "account_id", String(result.accountId));
         return;
@@ -278,7 +269,7 @@ export default function Onboarding() {
       }
 
       // Fill defaults from schema for hidden fields
-      const discovered = discoveredPlugins.find((p) => p.id === id || p.dirName === id);
+      const discovered = discoveredPlugins.find((p) => p.id === id);
       if (discovered?.configSchema?.properties) {
         for (const [key, prop] of Object.entries(discovered.configSchema.properties)) {
           if (prop.hidden && prop.default && !config[key]) {
@@ -303,7 +294,6 @@ export default function Onboarding() {
     // Tunnel
     if (tunnelProvider !== "none") {
       const tunnel: Settings["tunnel"] = { provider: tunnelProvider };
-      // localtunnel has no config fields
       if (tunnelProvider === "ngrok") {
         tunnel.ngrok = {};
         if (ngrokToken.trim()) tunnel.ngrok.auth_token = ngrokToken.trim();
@@ -396,6 +386,7 @@ export default function Onboarding() {
         {currentStep === "Welcome" && <StepWelcome />}
         {currentStep === "Agents" && (
           <StepAgents
+            agents={agents}
             enabled={enabledAgents}
             defaultAgent={defaultAgent}
             onToggle={toggleAgent}
@@ -404,11 +395,11 @@ export default function Onboarding() {
         )}
         {currentStep === "Channels" && (
           <StepChannels
+            pluginRegistry={pluginRegistry}
             discoveredPlugins={discoveredPlugins}
             enabledChannels={enabledChannels}
             channelConfigs={channelConfigs}
             installingPlugins={installingPlugins}
-            installErrors={installErrors}
             authStates={authStates}
             onToggleChannel={toggleChannel}
             onConfigChange={updateChannelConfig}
@@ -419,6 +410,7 @@ export default function Onboarding() {
         )}
         {currentStep === "Tunnel" && (
           <StepTunnel
+            tunnels={tunnels}
             provider={tunnelProvider}
             onProvider={setTunnelProvider}
             ngrokToken={ngrokToken}
@@ -433,11 +425,13 @@ export default function Onboarding() {
         )}
         {currentStep === "Confirm" && (
           <StepConfirm
+            agents={agents}
+            tunnels={tunnels}
+            pluginRegistry={pluginRegistry}
             enabledAgents={enabledAgents}
             defaultAgent={defaultAgent}
             tunnelProvider={tunnelProvider}
             enabledChannels={enabledChannels}
-            discoveredPlugins={discoveredPlugins}
           />
         )}
       </div>

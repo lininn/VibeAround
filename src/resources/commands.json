@@ -1,0 +1,11 @@
+{
+  "system_commands": [
+    { "name": "new", "description": "Reset session" },
+    { "name": "switch", "args": "<agent>", "description": "Switch agent (claude, opencode, gemini, codex)" },
+    { "name": "profile", "args": "<profile>", "description": "Switch profile" },
+    { "name": "close", "description": "Close conversation" },
+    { "name": "pickup", "args": "<session_id> <cwd>", "description": "Resume a coding agent session here" },
+    { "name": "handover", "description": "Export session to a coding agent CLI" },
+    { "name": "help", "aliases": ["commands", "list_agent_commands"], "description": "Show this list" }
+  ]
+}

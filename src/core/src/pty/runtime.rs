@@ -38,25 +38,28 @@ fn tool_exec_argv(tool: PtyTool, tmux_session: Option<&str>) -> String {
             )
         };
     }
-    match tool {
-        PtyTool::Generic => "bash -l".to_string(),
-        PtyTool::Claude => "claude code --permission-mode acceptEdits".to_string(),
-        PtyTool::Gemini => "gemini".to_string(),
-        PtyTool::Codex => "codex".to_string(),
-        PtyTool::OpenCode => "opencode".to_string(),
-    }
+    // Map PtyTool to agent ID for resource lookup
+    let agent_id = match tool {
+        PtyTool::Generic => return "bash -l".to_string(),
+        PtyTool::Claude => "claude",
+        PtyTool::Gemini => "gemini",
+        PtyTool::Codex => "codex",
+        PtyTool::OpenCode => "opencode",
+    };
+    crate::resources::agent_by_id(agent_id)
+        .map(|a| a.pty.command.clone())
+        .unwrap_or_else(|| agent_id.to_string())
 }
 
 fn set_pty_env(c: &mut CommandBuilder, theme: Option<&str>) {
-    c.env("TERM", "xterm-256color");
-    c.env("COLORTERM", "truecolor");
+    let pty_env = &crate::resources::PTY_ENV;
+    for (key, val) in &pty_env.env {
+        c.env(key, val);
+    }
     if let Some(t) = theme {
-        match t {
-            "light" | "dark" => {
-                c.env("COLOR_THEME", t);
-                c.env("COLORFGBG", if t == "light" { "0;15" } else { "15;0" });
-            }
-            _ => {}
+        if let Some(theme_def) = pty_env.themes.get(t) {
+            c.env("COLOR_THEME", t);
+            c.env("COLORFGBG", &theme_def.colorfgbg);
         }
     }
 }
@@ -145,11 +148,9 @@ struct OscColorResponder {
 
 impl OscColorResponder {
     fn new(theme: &str, writer: Arc<std::sync::Mutex<Box<dyn Write + Send>>>) -> Option<Self> {
-        let (fg, bg) = match theme {
-            "light" => ("1e293b", "ffffff"),
-            "dark" => ("c8c8d8", "0d0d0d"),
-            _ => return None,
-        };
+        let pty_env = &crate::resources::PTY_ENV;
+        let theme_def = pty_env.themes.get(theme)?;
+        let (fg, bg) = (theme_def.fg.as_str(), theme_def.bg.as_str());
         let osc10 = format!(
             "\x1b]10;rgb:{r}{r}/{g}{g}/{b}{b}\x1b\\",
             r = &fg[0..2], g = &fg[2..4], b = &fg[4..6],

@@ -122,6 +122,23 @@ impl ACPHub {
     }
 
     // -----------------------------------------------------------------------
+    // Session handover — pod lifecycle only
+    // -----------------------------------------------------------------------
+
+    /// Prepare a pod on a route for session pickup — set the resume_session_id
+    /// and cwd so the next prompt spawns a bridge that loads the given session.
+    pub async fn prepare_pickup(
+        &self,
+        route: RouteKey,
+        cli_kind: String,
+        resume_session_id: String,
+        cwd: String,
+    ) {
+        let pod = self.get_or_create_pod(route);
+        pod.set_handover(cli_kind, resume_session_id, cwd).await;
+    }
+
+    // -----------------------------------------------------------------------
     // Internal
     // -----------------------------------------------------------------------
 

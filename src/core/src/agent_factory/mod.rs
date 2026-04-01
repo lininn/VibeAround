@@ -11,7 +11,6 @@ pub mod runtime;
 
 use self::provider::{provider_for_kind, AgentKind};
 use self::runtime::{AcpBridge, BridgeClientHandler, BridgeReady};
-use crate::config;
 
 /// Spawn a new AcpBridge for the given agent kind.
 ///
@@ -29,16 +28,12 @@ pub async fn spawn_bridge(
 
     let kind = AgentKind::from_str_loose(cli_kind).unwrap_or(AgentKind::Claude);
     let provider = provider_for_kind(kind);
-    let system_prompt = Some(agents::runtime_context::build_runtime_context(channel_kind));
-    let port = config::DEFAULT_PORT;
 
     let ready = AcpBridge::spawn(
         provider,
         kind,
-        &workspace,
-        system_prompt.as_deref(),
+        workspace,
         resume_session_id,
-        port,
         client_handler,
     )
     .await?;

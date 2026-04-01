@@ -1,0 +1,37 @@
+[
+  {
+    "id": "telegram",
+    "name": "Telegram",
+    "description": "Use a BotFather token to chat with VibeAround in Telegram.",
+    "github": "https://github.com/jazzenchen/vibearound-plugin-telegram",
+    "install_steps": ["git_clone", "npm_install", "npm_build"]
+  },
+  {
+    "id": "feishu",
+    "name": "Feishu (Lark)",
+    "description": "Provide app credentials for your Feishu bot integration.",
+    "github": "https://github.com/jazzenchen/vibearound-plugin-feishu",
+    "install_steps": ["git_clone", "npm_install", "npm_build"]
+  },
+  {
+    "id": "discord",
+    "name": "Discord",
+    "description": "Use a Discord bot token to chat via @mention or DM.",
+    "github": "https://github.com/jazzenchen/vibearound-plugin-discord",
+    "install_steps": ["git_clone", "npm_install", "npm_build"]
+  },
+  {
+    "id": "weixin-openclaw-bridge",
+    "name": "WeChat",
+    "description": "Connect via QR code authorization through OpenClaw bridge.",
+    "github": "https://github.com/jazzenchen/vibearound-plugin-weixin-openclaw-bridge",
+    "install_steps": ["git_clone", "npm_install", "npm_build"]
+  },
+  {
+    "id": "whatsapp",
+    "name": "WhatsApp",
+    "description": "Connect via pairing code (Baileys). Currently blocked by upstream issue.",
+    "github": "https://github.com/jazzenchen/vibearound-plugin-whatsapp",
+    "install_steps": ["git_clone", "npm_install", "npm_build"]
+  }
+]

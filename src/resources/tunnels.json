@@ -1,0 +1,29 @@
+[
+  {
+    "id": "none",
+    "display_name": "None (local only)"
+  },
+  {
+    "id": "localtunnel",
+    "display_name": "Local Tunnel",
+    "program": "npx",
+    "args": ["localtunnel", "--port"],
+    "spawn_error_hint": "Is Node/npx installed?"
+  },
+  {
+    "id": "cloudflare",
+    "display_name": "Cloudflare Tunnel",
+    "program": "cloudflared",
+    "args": ["tunnel", "run", "--token"],
+    "spawn_error_hint": "Is it installed? brew install cloudflared",
+    "platform_overrides": {
+      "windows": {
+        "spawn_error_hint": "Is it installed? Download from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+      }
+    }
+  },
+  {
+    "id": "ngrok",
+    "display_name": "Ngrok"
+  }
+]

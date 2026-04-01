@@ -66,15 +66,10 @@ impl AcpBridge {
         provider: Arc<dyn AgentProvider>,
         kind: AgentKind,
         workspace: &Path,
-        system_prompt: Option<&str>,
         resume_session_id: Option<String>,
-        mcp_port: u16,
         client_handler: Arc<dyn BridgeClientHandler>,
     ) -> Result<BridgeReady, String> {
-        provider.prepare_workspace(workspace, system_prompt, mcp_port)?;
-
         let cwd = workspace.to_path_buf();
-        let system_prompt_owned = system_prompt.map(str::to_string);
         let (ready_tx, ready_rx) =
             tokio::sync::oneshot::channel::<Result<BridgeReady, String>>();
         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
@@ -87,7 +82,6 @@ impl AcpBridge {
                     kind,
                     cwd,
                     ready_tx,
-                    system_prompt_owned,
                     resume_session_id,
                     client_handler,
                     cancel_tx,
@@ -204,7 +198,6 @@ fn run_bridge_thread(
     kind: AgentKind,
     cwd: PathBuf,
     ready_tx: tokio::sync::oneshot::Sender<Result<BridgeReady, String>>,
-    system_prompt: Option<String>,
     resume_session_id: Option<String>,
     client_handler: Arc<dyn BridgeClientHandler>,
     cancel_tx: tokio::sync::watch::Sender<bool>,
@@ -226,7 +219,7 @@ fn run_bridge_thread(
         local
             .run_until(async move {
                 match init_bridge(
-                    provider, kind, cwd, system_prompt, resume_session_id, client_handler, cancel_tx,
+                    provider, kind, cwd, resume_session_id, client_handler, cancel_tx,
                 )
                 .await
                 {
@@ -249,7 +242,6 @@ async fn init_bridge(
     provider: Arc<dyn AgentProvider>,
     kind: AgentKind,
     cwd: PathBuf,
-    system_prompt: Option<String>,
     resume_session_id: Option<String>,
     client_handler: Arc<dyn BridgeClientHandler>,
     cancel_tx: tokio::sync::watch::Sender<bool>,
@@ -257,7 +249,7 @@ async fn init_bridge(
     use acp::Agent as _;
     use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-    let mut connection = provider.connect(&cwd, system_prompt.as_deref()).await?;
+    let mut connection = provider.connect(&cwd).await?;
     let provider_session_id_rx = connection.session_id_rx.take();
     let worker_thread = connection.worker_thread.take();
 
@@ -322,4 +314,3 @@ async fn init_bridge(
         initialize,
     })
 }
-

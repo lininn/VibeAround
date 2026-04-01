@@ -5,6 +5,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
 use tokio::sync::{broadcast, Mutex, Notify};
@@ -29,6 +30,7 @@ pub struct PodSnapshot {
     pub session_id: Option<String>,
     pub cli_kind: Option<String>,
     pub profile: Option<String>,
+    pub workspace: Option<String>,
     pub busy: bool,
     pub failed: Option<String>,
     pub started_at: u64,
@@ -58,6 +60,8 @@ pub struct ACPPod {
     session_id: Mutex<Option<String>>,
     cli_kind: Mutex<Option<String>>,
     profile: Mutex<Option<String>>,
+    /// Resolved workspace path, set when bridge is spawned.
+    workspace: Mutex<Option<String>>,
     initialize: Mutex<Option<acp::InitializeResponse>>,
     busy: Mutex<bool>,
     failed: Mutex<Option<String>>,
@@ -67,8 +71,10 @@ pub struct ACPPod {
     in_flight: Mutex<bool>,
     pending: Mutex<VecDeque<Arc<Notify>>>,
     /// Cached available commands from the agent's `available_commands_update` notification.
-    /// Updated dynamically as the agent reports its command set.
     agent_commands: Mutex<serde_json::Value>,
+    // --- Handover state (consumed once on next prompt) ---
+    handover_resume_session_id: Mutex<Option<String>>,
+    handover_cwd: Mutex<Option<String>>,
 }
 
 impl ACPPod {
@@ -80,6 +86,7 @@ impl ACPPod {
             session_id: Mutex::new(None),
             cli_kind: Mutex::new(None),
             profile: Mutex::new(None),
+            workspace: Mutex::new(None),
             initialize: Mutex::new(None),
             busy: Mutex::new(false),
             failed: Mutex::new(None),
@@ -88,7 +95,18 @@ impl ACPPod {
             in_flight: Mutex::new(false),
             pending: Mutex::new(VecDeque::new()),
             agent_commands: Mutex::new(serde_json::Value::Array(vec![])),
+            handover_resume_session_id: Mutex::new(None),
+            handover_cwd: Mutex::new(None),
         }
+    }
+
+    /// Prepare this pod for a session pickup. Sets cli_kind, resume_session_id,
+    /// and cwd so the next prompt spawns a bridge that resumes the given session.
+    pub async fn set_handover(&self, cli_kind: String, resume_session_id: String, cwd: String) {
+        self.full_reset().await;
+        *self.cli_kind.lock().await = Some(cli_kind);
+        *self.handover_resume_session_id.lock().await = Some(resume_session_id);
+        *self.handover_cwd.lock().await = Some(cwd);
     }
 
     // -----------------------------------------------------------------------
@@ -132,8 +150,12 @@ impl ACPPod {
         self.emit_snapshot().await;
 
         let result: acp::Result<acp::PromptResponse> = async {
+            // Take handover state (consumed once)
+            let resume_sid = self.handover_resume_session_id.lock().await.take();
+            let resume_cwd = self.handover_cwd.lock().await.take();
+
             let bridge = self
-                .ensure_bridge(cli_kind, None, downstream_handler)
+                .ensure_bridge(cli_kind, resume_sid, resume_cwd, downstream_handler)
                 .await
                 .map_err(|error| {
                     eprintln!("[ACPPod] ensure_bridge failed route={}: {}", self.route, error);
@@ -242,6 +264,7 @@ impl ACPPod {
             session_id: self.session_id.lock().await.clone(),
             cli_kind: self.cli_kind.lock().await.clone(),
             profile: self.profile.lock().await.clone(),
+            workspace: self.workspace.lock().await.clone(),
             busy: *self.busy.lock().await,
             failed: self.failed.lock().await.clone(),
             started_at: self.started_at,
@@ -258,6 +281,7 @@ impl ACPPod {
         self: &Arc<Self>,
         cli_kind: Option<String>,
         resume_session_id: Option<String>,
+        resume_cwd: Option<String>,
         downstream_handler: Arc<dyn BridgeClientHandler>,
     ) -> Result<Arc<AcpBridge>, String> {
         // Resolve which agent kind to use
@@ -305,15 +329,24 @@ impl ACPPod {
             .clone()
             .unwrap_or_else(|| "default".to_string());
 
-        // Wrap downstream handler with our observation hook
+        // Resolve workspace — handover cwd overrides default
+        let workspace = match resume_cwd {
+            Some(cwd) => std::path::PathBuf::from(cwd),
+            None => config::ensure_loaded().resolve_workspace(&cli_kind),
+        };
+
+        // Track workspace for snapshot (used by /handover Direction 2)
+        *self.workspace.lock().await = Some(workspace.to_string_lossy().to_string());
+
+        // Wrap downstream handler — suppress replay during handover load_session
+        let is_handover = resume_session_id.is_some();
+        let suppress_replay = Arc::new(AtomicBool::new(is_handover));
         let handler: Arc<dyn BridgeClientHandler> = Arc::new(SessionBridgeHandler {
             route: self.route.clone(),
             event_tx: self.event_tx.clone(),
             downstream: downstream_handler,
+            suppress_replay: Arc::clone(&suppress_replay),
         });
-
-        // Resolve workspace for this agent
-        let workspace = config::ensure_loaded().resolve_workspace(&cli_kind);
 
         let ready = match crate::agent_factory::spawn_bridge(
             &self.route.channel_kind,
@@ -336,6 +369,9 @@ impl ACPPod {
                 return Err(error);
             }
         };
+
+        // Bridge is ready — load_session has completed, stop suppressing replay
+        suppress_replay.store(false, Ordering::Release);
 
         // Store bridge and metadata
         eprintln!(
@@ -392,9 +428,7 @@ impl ACPPod {
         Ok(session_id)
     }
 
-    /// Kill the current bridge and clear related state.
     /// Full reset: kill bridge, drain queue, clear all state.
-    /// Used by switch_agent/switch_profile to ensure clean slate.
     async fn full_reset(&self) {
         // Kill bridge
         if let Some(bridge) = self.bridge.lock().await.take() {
@@ -413,6 +447,8 @@ impl ACPPod {
         *self.initialize.lock().await = None;
         *self.failed.lock().await = None;
         *self.busy.lock().await = false;
+        *self.handover_resume_session_id.lock().await = None;
+        *self.handover_cwd.lock().await = None;
         eprintln!("[ACPPod] full_reset done route={}", self.route);
     }
 
@@ -531,12 +567,19 @@ struct SessionBridgeHandler {
     route: RouteKey,
     event_tx: broadcast::Sender<SystemEvent>,
     downstream: Arc<dyn BridgeClientHandler>,
+    /// When true, session_notification events are swallowed (not forwarded to IM).
+    /// Used during handover load_session to suppress history replay.
+    suppress_replay: Arc<AtomicBool>,
 }
 
 #[async_trait::async_trait(?Send)]
 impl BridgeClientHandler for SessionBridgeHandler {
     async fn session_notification(&self, args: acp::SessionNotification) -> acp::Result<()> {
-        // TODO: capture for chat history here
+        // During handover load_session, suppress replay notifications
+        // so history doesn't flood the IM channel.
+        if self.suppress_replay.load(Ordering::Acquire) {
+            return Ok(());
+        }
 
         // Forward to channel handler
         self.downstream.session_notification(args).await

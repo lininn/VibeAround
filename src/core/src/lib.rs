@@ -7,6 +7,7 @@ pub mod channel_manager;
 pub mod config;
 pub mod plugins;
 pub mod pty;
+pub mod resources;
 pub mod runtime_status;
 pub mod service;
 pub mod session_manager;
