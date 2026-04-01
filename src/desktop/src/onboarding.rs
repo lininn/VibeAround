@@ -263,6 +263,39 @@ pub struct InstallPluginResponse {
     pub actual_plugin_id: Option<String>,
 }
 
+/// Run an npm subcommand in `cwd`.
+///
+/// On Windows, GUI processes often don't inherit the user PATH, so bare
+/// `npm` or even `npm.cmd` may not resolve. Routing through `cmd /C npm`
+/// lets the Windows command processor find npm regardless.
+async fn npm_command(
+    args: &[&str],
+    cwd: &std::path::Path,
+) -> std::io::Result<std::process::Output> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd_args = vec!["/C", "npm"];
+        cmd_args.extend_from_slice(args);
+        tokio::process::Command::new("cmd")
+            .args(&cmd_args)
+            .current_dir(cwd)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        tokio::process::Command::new("npm")
+            .args(args)
+            .current_dir(cwd)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .await
+    }
+}
+
 #[tauri::command]
 pub async fn install_plugin(request: InstallPluginRequest) -> Result<InstallPluginResponse, String> {
     let plugins_dir = config::data_dir().join("plugins");
@@ -289,18 +322,9 @@ pub async fn install_plugin(request: InstallPluginRequest) -> Result<InstallPlug
         eprintln!("[install_plugin] {} already exists, skipping clone", request.plugin_id);
     }
 
-    // On Windows, npm ships as npm.cmd; use that so Command can find it.
-    let npm = if cfg!(target_os = "windows") { "npm.cmd" } else { "npm" };
-
     // npm install
     eprintln!("[install_plugin] running npm install in {:?}", target_dir);
-    let output = tokio::process::Command::new(npm)
-        .args(["install"])
-        .current_dir(&target_dir)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .await
+    let output = npm_command(&["install"], &target_dir).await
         .map_err(|e| format!("npm install failed: {}", e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -309,13 +333,7 @@ pub async fn install_plugin(request: InstallPluginRequest) -> Result<InstallPlug
 
     // npm run build
     eprintln!("[install_plugin] running npm run build in {:?}", target_dir);
-    let output = tokio::process::Command::new(npm)
-        .args(["run", "build"])
-        .current_dir(&target_dir)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .await
+    let output = npm_command(&["run", "build"], &target_dir).await
         .map_err(|e| format!("npm run build failed: {}", e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
