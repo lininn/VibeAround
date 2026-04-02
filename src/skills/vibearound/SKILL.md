@@ -1,51 +1,37 @@
 ---
 name: vibearound
-description: "VibeAround Session Handover \u2014 hand over your current coding session to an IM channel (Feishu, Discord, WeChat, Telegram) so you can continue the conversation on your phone or another device. Use when the user says \"/vibearound handover\", \"hand over to feishu\", \"continue on my phone\", \"send this to discord\", or similar session transfer requests."
+description: Hand over your current coding session to an IM channel so you can continue the conversation on your phone or another device. Use when the user says "/vibearound handover", "hand over to feishu", "continue on my phone", "send this to discord", or similar session transfer requests.
 ---
 
 # VibeAround Session Handover
 
-This skill hands over the current Claude Code session to an IM channel via the VibeAround orchestrator, allowing the user to continue the conversation on another device.
+Hand over the current Claude Code session to an IM channel via the VibeAround orchestrator, so the user can continue the conversation on another device.
 
 ## When to Use
 
-**Trigger conditions:**
 - User says `/vibearound handover <channel>`
 - User asks to "hand over", "transfer", or "continue" the session on an IM platform
-- User mentions sending the session to Feishu, Discord, Telegram, WeChat, or the web dashboard
+- User mentions continuing on their phone, another device, or a specific chat app
 
 ## Prerequisites
 
-The VibeAround MCP server must be available. If the `vibearound` MCP server is not configured, tell the user:
-> "VibeAround MCP server is not connected. Make sure the VibeAround desktop app is running."
+The VibeAround MCP server must be connected (server name: `vibearound`). If not available, tell the user to start the VibeAround desktop app.
 
-## Handover Flow
+## Handover Steps
 
-### Step 1: Resolve the session ID
-
-Read the current Claude session metadata:
+### 1. Resolve the session ID
 
 ```bash
 cat ~/.claude/sessions/$PPID.json
 ```
 
-Extract the `sessionId` field from the JSON output. If the file doesn't exist or has no `sessionId`, inform the user that session metadata is unavailable.
+Extract the `sessionId` field. If the file doesn't exist, inform the user.
 
-### Step 2: Determine the target channel
+### 2. Determine the target channel
 
-Map the user's request to a channel identifier:
+Use the channel name the user mentioned (e.g. "feishu", "telegram", "discord", "weixin", "web"). If ambiguous, ask.
 
-| User says | Channel value |
-|-----------|---------------|
-| feishu, lark | `feishu` |
-| telegram | `telegram` |
-| discord | `discord` |
-| wechat, weixin | `weixin` |
-| web, dashboard, browser | `web` |
-
-If the channel is ambiguous, ask the user which one they mean.
-
-### Step 3: Call prepare_handover
+### 3. Call prepare_handover
 
 ```
 Tool: prepare_handover
@@ -57,30 +43,15 @@ Arguments:
   agent_kind: "claude"
 ```
 
-**If the workspace is not registered**, the tool will return an error indicating so. Ask the user for confirmation, then register it:
+If the tool says the workspace is not registered, ask the user for confirmation, then call `register_workspace` with the `cwd`, and retry.
 
-```
-Tool: register_workspace
-Server: vibearound
-Arguments:
-  cwd: "<current working directory>"
-```
+### 4. Present the result
 
-Then retry `prepare_handover`.
-
-### Step 4: Present the result
-
-On success, the tool returns a `/pickup` command string. Show it to the user clearly:
-
-> Session is ready for handover. Send this command in your **{channel}** chat:
->
-> `/pickup {session_id} {cwd}`
-
-Explain that pasting this command in the IM channel will resume the session there with full context.
+Show the `/pickup` command returned by the tool. The user sends it in their IM chat to resume the session there.
 
 ## Error Handling
 
-- **MCP server not available**: Tell the user to start the VibeAround desktop app.
-- **Workspace not registered**: Offer to register it (requires user confirmation).
-- **Channel not recognized**: List the supported channels and ask the user to pick one.
-- **Session ID not found**: The session metadata file may not exist; inform the user.
+- **MCP server not available**: Start the VibeAround desktop app.
+- **Workspace not registered**: Offer to register it (needs user confirmation).
+- **Channel not recognized**: Ask the user which channel they mean.
+- **Session ID not found**: Session metadata file may not exist.
