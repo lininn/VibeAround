@@ -2,7 +2,7 @@
 
 # VibeAround
 
-**Use real coding agents from your browser, desktop, and chat apps.**
+**Code with AI agents from anywhere — terminal, browser, phone, or chat.**
 
 [English](README.md) | [简体中文](README_CN.md) | [Wiki](https://github.com/jazzenchen/VibeAround/wiki)
 
@@ -20,9 +20,9 @@
 
 </div>
 
-VibeAround brings real coding agents — Claude Code, Gemini CLI, Codex, and OpenCode — into the tools you already use: desktop, browser, and messaging apps like Telegram, Feishu, Discord, and WeChat.
+VibeAround is a unified runtime for AI coding agents. Start a session with Claude Code on your laptop, pick it up on Feishu from your phone, switch to Codex mid-conversation, and come back to the terminal — all on the same session.
 
-It's not a wrapper. It's a unified runtime where every surface gets native-feeling access to the same agent system, with real support for streaming, tool use, and thinking display.
+It connects real agents (Claude Code, Gemini CLI, Codex, OpenCode) to every surface you use: desktop, browser, Telegram, Feishu, Discord, and WeChat. Not a wrapper — a runtime with full streaming, tool use, and thinking display.
 
 ## Screenshots
 
@@ -30,37 +30,38 @@ It's not a wrapper. It's a unified runtime where every surface gets native-feeli
 |---------|--------|
 | <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/screenshots/pc.webp" width="720" alt="VibeAround web dashboard on desktop" /> | <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/screenshots/mobile-claude.webp" width="200" alt="VibeAround web dashboard on mobile" /> |
 
-## What you can do
+## Key features
 
-- **Web dashboard** — terminals, tmux sessions, and agent chat at `localhost:12358`
-- **Desktop app** — onboarding wizard, service monitoring, workspace management, tray actions
-- **IM channels** — talk to agents from Telegram, Feishu, Discord, or WeChat
-- **Agent switching** — switch between Claude Code, Gemini CLI, Codex, and OpenCode per session
-- **Multi-workspace** — manage project folders, set defaults, add custom paths via desktop UI
+- **Session handover** — hand off a coding session from Claude Code CLI to any IM channel and continue on your phone *(currently Claude Code only; more agents coming)*
+- **Agent switching** — `/switch claude`, `/switch codex`, `/switch gemini` mid-conversation from any channel
+- **Web dashboard** — terminals, tmux, and agent chat at `localhost:12358`
+- **IM channels** — Telegram, Feishu, Discord, WeChat — each a standalone plugin
+- **Desktop app** — onboarding, service monitoring, workspace management, system tray
+- **Multi-workspace** — manage project folders, set defaults, switch contexts
 - **Tunnel access** — expose your dashboard via Cloudflare Tunnel, Ngrok, or Localtunnel
 
 ## Supported agents
 
-All agents communicate via [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) over stdio.
+All agents communicate via [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) over stdio. npm-based agents are auto-installed on first use.
 
-| Agent | Status |
-|---|---|
-| **Claude Code** | Working |
-| **Gemini CLI** | Working |
-| **OpenCode** | Working |
-| **Codex** | Working |
+| Agent | ACP | Session Handover |
+|---|---|---|
+| **Claude Code** | Working | Supported |
+| **Gemini CLI** | Working | Coming soon |
+| **Codex** | Working | Coming soon |
+| **OpenCode** | Working | Coming soon |
 
 ## Channel plugins
 
 Each channel is a standalone Node.js plugin built with [@vibearound/plugin-channel-sdk](https://www.npmjs.com/package/@vibearound/plugin-channel-sdk).
 
-| Channel | Auth | Message Editing | Status |
+| Channel | Auth | Streaming edits | Status |
 |---|---|---|---|
-| **Telegram** | Bot token | Yes (streaming edits) | Working |
-| **Feishu / Lark** | App credentials | Yes (interactive cards) | Working |
-| **Discord** | Bot token | Yes (streaming edits) | Working |
-| **WeChat** | QR code login | No (send-only) | Working |
-| **WhatsApp** | Pairing code | No (send-only) | Blocked by [Baileys upstream issue](https://github.com/WhiskeySockets/Baileys/issues/2422) |
+| **Telegram** | Bot token | Yes | Working |
+| **Feishu / Lark** | App credentials | Yes (cards) | Working |
+| **Discord** | Bot token | Yes | Working |
+| **WeChat** | QR code login | No | Working |
+| **WhatsApp** | Pairing code | No | Blocked ([upstream](https://github.com/WhiskeySockets/Baileys/issues/2422)) |
 
 ## Quick start
 
@@ -71,10 +72,24 @@ bun run prebuild
 bun run dev
 ```
 
-1. Desktop app opens with onboarding wizard on first run
-2. Choose agents, configure channels and tunnel
-3. Web dashboard available at `http://127.0.0.1:12358`
-4. Start working through terminals, chat, or connected channels
+1. Desktop app opens with onboarding wizard
+2. Choose agents, configure channels, set up tunnel
+3. Web dashboard at `http://127.0.0.1:12358`
+4. Start coding through terminals, chat, or IM channels
+
+## Session handover
+
+Hand off your Claude Code session to any connected IM channel:
+
+```
+you (Claude Code) > /vibearound handover
+Claude Code       > Session ready. Send this in your IM chat:
+                    /pickup claude abc123-session-id
+```
+
+Paste the `/pickup` command in Feishu, Telegram, Discord, or WeChat — continue the conversation right there. Works great for reviewing code on mobile.
+
+> Session handover currently supports **Claude Code** only. Support for Gemini CLI, Codex, and OpenCode is in progress.
 
 ## Architecture
 
@@ -113,7 +128,6 @@ All config lives in `~/.vibearound/settings.json`:
   "default_agent": "claude",
   "enabled_agents": ["claude", "gemini", "opencode", "codex"],
   "workspaces": ["/path/to/your/project"],
-  "default_workspace": "",
   "channels": {
     "telegram": { "bot_token": "..." },
     "feishu": { "app_id": "...", "app_secret": "..." },
@@ -126,19 +140,9 @@ All config lives in `~/.vibearound/settings.json`:
 }
 ```
 
-## Known issues
-
-- **WhatsApp plugin** — Baileys v7 device linking broken upstream; plugin code ready, awaiting fix
-- **Tunnel auth** — no authentication layer for tunnel-exposed dashboards
-- **Plugin discovery** — channel plugins are bundled; no dynamic download/install yet
-- **No release binaries** — must build from source currently
-- **Workspace switching** — workspace settings saved but `/workspaces` chat command not yet implemented
-- **Session persistence** — agent sessions are in-memory; lost on restart
-- **System commands** — limited slash command support (`/help`); more planned
-
 ## Plugin SDK
 
-Build your own channel plugin with the SDK:
+Build your own channel plugin:
 
 ```bash
 npm install @vibearound/plugin-channel-sdk
@@ -157,7 +161,7 @@ See the [SDK README](https://github.com/jazzenchen/vibearound-plugin-channel-sdk
 
 ## Project status
 
-VibeAround is actively evolving. The current product is usable for daily work. Pull requests and feature requests are not being accepted at this time.
+VibeAround is actively evolving and usable for daily work. Pull requests and feature requests are not being accepted at this time.
 
 ## License
 

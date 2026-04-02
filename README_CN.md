@@ -2,7 +2,7 @@
 
 # VibeAround
 
-**在浏览器、桌面端和聊天应用中使用真正的 coding agents。**
+**随时随地用 AI 写代码 — 终端、浏览器、手机、聊天应用。**
 
 [English](README.md) | [简体中文](README_CN.md) | [Wiki](https://github.com/jazzenchen/VibeAround/wiki)
 
@@ -20,9 +20,9 @@
 
 </div>
 
-VibeAround 将真正的 coding agents — Claude Code、Gemini CLI、Codex、OpenCode — 带入你日常使用的工具：桌面应用、浏览器、以及 Telegram、飞书、Discord、微信等即时通讯平台。
+VibeAround 是 AI 编程代理的统一运行时。在电脑上用 Claude Code 开始一段编程会话，在飞书上用手机接着聊，中途切换到 Codex，再回到终端 — 全程同一个会话。
 
-这不是一个套壳产品。它是一个统一的运行时，每个接入面都能原生地访问同一个 agent 系统，完整支持流式输出、工具调用和思考过程展示。
+它将真正的编程代理（Claude Code、Gemini CLI、Codex、OpenCode）接入你日常使用的每个界面：桌面应用、浏览器、Telegram、飞书、Discord、微信。不是套壳 — 是一个完整的运行时，支持流式输出、工具调用和思考过程展示。
 
 ## 截图
 
@@ -30,37 +30,38 @@ VibeAround 将真正的 coding agents — Claude Code、Gemini CLI、Codex、Ope
 |---------|--------|
 | <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/screenshots/pc.webp" width="720" alt="VibeAround 网页控制台" /> | <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/screenshots/mobile-claude.webp" width="200" alt="VibeAround 移动端" /> |
 
-## 功能概览
+## 核心功能
 
-- **网页控制台** — 终端、tmux 会话和 agent 对话，访问 `localhost:12358`
-- **桌面应用** — 引导向导、服务监控、工作空间管理、托盘操作
-- **IM 频道** — 在 Telegram、飞书、Discord 或微信中与 agent 对话
-- **Agent 切换** — 在 Claude Code、Gemini CLI、Codex 和 OpenCode 之间随时切换
-- **多工作空间** — 管理项目文件夹、设置默认路径、通过桌面 UI 添加自定义目录
+- **会话接力** — 将 Claude Code CLI 的编程会话一键移交到任意 IM 频道，手机上继续对话 *（目前仅支持 Claude Code，其他 agent 陆续支持中）*
+- **Agent 切换** — 在任何频道中 `/switch claude`、`/switch codex`、`/switch gemini` 随时切换
+- **网页控制台** — 终端、tmux、agent 对话，访问 `localhost:12358`
+- **IM 频道** — Telegram、飞书、Discord、微信 — 每个都是独立插件
+- **桌面应用** — 引导向导、服务监控、工作空间管理、系统托盘
+- **多工作空间** — 管理项目目录、设置默认、切换上下文
 - **隧道访问** — 通过 Cloudflare Tunnel、Ngrok 或 Localtunnel 远程访问
 
 ## 支持的 Agents
 
-所有 agent 通过 [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) 经由 stdio 通信。
+所有 agent 通过 [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) 经由 stdio 通信。基于 npm 的 agent 首次使用时自动安装。
 
-| Agent | 状态 |
-|---|---|
-| **Claude Code** | 可用 |
-| **Gemini CLI** | 可用 |
-| **OpenCode** | 可用 |
-| **Codex** | 可用 |
+| Agent | ACP | 会话接力 |
+|---|---|---|
+| **Claude Code** | 可用 | 已支持 |
+| **Gemini CLI** | 可用 | 即将支持 |
+| **Codex** | 可用 | 即将支持 |
+| **OpenCode** | 可用 | 即将支持 |
 
 ## 频道插件
 
 每个频道都是独立的 Node.js 插件，基于 [@vibearound/plugin-channel-sdk](https://www.npmjs.com/package/@vibearound/plugin-channel-sdk) 构建。
 
-| 频道 | 认证方式 | 消息编辑 | 状态 |
+| 频道 | 认证方式 | 流式编辑 | 状态 |
 |---|---|---|---|
-| **Telegram** | Bot Token | 支持（流式编辑） | 可用 |
-| **飞书 / Lark** | 应用凭证 | 支持（互动卡片） | 可用 |
-| **Discord** | Bot Token | 支持（流式编辑） | 可用 |
-| **微信** | 二维码登录 | 不支持（仅发送） | 可用 |
-| **WhatsApp** | 配对码 | 不支持（仅发送） | 被 [Baileys 上游问题](https://github.com/WhiskeySockets/Baileys/issues/2422)阻塞 |
+| **Telegram** | Bot Token | 支持 | 可用 |
+| **飞书 / Lark** | 应用凭证 | 支持（卡片） | 可用 |
+| **Discord** | Bot Token | 支持 | 可用 |
+| **微信** | 二维码登录 | 不支持 | 可用 |
+| **WhatsApp** | 配对码 | 不支持 | 被[上游问题](https://github.com/WhiskeySockets/Baileys/issues/2422)阻塞 |
 
 ## 快速开始
 
@@ -73,8 +74,22 @@ bun run dev
 
 1. 首次运行时桌面应用会打开引导向导
 2. 选择 agents，配置频道和隧道
-3. 网页控制台地址：`http://127.0.0.1:12358`
-4. 通过终端、对话或已连接的频道开始工作
+3. 网页控制台：`http://127.0.0.1:12358`
+4. 通过终端、对话或 IM 频道开始编程
+
+## 会话接力
+
+将 Claude Code 的编程会话移交到任意已连接的 IM 频道：
+
+```
+你 (Claude Code) > /vibearound handover
+Claude Code      > 会话已准备好。在 IM 中发送：
+                   /pickup claude abc123-session-id
+```
+
+在飞书、Telegram、Discord 或微信中粘贴 `/pickup` 命令 — 直接继续对话。非常适合在手机上 review 代码。
+
+> 会话接力目前仅支持 **Claude Code**。Gemini CLI、Codex 和 OpenCode 的支持正在开发中。
 
 ## 架构
 
@@ -113,7 +128,6 @@ bun run dev
   "default_agent": "claude",
   "enabled_agents": ["claude", "gemini", "opencode", "codex"],
   "workspaces": ["/path/to/your/project"],
-  "default_workspace": "",
   "channels": {
     "telegram": { "bot_token": "..." },
     "feishu": { "app_id": "...", "app_secret": "..." },
@@ -125,16 +139,6 @@ bun run dev
   }
 }
 ```
-
-## 已知问题
-
-- **WhatsApp 插件** — Baileys v7 设备链接功能上游损坏；插件代码已就绪，等待修复
-- **隧道认证** — 通过隧道暴露的控制台没有身份验证层
-- **插件发现** — 频道插件目前是打包的；尚不支持动态下载安装
-- **没有发行包** — 目前需要从源码构建
-- **工作空间切换** — 工作空间设置已保存，但 `/workspaces` 聊天命令尚未实现
-- **会话持久化** — agent 会话仅存在于内存中；重启后丢失
-- **系统命令** — 目前 slash 命令支持有限（`/help`）；更多命令正在规划中
 
 ## 插件 SDK
 
@@ -157,7 +161,7 @@ npm install @vibearound/plugin-channel-sdk
 
 ## 项目状态
 
-VibeAround 正在积极迭代。当前版本已可用于日常工作。暂不接受 PR 和功能请求。
+VibeAround 正在积极迭代，当前版本已可用于日常工作。暂不接受 PR 和功能请求。
 
 ## 许可证
 
