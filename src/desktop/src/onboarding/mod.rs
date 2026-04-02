@@ -67,6 +67,16 @@ fn write_settings_value(val: &Value) -> Result<(), String> {
 // Onboarding gate
 // ---------------------------------------------------------------------------
 
+/// Sync agent integrations (skills + MCP config) with current settings.
+/// Called on every startup to ensure they're up-to-date after app upgrades
+/// and to remove integrations for agents the user has disabled.
+pub fn sync_agent_integrations() {
+    let settings = read_settings_value();
+    if let Err(e) = agent_integrations::install_agent_integrations(&settings) {
+        eprintln!("[startup] agent integration sync failed (non-fatal): {:#}", e);
+    }
+}
+
 pub fn needs_onboarding() -> bool {
     let val = read_settings_value();
     !val.get("onboarded")

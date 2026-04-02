@@ -166,6 +166,11 @@ fn main() {
                 if let Err(e) = start_daemon(&app_handle).await {
                     eprintln!("[VibeAround] Daemon error: {}", e);
                 }
+
+                // Sync agent integrations on every startup: reinstall skills + MCP
+                // config for enabled agents, remove for disabled ones. This ensures
+                // the SKILL.md and MCP config stay up-to-date after app upgrades.
+                onboarding::sync_agent_integrations();
             });
 
             Ok(())
