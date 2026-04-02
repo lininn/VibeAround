@@ -143,8 +143,9 @@ impl ACPPod {
                 .ensure_bridge(cli_kind, resume_sid, resume_cwd, downstream_handler)
                 .await
                 .map_err(|error| {
-                    eprintln!("[ACPPod] ensure_bridge failed route={}: {}", self.route, error);
-                    acp::Error::internal_error()
+                    let msg = format!("{:#}", error);
+                    eprintln!("[ACPPod] ensure_bridge failed route={}: {}", self.route, msg);
+                    acp::Error::new(-32603, msg)
                 })?;
 
             let session_id = self.ensure_session(&bridge).await?;
