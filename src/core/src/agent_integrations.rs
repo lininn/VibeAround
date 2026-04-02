@@ -130,26 +130,14 @@ fn home_dir() -> anyhow::Result<PathBuf> {
         .map_err(|_| anyhow!("Cannot determine home directory"))
 }
 
-/// Metadata string format: "vibearound <version>"
-const METADATA_PREFIX: &str = "vibearound";
+const METADATA_VALUE: &str = "vibearound";
 
-/// Check if a JSON value has `_metadata` starting with "vibearound".
+/// Check if a JSON value has `"metadata": "vibearound"`.
 fn is_vibearound_managed(value: &serde_json::Value) -> bool {
     value
         .get("metadata")
         .and_then(|v| v.as_str())
-        .map(|s| s.starts_with(METADATA_PREFIX))
-        .unwrap_or(false)
-}
-
-/// Get the metadata string (e.g. "vibearound 0.0.1") from a JSON value.
-fn get_metadata(value: &serde_json::Value) -> Option<String> {
-    value.get("metadata").and_then(|v| v.as_str()).map(String::from)
-}
-
-/// The metadata string for the current version.
-fn current_metadata() -> String {
-    format!("{} {}", METADATA_PREFIX, VERSION)
+        == Some(METADATA_VALUE)
 }
 
 /// Remove any vibearound-managed MCP entries that don't match the current key.
@@ -240,14 +228,7 @@ fn install_mcp_config(agent: &str, mcp_url: &str) -> anyhow::Result<()> {
     let mut root: serde_json::Value =
         serde_json::from_str(&data).unwrap_or(serde_json::json!({}));
 
-    // Check if already installed with current version
-    if let Some(existing) = root.get(mcp_key).and_then(|s| s.get("vibearound")) {
-        if get_metadata(existing).as_deref() == Some(&current_metadata()) {
-            return Ok(()); // already up-to-date
-        }
-    }
-
-    // Install / update
+    // Always replace if metadata matches (full replace on every startup)
     if let Some(obj) = root.as_object_mut() {
         let servers = obj
             .entry(mcp_key)
@@ -353,16 +334,7 @@ fn install_skill(agent: &str) -> anyhow::Result<()> {
     let skill_dir = home.join(skill_dir_rel);
     let target = skill_dir.join("SKILL.md");
 
-    // Check installed version via frontmatter metadata
-    if target.exists() {
-        if let Ok(content) = std::fs::read_to_string(&target) {
-            if content.contains(&current_metadata()) {
-                return Ok(()); // already up-to-date
-            }
-        }
-    }
-
-    // Install with version substitution
+    // Always replace (full replace on every startup)
     let _ = std::fs::create_dir_all(&skill_dir);
     let skill_content = include_str!("../../skills/vibearound/SKILL.md")
         .replace("${VERSION}", VERSION);
