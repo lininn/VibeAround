@@ -18,7 +18,7 @@
 
 </div>
 
-VibeAround is a unified runtime for AI coding agents. It connects real agents (Claude Code, Gemini CLI, Codex, OpenCode) to every surface you use: desktop, browser, Telegram, Feishu, Discord, and WeChat. Not a wrapper — a runtime with full streaming, tool use, and thinking display.
+VibeAround is a unified runtime for AI coding agents. It connects real agents (Claude Code, Gemini CLI, Codex CLI, Cursor CLI, Kiro CLI, Qwen Code, OpenCode) to every surface you use: desktop, browser, Telegram, Feishu, Discord, Slack, and WeChat. Not a wrapper — a runtime with full streaming, tool use, and thinking display.
 
 Start a task with Claude Code on your Mac, hand it over to Telegram on your phone, continue the conversation with full context, and hand it back when you're at your desk.
 
@@ -26,35 +26,69 @@ Start a task with Claude Code on your Mac, hand it over to Telegram on your phon
 
 - **Web terminal** — full PTY-based terminal in the browser with tmux integration, run shell sessions alongside agent chat
 - **Session handover** — hand off a coding session from any agent to any IM channel and continue on your phone
-- **Agent switching** — `/switch claude`, `/switch codex`, `/switch gemini` mid-conversation from any channel
+- **Agent switching** — `/switch claude`, `/switch codex`, `/switch cursor` mid-conversation from any channel
 - **Web dashboard** — terminals, tmux, and agent chat at `localhost:12358`
-- **IM channels** — Telegram, Feishu, Discord, WeChat — each a standalone plugin
-- **Desktop app** — onboarding, service monitoring, workspace management, system tray
+- **IM channels** — Telegram, Feishu, Discord, Slack, WeChat — each a standalone plugin
+- **Desktop app** — onboarding with install progress, service monitoring, workspace management, system tray
 - **Multi-workspace** — manage project folders, set defaults, switch contexts
 - **Tunnel access** — expose your dashboard via Cloudflare Tunnel, Ngrok, or Localtunnel
 
 ## Supported agents
 
-All agents communicate via [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) over stdio. npm-based agents are auto-installed on first use.
+All agents communicate via [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) over stdio. npm-based agents are auto-installed on first use. CLI-based agents (Cursor, Kiro, Qwen, OpenCode) must be installed by the user.
 
 | Agent | ACP | Session Handover |
 |---|---|---|
 | **Claude Code** | Working | Supported |
 | **Gemini CLI** | Working | Supported |
-| **Codex** | Working | Supported |
-| **OpenCode** | Working | Coming soon |
+| **Codex CLI** | Working | Supported |
+| **Cursor CLI** | Working | Supported |
+| **Kiro CLI** | Working | Supported |
+| **Qwen Code** | Working | Supported |
+| **OpenCode** | Working | Not supported |
 
 ## Channel plugins
 
 Each channel is a standalone Node.js plugin built with [@vibearound/plugin-channel-sdk](https://www.npmjs.com/package/@vibearound/plugin-channel-sdk).
 
-| Channel | Auth | Streaming edits | Status |
-|---|---|---|---|
-| **Telegram** | Bot token | Yes | Working |
-| **Feishu / Lark** | App credentials | Yes (cards) | Working |
-| **Discord** | Bot token | Yes | Working |
-| **WeChat** | QR code login | No | Working |
-| **WhatsApp** | Pairing code | No | Blocked ([upstream](https://github.com/WhiskeySockets/Baileys/issues/2422)) |
+| Channel | Auth | DM | File/Image | Streaming | Slash Commands | Status |
+|---|---|---|---|---|---|---|
+| **Telegram** | Bot token | Yes | Yes | Yes | `/command` | Working |
+| **Feishu / Lark** | App credentials | Yes | Yes | Yes (cards) | `/command` | Working |
+| **Discord** | Bot token | Yes | Yes | Yes | `/command` | Working |
+| **Slack** | Bot + App token | Yes | Yes | Yes | `/va`, `/vibearound` | Working |
+| **WeChat** | QR code login | Yes | No | No | `/command` | Working |
+
+## Commands
+
+### System commands
+
+| Command | Description |
+|---|---|
+| `/help` | Show available commands |
+| `/new` | Reset session (new conversation) |
+| `/switch <agent>` | Switch agent (claude, gemini, codex, cursor, kiro, qwen-code, opencode) |
+| `/profile <name>` | Switch profile |
+| `/close` | Close conversation |
+| `/pickup <code>` | Resume a coding agent session |
+| `/handover` | Export session to a coding agent CLI |
+
+### Agent commands
+
+| Command | Description |
+|---|---|
+| `/agent <command>` | Send a slash command to the agent (e.g. `/agent status`) |
+
+### Slack-specific
+
+In Slack, the `/` prefix is intercepted by the client. Use `/va` or `/vibearound` instead:
+
+| Slack command | Equivalent |
+|---|---|
+| `/va help` | `/help` |
+| `/va switch claude` | `/switch claude` |
+| `/va agent status` | `/agent status` |
+| `/va new` | `/new` |
 
 ## Prerequisites
 
@@ -87,7 +121,7 @@ bun run dev
 
 ## Session handover
 
-Hand off your coding session to any connected IM channel — works with Claude Code, Gemini CLI, and Codex:
+Hand off your coding session to any connected IM channel — works with Claude Code, Gemini CLI, Codex CLI, Cursor CLI, Kiro CLI, and Qwen Code:
 
 ```
 you (terminal)  > /handover
@@ -97,7 +131,7 @@ Agent           > Handover ready. Copied to clipboard:
                   The code expires in 2 minutes.
 ```
 
-Paste the `/pickup` command in Telegram, Feishu, Discord, or WeChat — continue the conversation with full context. When you're done, `/handover` again to return the session to your terminal.
+Paste the `/pickup` command in Telegram, Feishu, Discord, Slack, or WeChat — continue the conversation with full context. When you're done, `/handover` again to return the session to your terminal.
 
 ## Architecture
 
@@ -118,7 +152,7 @@ Paste the `/pickup` command in Telegram, Feishu, Discord, or WeChat — continue
               │  └──────┬──────┘  │
               │         │         │
               │  ┌──────┴──────┐  │
-              │  │Agent Factory│  │   ← spawns Claude/Gemini/Codex/OpenCode
+              │  │Agent Factory│  │   ← spawns Claude/Gemini/Codex/Cursor/Kiro/Qwen/OpenCode
               │  └─────────────┘  │
               │                   │
               │  ┌─────────────┐  │
@@ -134,12 +168,13 @@ All config lives in `~/.vibearound/settings.json`:
 ```json
 {
   "default_agent": "claude",
-  "enabled_agents": ["claude", "gemini", "opencode", "codex"],
+  "enabled_agents": ["claude", "gemini", "opencode", "codex", "cursor", "kiro", "qwen-code"],
   "workspaces": ["/path/to/your/project"],
   "channels": {
     "telegram": { "bot_token": "..." },
     "feishu": { "app_id": "...", "app_secret": "..." },
-    "discord": { "bot_token": "..." }
+    "discord": { "bot_token": "..." },
+    "slack": { "bot_token": "xoxb-...", "app_token": "xapp-..." }
   },
   "tunnel": {
     "provider": "cloudflare",
@@ -173,24 +208,14 @@ VibeAround is actively evolving and usable for daily work.
 
 ## Roadmap
 
-### More agents
-
-| Agent | Status |
-|---|---|
-| [Kiro CLI](https://kiro.dev/docs/cli/acp/) | Planned |
-| Cursor | Planned |
-| Qoder | Planned |
-| Qwen Code | Planned |
-
 ### More IM channels
 
 | Channel | Status |
 |---|---|
-| Slack | Planned |
+| LINE | In development |
+| Microsoft Teams | In development |
 | DingTalk | Planned |
-| LINE | Planned |
 | QQ | Planned |
-| Microsoft Teams | Under consideration |
 
 ### Workspace management
 
