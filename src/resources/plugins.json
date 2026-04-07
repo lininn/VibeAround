@@ -21,20 +21,6 @@
     "install_steps": ["git_clone", "npm_install", "npm_build"]
   },
   {
-    "id": "weixin-openclaw-bridge",
-    "name": "WeChat",
-    "description": "Connect via QR code authorization through OpenClaw bridge.",
-    "github": "https://github.com/jazzenchen/vibearound-plugin-weixin-openclaw-bridge",
-    "install_steps": ["git_clone", "npm_install", "npm_build"]
-  },
-  {
-    "id": "whatsapp",
-    "name": "WhatsApp",
-    "description": "Connect via pairing code (Baileys). Currently blocked by upstream issue.",
-    "github": "https://github.com/jazzenchen/vibearound-plugin-whatsapp",
-    "install_steps": ["git_clone", "npm_install", "npm_build"]
-  },
-  {
     "id": "slack",
     "name": "Slack",
     "description": "Use a Slack bot with Socket Mode to chat via DM.",
@@ -42,17 +28,10 @@
     "install_steps": ["git_clone", "npm_install", "npm_build"]
   },
   {
-    "id": "line",
-    "name": "LINE",
-    "description": "Connect via LINE Messaging API with webhook integration.",
-    "github": "https://github.com/jazzenchen/vibearound-plugin-line",
-    "install_steps": ["git_clone", "npm_install", "npm_build"]
-  },
-  {
-    "id": "teams",
-    "name": "Microsoft Teams",
-    "description": "Use a Bot Framework app to chat via Microsoft Teams.",
-    "github": "https://github.com/jazzenchen/vibearound-plugin-teams",
+    "id": "weixin-openclaw-bridge",
+    "name": "WeChat",
+    "description": "Connect via QR code authorization through OpenClaw bridge.",
+    "github": "https://github.com/jazzenchen/vibearound-plugin-weixin-openclaw-bridge",
     "install_steps": ["git_clone", "npm_install", "npm_build"]
   },
   {
