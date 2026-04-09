@@ -483,6 +483,16 @@ async fn run_onboarding_install<R: Runtime>(
     let enabled_agents = resolve_enabled_agents(&settings, &all_agents);
     let mut had_error = false;
 
+    // Install MCP config + skill files for all enabled agents in one global
+    // sweep BEFORE the per-agent loop. Previously this was called inside the
+    // loop, which rewrote every agent's files N times per onboarding — the
+    // source of the 7x "Installed MCP config for …" log bursts and a lot of
+    // needless filesystem churn.
+    if !enabled_agents.is_empty() {
+        log_line(&log_file, "[onboarding] Running sync_integrations (global MCP + skills sweep)");
+        common::agent_integrations::sync_integrations(&settings);
+    }
+
     // --- Agent installs ---
     for agent_id in &enabled_agents {
         if cancelled.load(Ordering::Relaxed) {
@@ -505,8 +515,7 @@ async fn run_onboarding_install<R: Runtime>(
             });
             log_line(&log_file, &format!("[{}] Installing MCP config", agent_id));
 
-            // Reuse sync logic — installs MCP config + skills for all enabled agents
-            common::agent_integrations::sync_integrations(&settings);
+            // sync_integrations ran globally above — no per-agent rewrite here.
 
             emit_progress(&app, &InstallProgressEvent {
                 id: task_id,

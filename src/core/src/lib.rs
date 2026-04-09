@@ -6,6 +6,7 @@ pub mod agent_factory;
 pub mod agent_integrations;
 pub mod auth;
 pub mod channel_manager;
+pub mod child_registry;
 pub mod config;
 pub mod env;
 pub mod pickup_codes;

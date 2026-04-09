@@ -274,6 +274,18 @@ fn main() {
 
             Ok(())
         }})
-        .run(tauri::generate_context!())
-        .expect("error while running VibeAround");
+        .build(tauri::generate_context!())
+        .expect("error while building VibeAround")
+        .run(|_app, event| {
+            // On app exit — whether via Cmd-Q, dock quit, window close, or
+            // tray Quit — synchronously SIGKILL every registered child
+            // process. This is the last line of defense against orphaned
+            // plugin/agent processes; the graceful stop paths in
+            // RunningDaemon::stop also run but may be skipped entirely on
+            // abrupt exit (e.g. signal-driven shutdown before the async
+            // runtime has been able to drain its tasks).
+            if let tauri::RunEvent::Exit = event {
+                common::child_registry::ChildRegistry::global().kill_all();
+            }
+        });
 }

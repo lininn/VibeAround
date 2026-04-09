@@ -14,6 +14,7 @@ use tokio::task::JoinHandle;
 use common::acp_hub::ACPHub;
 use common::auth::{self, AuthToken};
 use common::channel_manager::{handle_channel_input, ChannelManager, WebChannelManager};
+use common::child_registry::{self, ChildRegistry};
 use common::config;
 use common::plugins;
 use common::pty::{PtySessionManager, SessionId};
@@ -45,6 +46,11 @@ impl RunningDaemon {
     pub async fn stop(&self) {
         self.acp_hub.shutdown_all().await;
         self.channel_hub.shutdown_all().await;
+
+        // Safety net: synchronously kill any child process still registered
+        // after the graceful shutdown paths ran. Covers cases where guardian
+        // tasks didn't get a chance to poll their drop handlers.
+        ChildRegistry::global().kill_all();
 
         let pty_manager = PtySessionManager::from_registry(Arc::clone(&self.services.pty));
         let session_ids: Vec<SessionId> = self.services.pty.iter().map(|entry| entry.key().clone()).collect();
@@ -99,6 +105,12 @@ impl ServerDaemon {
                 self.port
             ));
         }
+
+        // Self-heal: kill any leftover plugin/agent-ACP node processes from
+        // a previous crashed run BEFORE we spawn our own. Cheap on the happy
+        // path (no matches) and prevents phantom children from hogging ports
+        // or auth sockets.
+        child_registry::orphan_sweep();
 
         let cfg = config::ensure_loaded();
         let services = Arc::clone(&self.services);

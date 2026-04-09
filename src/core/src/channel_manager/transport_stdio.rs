@@ -36,6 +36,7 @@ use super::plugin_host::PluginHost;
 use super::{handle_prompt, ChannelEnvelope, ChannelInput, ChannelOutput};
 use crate::acp::routing::RouteKey;
 use crate::acp_hub::ACPHub;
+use crate::child_registry::{ChildKind, ChildRegistry};
 
 /// A running stdio plugin connected via ACP protocol.
 #[derive(Debug)]
@@ -83,6 +84,16 @@ impl StdioPluginRuntime {
 
         let channel_kind = manifest.channel_kind.clone();
 
+        // Register in the global ChildRegistry. This is the canonical owner
+        // of the `Child` handle now — the registry guarantees the process is
+        // SIGKILLed on daemon stop + Tauri RunEvent::Exit even if the tokio
+        // runtime tears down without polling this task's destructor.
+        let registry_id = ChildRegistry::global().register(
+            ChildKind::Plugin,
+            channel_kind.clone(),
+            child,
+        );
+
         // Stderr → log
         let stderr_channel = channel_kind.clone();
         tokio::spawn(async move {
@@ -96,23 +107,30 @@ impl StdioPluginRuntime {
         // Channel for outbound ChannelOutput → ACP session_notification
         let (output_tx, output_rx) = mpsc::unbounded_channel::<ChannelOutput>();
 
-        // Guardian task — owns the `Child` handle. When this task is aborted
-        // (via `shutdown()` → `abort_handle.abort()`), its future is dropped,
-        // which drops `_child`. Because the command was spawned with
-        // `kill_on_drop(true)`, the node plugin process is killed at that
-        // point. Its stdin/stdout close, `handle_io` inside the bridge thread
-        // returns on EOF, and the bridge thread exits naturally.
+        // Guardian task — on abort (via `shutdown()` → `abort_handle.abort()`)
+        // it removes the child from the registry and drops it, triggering
+        // `kill_on_drop`. This is the happy-path shutdown.
         //
-        // This replaces the previous fake `abort_handle` that pointed at an
-        // unrelated `pending::<()>` future and did nothing on abort, leaving
-        // orphaned plugin processes after a daemon restart.
+        // If the runtime tears down abruptly instead, the ChildRegistry
+        // kill_all() path (fired from `RunningDaemon::stop` and Tauri Exit)
+        // still kills the process synchronously. Either way, no orphans.
         let guardian_channel = channel_kind.clone();
         let guardian_task = tokio::spawn(async move {
-            let _child = child;
-            // Park forever; abort drops `_child` → kill_on_drop kills node.
+            // Park forever; abort triggers the drop handler below.
+            struct Guard(u64, String);
+            impl Drop for Guard {
+                fn drop(&mut self) {
+                    if let Some(_child) = ChildRegistry::global().remove(self.0) {
+                        // `_child` dropped here → kill_on_drop fires.
+                        eprintln!(
+                            "[{}] guardian drop: plugin child killed via registry",
+                            self.1
+                        );
+                    }
+                }
+            }
+            let _guard = Guard(registry_id, guardian_channel);
             std::future::pending::<()>().await;
-            // Unreachable, but names the binding so rustc doesn't warn.
-            drop(guardian_channel);
         });
         let abort_handle = guardian_task.abort_handle();
 
