@@ -218,10 +218,6 @@ See the [SDK README](https://github.com/jazzenchen/vibearound-plugin-channel-sdk
 - [Configuration](https://github.com/jazzenchen/VibeAround/wiki/Configuration-Model)
 - [FAQ & Troubleshooting](https://github.com/jazzenchen/VibeAround/wiki/FAQ-and-Troubleshooting)
 
-## Project status
-
-VibeAround is actively evolving and usable for daily work.
-
 ## Roadmap
 
 ### More IM channels

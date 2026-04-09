@@ -218,10 +218,6 @@ npm install @vibearound/plugin-channel-sdk
 - [配置模型](https://github.com/jazzenchen/VibeAround/wiki/Configuration-Model)
 - [FAQ 和故障排除](https://github.com/jazzenchen/VibeAround/wiki/FAQ-and-Troubleshooting)
 
-## 项目状态
-
-VibeAround 正在积极迭代，当前版本已可用于日常工作。
-
 ## 路线图
 
 ### 更多 IM 频道
