@@ -20,7 +20,14 @@ The VibeAround MCP server must be connected (server name: `vibearound`). If not 
 
 ### 1. Resolve the session ID
 
-Run `/stats` to get the current session ID, or check `~/.qwen/sessions/` for the most recent session file matching the current working directory.
+Qwen Code persists every chat under `~/.qwen/projects/<encoded-cwd>/chats/<session-id>.jsonl`, where `<encoded-cwd>` is the absolute working directory with `/` replaced by `-` (e.g. `/Users/jazzen/Development/foo` → `-Users-jazzen-Development-foo`). The filename stem **is** the session ID.
+
+To find the current session ID:
+
+1. Compute `<encoded-cwd>` from the current working directory.
+2. List `~/.qwen/projects/<encoded-cwd>/chats/*.jsonl`.
+3. For each file, scan for the newest line with `"type":"user"` and read its `timestamp` (or fall back to the file mtime).
+4. Pick the file with the most recent user-prompt timestamp — its filename (without `.jsonl`) is the session ID. You can also cross-check the `sessionId` field inside any record in that file.
 
 If no match is found, inform the user that no session was found for this project.
 
@@ -45,4 +52,4 @@ Copy the `/pickup` command to the user's clipboard, then show it. The user can p
 
 - **MCP server not available**: Start the VibeAround desktop app.
 - **Workspace not registered**: Offer to register it (needs user confirmation).
-- **Session ID not found**: Run `qwen --resume` to see recent sessions and provide the ID manually.
+- **Session ID not found**: Ask the user to provide the session ID manually, or check `~/.qwen/projects/<encoded-cwd>/chats/` for recent `.jsonl` files.
