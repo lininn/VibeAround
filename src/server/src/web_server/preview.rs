@@ -108,20 +108,34 @@ async fn proxy_to_upstream(slug: &str, sub_path: &str) -> Result<Response, (Stat
         }
     };
 
-    let target_url = format!("http://127.0.0.1:{}/{}", port, sub_path);
-
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let upstream = match client.get(&target_url).send().await {
-        Ok(resp) => resp,
-        Err(e) if e.is_connect() => {
-            return Ok(server_not_running_page(port));
+    // Try IPv4 first, then IPv6 loopback. Some dev servers bind to `localhost`
+    // which may resolve to `::1` on certain systems.
+    let urls = [
+        format!("http://127.0.0.1:{}/{}", port, sub_path),
+        format!("http://[::1]:{}/{}", port, sub_path),
+    ];
+    let mut last_err = None;
+    let mut upstream = None;
+    for url in &urls {
+        match client.get(url).send().await {
+            Ok(resp) => { upstream = Some(resp); break; }
+            Err(e) if e.is_connect() => { last_err = Some(e); continue; }
+            Err(e) => {
+                return Err((StatusCode::BAD_GATEWAY, format!("Upstream error: {e}")));
+            }
         }
-        Err(e) => {
-            return Err((StatusCode::BAD_GATEWAY, format!("Upstream error: {e}")));
+    }
+    let upstream = match upstream {
+        Some(resp) => resp,
+        None => {
+            // Both IPv4 and IPv6 connection refused — server not running.
+            let _ = last_err; // consumed
+            return Ok(server_not_running_page(port));
         }
     };
 
