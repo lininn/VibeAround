@@ -82,27 +82,5 @@
       },
       "required": ["file", "cwd"]
     }
-  },
-  {
-    "name": "dispatch_task",
-    "description": "Dispatch a task to a worker agent on a project workspace.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "workspace": {
-          "type": "string",
-          "description": "Absolute path to the project workspace directory."
-        },
-        "message": {
-          "type": "string",
-          "description": "The task or question for the worker agent"
-        },
-        "kind": {
-          "type": "string",
-          "description": "Agent type."
-        }
-      },
-      "required": ["workspace", "message"]
-    }
   }
 ]

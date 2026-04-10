@@ -112,7 +112,7 @@ async fn mcp_tools_call(
         "register_workspace" => mcp_register_workspace(id, arguments).await,
         "preview" => mcp_preview_start(id, arguments, state).await,
         "md_preview" => mcp_md_preview(id, arguments, state).await,
-        "dispatch_task" => mcp_dispatch_task(id, arguments, state).await,
+        // dispatch_task: removed — stub was misleading MCP clients.
         _ => jsonrpc_err(id, -32602, &format!("Unknown tool: {}", tool_name)),
     }
 }
@@ -405,37 +405,6 @@ fn build_preview_url(state: &AppState, route: &str, slug: &str) -> String {
         .get_tunnel_url()
         .unwrap_or_else(|| format!("http://127.0.0.1:{}", state.services.port));
     format!("{}/{}/{}", base.trim_end_matches('/'), route, slug)
-}
-
-// ---------------------------------------------------------------------------
-// dispatch_task — existing tool (TODO: migrate to AgentManager)
-// ---------------------------------------------------------------------------
-
-async fn mcp_dispatch_task(
-    id: Option<serde_json::Value>,
-    arguments: &serde_json::Value,
-    _state: &AppState,
-) -> Json<serde_json::Value> {
-    let workspace = match arguments.get("workspace").and_then(|v| v.as_str()) {
-        Some(w) => std::path::PathBuf::from(w),
-        None => return jsonrpc_err(id, -32602, "Missing required argument: workspace"),
-    };
-
-    let data_dir = common::config::data_dir();
-    if workspace == data_dir || workspace == data_dir.join("") {
-        return mcp_error_text(id, &format!(
-            "Error: workspace must be a project-specific directory under {}/workspaces/<name>/.",
-            data_dir.display()
-        ));
-    }
-
-    let _message = match arguments.get("message").and_then(|v| v.as_str()) {
-        Some(m) => m,
-        None => return jsonrpc_err(id, -32602, "Missing required argument: message"),
-    };
-
-    // TODO: migrate to AgentManager
-    mcp_error_text(id, "MCP dispatch_task is not yet available in the new hub architecture")
 }
 
 // ---------------------------------------------------------------------------
