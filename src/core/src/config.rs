@@ -16,12 +16,18 @@ const DEFAULT_SETTINGS_JSON: &str = r#"{
   "default_workspace": ""
 }"#;
 
+/// User home directory (HOME on Unix, USERPROFILE on Windows).
+pub fn home_dir() -> PathBuf {
+    PathBuf::from(
+        std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| "/tmp".into()),
+    )
+}
+
 /// Data directory: ~/.vibearound
 pub fn data_dir() -> PathBuf {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".vibearound")
+    home_dir().join(".vibearound")
 }
 
 /// Ensure ~/.vibearound/ exists with settings.json and workspaces/.
@@ -294,10 +300,7 @@ fn parse_verbose_config(channel_obj: Option<&serde_json::Value>) -> ImVerboseCon
 /// Expand ~ to home directory in a path string.
 fn expand_home(s: &str) -> PathBuf {
     if s.starts_with("~/") || s == "~" {
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .unwrap_or_else(|_| "/tmp".into());
-        PathBuf::from(home).join(&s[2..])
+        home_dir().join(&s[2..])
     } else {
         PathBuf::from(s)
     }

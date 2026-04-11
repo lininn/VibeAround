@@ -187,16 +187,16 @@ pub async fn add_workspace_handler(
         return Err((StatusCode::BAD_REQUEST, format!("Path does not exist or is not a directory: {}", body.path)));
     }
     config::update_settings_json(|root| {
-        let arr = root
-            .as_object_mut()
-            .unwrap()
-            .entry("workspaces")
-            .or_insert_with(|| serde_json::json!([]))
-            .as_array_mut()
-            .unwrap();
-        let val = serde_json::Value::String(body.path.clone());
-        if !arr.contains(&val) {
-            arr.push(val);
+        if let Some(obj) = root.as_object_mut() {
+            let workspaces = obj
+                .entry("workspaces")
+                .or_insert_with(|| serde_json::json!([]));
+            if let Some(arr) = workspaces.as_array_mut() {
+                let val = serde_json::Value::String(body.path.clone());
+                if !arr.contains(&val) {
+                    arr.push(val);
+                }
+            }
         }
     })
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -218,7 +218,9 @@ pub async fn remove_workspace_handler(
         }
         // If removing the default workspace, clear default_workspace
         if root.get("default_workspace").and_then(|v| v.as_str()) == Some(&body.path) {
-            root.as_object_mut().unwrap().remove("default_workspace");
+            if let Some(obj) = root.as_object_mut() {
+                obj.remove("default_workspace");
+            }
         }
     })
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -235,11 +237,12 @@ pub async fn set_default_workspace_handler(
         return Err((StatusCode::BAD_REQUEST, format!("Path does not exist: {}", body.path)));
     }
     config::update_settings_json(|root| {
-        let obj = root.as_object_mut().unwrap();
-        if body.path.is_empty() {
-            obj.remove("default_workspace");
-        } else {
-            obj.insert("default_workspace".into(), serde_json::json!(body.path));
+        if let Some(obj) = root.as_object_mut() {
+            if body.path.is_empty() {
+                obj.remove("default_workspace");
+            } else {
+                obj.insert("default_workspace".into(), serde_json::json!(body.path));
+            }
         }
     })
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;

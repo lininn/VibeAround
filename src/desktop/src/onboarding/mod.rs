@@ -3,6 +3,7 @@
 //! commands so the desktop-ui frontend can read/write settings and signal completion.
 
 mod agent_integrations;
+mod install_orchestration;
 mod plugin_install;
 mod plugin_session;
 
@@ -15,7 +16,6 @@ pub use plugin_install::{
 pub use plugin_session::PluginSession;
 
 use std::collections::HashMap;
-use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -25,8 +25,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tokio::sync::{Mutex, Notify};
 
 use crate::{restart_daemon, OnboardingActive};
-use common::config;
-use common::plugins;
+use common::{config, plugins};
 
 // ---------------------------------------------------------------------------
 // Shared state types
@@ -332,111 +331,19 @@ pub async fn finish_onboarding<R: Runtime>(
 /// can pre-populate the progress list before install starts.
 #[tauri::command]
 pub fn get_install_manifest(settings: Value) -> Vec<InstallTaskInfo> {
-    let all_agents = common::resources::agent_ids();
-    let enabled_agents = resolve_enabled_agents(&settings, &all_agents);
-
-    let mut tasks = Vec::new();
-
-    for agent_id in &enabled_agents {
-        let agent_def = match common::resources::agent_by_id(agent_id) {
-            Some(def) => def,
-            None => continue,
-        };
-
-        // MCP config + skill are always installed
-        if agent_def.global_config.is_some() {
-            tasks.push(InstallTaskInfo {
-                id: format!("agent:{}:mcp", agent_id),
-                label: format!("{} — MCP config", agent_def.display_name),
-            });
-            if agent_def.global_config.as_ref().and_then(|c| c.skill_dir.as_ref()).is_some() {
-                tasks.push(InstallTaskInfo {
-                    id: format!("agent:{}:skill", agent_id),
-                    label: format!("{} — Skill file", agent_def.display_name),
-                    });
-            }
-        }
-
-        // ACP agent install (npm or script) — only for installable types
-        let install_type = agent_def.install.as_ref().map(|i| i.install_type.as_str());
-        if matches!(install_type, Some("npm") | Some("script")) {
-            tasks.push(InstallTaskInfo {
-                id: format!("agent:{}:acp", agent_id),
-                label: format!("{} — CLI install", agent_def.display_name),
-            });
-        }
-    }
-
-    // Channel plugins
-    let enabled_channels = settings
-        .get("channels")
-        .and_then(|v| v.as_object())
-        .map(|obj| obj.keys().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
-
-    for channel_id in &enabled_channels {
-        let plugin_def = common::resources::plugin_by_id(channel_id);
-        let label = plugin_def
-            .map(|p| p.name.clone())
-            .unwrap_or_else(|| channel_id.clone());
-        tasks.push(InstallTaskInfo {
-            id: format!("plugin:{}", channel_id),
-            label: format!("{} — Plugin install", label),
-        });
-    }
-
-    tasks
+    install_orchestration::get_install_manifest(&settings)
 }
 
 /// Orchestrates the full onboarding install sequence. Saves settings, then
 /// installs MCP configs, skills, ACP agents, and channel plugins one by one,
 /// emitting `"onboarding-install-progress"` events for each task.
-///
-/// This command is fire-and-forget from the frontend's perspective: it spawns
-/// the install work on a background task and returns immediately.
 #[tauri::command]
 pub async fn start_onboarding_install<R: Runtime>(
     app: AppHandle<R>,
     install_state: State<'_, OnboardingInstallState>,
     settings: Value,
 ) -> Result<(), String> {
-    // Reset cancellation flag
-    install_state.cancelled.store(false, Ordering::Relaxed);
-
-    // Save settings with onboarded: true
-    let mut val = settings.clone();
-    if let Some(obj) = val.as_object_mut() {
-        obj.insert("onboarded".into(), serde_json::json!(true));
-    }
-    write_settings_value(&val)?;
-
-    // Create log file
-    let log_dir = config::data_dir().join("logs").join("onboarding");
-    std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
-    let timestamp = {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        format!("{}", now)
-    };
-    let log_path = log_dir.join(format!("{}.log", timestamp));
-    let log_file = std::fs::File::create(&log_path).map_err(|e| e.to_string())?;
-    {
-        let mut lf = install_state.log_file.lock().await;
-        *lf = Some(log_file);
-    }
-
-    let cancelled = Arc::clone(&install_state.cancelled);
-    let child_proc = Arc::clone(&install_state.child_process);
-    let log_file_arc = Arc::clone(&install_state.log_file);
-
-    // Spawn the install work on a background task
-    tauri::async_runtime::spawn(async move {
-        run_onboarding_install(app, val, cancelled, child_proc, log_file_arc).await;
-    });
-
-    Ok(())
+    install_orchestration::start(app, &install_state, settings).await
 }
 
 /// Cancel a running onboarding install.
@@ -444,322 +351,5 @@ pub async fn start_onboarding_install<R: Runtime>(
 pub async fn cancel_onboarding_install(
     install_state: State<'_, OnboardingInstallState>,
 ) -> Result<(), String> {
-    install_state.cancelled.store(true, Ordering::Relaxed);
-
-    // Kill any running child process
-    let mut child = install_state.child_process.lock().await;
-    if let Some(ref mut proc) = *child {
-        let _ = proc.kill().await;
-    }
-    *child = None;
-
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Install orchestration (runs on background task)
-// ---------------------------------------------------------------------------
-
-fn emit_progress<R: Runtime>(app: &AppHandle<R>, event: &InstallProgressEvent) {
-    let _ = app.emit("onboarding-install-progress", event);
-}
-
-fn log_line(log_file: &Arc<Mutex<Option<std::fs::File>>>, line: &str) {
-    if let Ok(mut guard) = log_file.try_lock() {
-        if let Some(ref mut f) = *guard {
-            let _ = writeln!(f, "{}", line);
-        }
-    }
-}
-
-async fn run_onboarding_install<R: Runtime>(
-    app: AppHandle<R>,
-    settings: Value,
-    cancelled: Arc<AtomicBool>,
-    _child_proc: Arc<Mutex<Option<tokio::process::Child>>>,
-    log_file: Arc<Mutex<Option<std::fs::File>>>,
-) {
-    let all_agents = common::resources::agent_ids();
-    let enabled_agents = resolve_enabled_agents(&settings, &all_agents);
-    let mut had_error = false;
-
-    // Install MCP config + skill files for all enabled agents in one global
-    // sweep BEFORE the per-agent loop. Previously this was called inside the
-    // loop, which rewrote every agent's files N times per onboarding — the
-    // source of the 7x "Installed MCP config for …" log bursts and a lot of
-    // needless filesystem churn.
-    if !enabled_agents.is_empty() {
-        log_line(&log_file, "[onboarding] Running sync_integrations (global MCP + skills sweep)");
-        common::agent_integrations::sync_integrations(&settings);
-    }
-
-    // --- Agent installs ---
-    for agent_id in &enabled_agents {
-        if cancelled.load(Ordering::Relaxed) {
-            break;
-        }
-
-        let agent_def = match common::resources::agent_by_id(agent_id) {
-            Some(def) => def,
-            None => continue,
-        };
-
-        // MCP config
-        if agent_def.global_config.is_some() {
-            let task_id = format!("agent:{}:mcp", agent_id);
-            emit_progress(&app, &InstallProgressEvent {
-                id: task_id.clone(),
-                label: format!("{} — MCP config", agent_def.display_name),
-                status: "running".into(),
-                message: Some("Installing MCP config…".into()),
-            });
-            log_line(&log_file, &format!("[{}] Installing MCP config", agent_id));
-
-            // sync_integrations ran globally above — no per-agent rewrite here.
-
-            emit_progress(&app, &InstallProgressEvent {
-                id: task_id,
-                label: format!("{} — MCP config", agent_def.display_name),
-                status: "done".into(),
-                message: None,
-            });
-
-            // Skill file
-            if agent_def.global_config.as_ref().and_then(|c| c.skill_dir.as_ref()).is_some() {
-                let skill_id = format!("agent:{}:skill", agent_id);
-                emit_progress(&app, &InstallProgressEvent {
-                    id: skill_id.clone(),
-                    label: format!("{} — Skill file", agent_def.display_name),
-                    status: "done".into(),
-                    message: None,
-                });
-            }
-        }
-
-        if cancelled.load(Ordering::Relaxed) {
-            break;
-        }
-
-        // ACP agent install (npm or script)
-        let install_type = agent_def.install.as_ref().map(|i| i.install_type.as_str());
-        match install_type {
-            Some("npm") => {
-                let task_id = format!("agent:{}:acp", agent_id);
-                if let Some(npm_pkg) = &agent_def.acp.npm_package {
-                    let bin_name = agent_def.acp.bin_name.as_deref().unwrap_or(npm_pkg);
-                    if common::env::resolve_acp_agent_bin(bin_name).is_ok() {
-                        emit_progress(&app, &InstallProgressEvent {
-                            id: task_id,
-                            label: format!("{} — CLI install", agent_def.display_name),
-                            status: "skipped".into(),
-                            message: Some("Already installed".into()),
-                        });
-                        log_line(&log_file, &format!("[{}] ACP agent already installed, skipping", agent_id));
-                    } else {
-                        let msg = format!("Running: npm install {}", npm_pkg);
-                        emit_progress(&app, &InstallProgressEvent {
-                            id: task_id.clone(),
-                            label: format!("{} — CLI install", agent_def.display_name),
-                            status: "running".into(),
-                            message: Some(msg.clone()),
-                        });
-                        log_line(&log_file, &format!("[{}] {}", agent_id, msg));
-
-                        match common::agent_integrations::auto_install_npm_agent_with_output(npm_pkg).await {
-                            Ok(out) => {
-                                log_line(&log_file, &format!("[{}] stdout:\n{}", agent_id, out.stdout));
-                                log_line(&log_file, &format!("[{}] stderr:\n{}", agent_id, out.stderr));
-                                emit_progress(&app, &InstallProgressEvent {
-                                    id: task_id,
-                                    label: format!("{} — CLI install", agent_def.display_name),
-                                    status: "done".into(),
-                                    message: None,
-                                });
-                                log_line(&log_file, &format!("[{}] npm install complete", agent_id));
-                            }
-                            Err(e) => {
-                                had_error = true;
-                                let err_msg = format!("{:#}", e);
-                                emit_progress(&app, &InstallProgressEvent {
-                                    id: task_id,
-                                    label: format!("{} — CLI install", agent_def.display_name),
-                                    status: "error".into(),
-                                    message: Some(err_msg.clone()),
-                                });
-                                log_line(&log_file, &format!("[{}] ERROR: {}", agent_id, err_msg));
-                            }
-                        }
-                    }
-                }
-            }
-            Some("script") => {
-                let task_id = format!("agent:{}:acp", agent_id);
-                if common::agent_integrations::is_program_available(&agent_def.acp.program) {
-                    emit_progress(&app, &InstallProgressEvent {
-                        id: task_id,
-                        label: format!("{} — CLI install", agent_def.display_name),
-                        status: "skipped".into(),
-                        message: Some("Already installed".into()),
-                    });
-                    log_line(&log_file, &format!("[{}] CLI already available in PATH, skipping", agent_id));
-                } else if let Some(install_cmd) = &agent_def.acp.install_cmd {
-                    let msg = format!("Running: {}", install_cmd);
-                    emit_progress(&app, &InstallProgressEvent {
-                        id: task_id.clone(),
-                        label: format!("{} — CLI install", agent_def.display_name),
-                        status: "running".into(),
-                        message: Some(msg.clone()),
-                    });
-                    log_line(&log_file, &format!("[{}] {}", agent_id, msg));
-
-                    match common::agent_integrations::auto_install_agent_cmd_with_output(install_cmd, agent_id).await {
-                        Ok(out) => {
-                            log_line(&log_file, &format!("[{}] stdout:\n{}", agent_id, out.stdout));
-                            log_line(&log_file, &format!("[{}] stderr:\n{}", agent_id, out.stderr));
-                            emit_progress(&app, &InstallProgressEvent {
-                                id: task_id,
-                                label: format!("{} — CLI install", agent_def.display_name),
-                                status: "done".into(),
-                                message: None,
-                            });
-                            log_line(&log_file, &format!("[{}] script install complete", agent_id));
-                        }
-                        Err(e) => {
-                            had_error = true;
-                            let err_msg = format!("{:#}", e);
-                            emit_progress(&app, &InstallProgressEvent {
-                                id: task_id,
-                                label: format!("{} — CLI install", agent_def.display_name),
-                                status: "error".into(),
-                                message: Some(err_msg.clone()),
-                            });
-                            log_line(&log_file, &format!("[{}] ERROR: {}", agent_id, err_msg));
-                        }
-                    }
-                }
-            }
-            _ => {} // "path" type — nothing to install
-        }
-    }
-
-    // --- Channel plugin installs ---
-    let enabled_channels = settings
-        .get("channels")
-        .and_then(|v| v.as_object())
-        .map(|obj| obj.keys().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
-
-    for channel_id in &enabled_channels {
-        if cancelled.load(Ordering::Relaxed) {
-            break;
-        }
-
-        let task_id = format!("plugin:{}", channel_id);
-        let plugin_def = common::resources::plugin_by_id(channel_id);
-        let label = plugin_def
-            .map(|p| p.name.clone())
-            .unwrap_or_else(|| channel_id.clone());
-
-        // Check if already ready
-        let status = plugin_install::check_plugin_status(channel_id.clone());
-        if status == "ready" {
-            emit_progress(&app, &InstallProgressEvent {
-                id: task_id,
-                label: format!("{} — Plugin install", label),
-                status: "skipped".into(),
-                message: Some("Already installed".into()),
-            });
-            log_line(&log_file, &format!("[plugin:{}] Already ready, skipping", channel_id));
-            continue;
-        }
-
-        let github_url = match plugin_def {
-            Some(p) => p.github.clone(),
-            None => {
-                emit_progress(&app, &InstallProgressEvent {
-                    id: task_id,
-                    label: format!("{} — Plugin install", label),
-                    status: "error".into(),
-                    message: Some("Plugin not found in registry".into()),
-                });
-                had_error = true;
-                continue;
-            }
-        };
-
-        emit_progress(&app, &InstallProgressEvent {
-            id: task_id.clone(),
-            label: format!("{} — Plugin install", label),
-            status: "running".into(),
-            message: Some(format!("Running: git clone + npm install + build")),
-        });
-        log_line(&log_file, &format!("[plugin:{}] Starting install from {}", channel_id, github_url));
-
-        let request = plugin_install::InstallPluginRequest {
-            plugin_id: channel_id.clone(),
-            github_url,
-        };
-        match plugin_install::run_install_inner(request).await {
-            Ok(resp) => {
-                if resp.success {
-                    emit_progress(&app, &InstallProgressEvent {
-                        id: task_id,
-                        label: format!("{} — Plugin install", label),
-                        status: "done".into(),
-                        message: None,
-                    });
-                    log_line(&log_file, &format!("[plugin:{}] Install complete", channel_id));
-                } else {
-                    had_error = true;
-                    emit_progress(&app, &InstallProgressEvent {
-                        id: task_id,
-                        label: format!("{} — Plugin install", label),
-                        status: "error".into(),
-                        message: Some(resp.message),
-                    });
-                }
-            }
-            Err(e) => {
-                had_error = true;
-                let err_msg = format!("{:#}", e);
-                emit_progress(&app, &InstallProgressEvent {
-                    id: task_id,
-                    label: format!("{} — Plugin install", label),
-                    status: "error".into(),
-                    message: Some(err_msg.clone()),
-                });
-                log_line(&log_file, &format!("[plugin:{}] ERROR: {}", channel_id, err_msg));
-            }
-        }
-    }
-
-    // Emit final complete event
-    let final_status = if cancelled.load(Ordering::Relaxed) {
-        "cancelled"
-    } else if had_error {
-        "error"
-    } else {
-        "complete"
-    };
-
-    let _ = app.emit("onboarding-install-complete", serde_json::json!({
-        "status": final_status,
-    }));
-
-    // Close log file
-    let mut lf = log_file.lock().await;
-    *lf = None;
-}
-
-/// Resolve which agents are enabled from settings.
-fn resolve_enabled_agents(settings: &Value, all_agents: &[&str]) -> Vec<String> {
-    settings
-        .get("enabled_agents")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_else(|| all_agents.iter().map(|s| s.to_string()).collect())
+    install_orchestration::cancel(&install_state).await
 }

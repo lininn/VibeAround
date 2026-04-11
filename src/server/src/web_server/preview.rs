@@ -14,13 +14,15 @@
 //! `md_preview` MCP tools. The slug itself acts as authentication.
 
 use axum::{
-    extract::Path,
+    extract::{Path, State},
     http::StatusCode,
     response::Response,
 };
 use axum::body::Body;
 
 use common::preview_entries::PreviewKind;
+
+use super::AppState;
 
 // ===========================================================================
 // Server preview — iframe wrapper + reverse proxy
@@ -84,20 +86,22 @@ pub async fn wrapper_handler(
 
 /// GET /preview/:slug/proxy/ — reverse proxy root.
 pub async fn proxy_root_handler(
+    State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<Response, (StatusCode, String)> {
-    proxy_to_upstream(&slug, "").await
+    proxy_to_upstream(&state.preview_client, &slug, "").await
 }
 
 /// GET /preview/:slug/proxy/*path — reverse proxy subpath.
 pub async fn proxy_handler(
+    State(state): State<AppState>,
     Path((slug, path)): Path<(String, String)>,
 ) -> Result<Response, (StatusCode, String)> {
-    proxy_to_upstream(&slug, path.trim_start_matches('/')).await
+    proxy_to_upstream(&state.preview_client, &slug, path.trim_start_matches('/')).await
 }
 
 /// Shared reverse proxy implementation.
-async fn proxy_to_upstream(slug: &str, sub_path: &str) -> Result<Response, (StatusCode, String)> {
+async fn proxy_to_upstream(client: &reqwest::Client, slug: &str, sub_path: &str) -> Result<Response, (StatusCode, String)> {
     let entry = common::preview_entries::lookup(slug)
         .ok_or_else(|| (StatusCode::NOT_FOUND, "Preview not found or expired.".to_string()))?;
 
@@ -107,11 +111,6 @@ async fn proxy_to_upstream(slug: &str, sub_path: &str) -> Result<Response, (Stat
             return Err((StatusCode::BAD_REQUEST, "This preview serves a file, not a server.".to_string()));
         }
     };
-
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Try IPv4 first, then IPv6 loopback. Some dev servers bind to `localhost`
     // which may resolve to `::1` on certain systems.

@@ -726,20 +726,6 @@ struct ChannelBridgeHandler {
     route: RouteKey,
 }
 
-impl ChannelBridgeHandler {
-    async fn send_raw_acp<T: serde::Serialize>(&self, value: &T) -> acp::Result<()> {
-        let payload = serde_json::to_value(value)
-            .map_err(|e| acp::Error::new(-32603, format!("serialize: {}", e)))?;
-        self.plugin_host
-            .send_output(ChannelOutput::RawAcp {
-                route: self.route.clone(),
-                payload,
-            })
-            .await;
-        Ok(())
-    }
-}
-
 #[async_trait::async_trait(?Send)]
 impl BridgeClientHandler for ChannelBridgeHandler {
     async fn session_notification(&self, args: acp::SessionNotification) -> acp::Result<()> {

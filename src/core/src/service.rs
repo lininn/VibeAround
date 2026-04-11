@@ -141,6 +141,9 @@ pub struct ServerMeta {
 
 impl ServiceStatusManager {
     pub fn new(port: u16) -> Self {
+        // Capacity for the service status change broadcast. Slow /ws/services
+        // subscribers that lag behind 64 events will receive a Lagged error
+        // and re-sync on next receive. 64 is generous for status updates.
         let (change_tx, _) = broadcast::channel(64);
         Self {
             runtime_status: RwLock::new(None),

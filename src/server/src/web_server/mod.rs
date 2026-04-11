@@ -22,7 +22,6 @@ use tower_http::services::ServeDir;
 
 use common::auth::AuthToken;
 use common::channel_manager::{ChannelManager, WebChannelManager};
-use common::config;
 use common::pty::PtySessionManager;
 
 use self::auth::{require_auth, AuthState};
@@ -50,10 +49,11 @@ struct WsQuery {
 pub(crate) struct AppState {
     pty_manager: Arc<PtySessionManager>,
     dist_for_fallback: PathBuf,
-    all_workspaces: Vec<PathBuf>,
     services: Arc<common::service::ServiceStatusManager>,
     channel_hub: Arc<ChannelManager>,
     web_channel: Arc<WebChannelManager>,
+    /// Shared HTTP client for preview proxy (connection pooling).
+    preview_client: reqwest::Client,
 }
 
 /// Ensure web dist exists (build web first).
@@ -111,14 +111,17 @@ pub async fn run_web_server(
     );
 
     let assets_dir = web_dist.join("assets");
-    let all_workspaces = config::ensure_loaded().all_workspaces();
+    let preview_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("reqwest client");
     let state = AppState {
         pty_manager: Arc::new(PtySessionManager::from_registry(Arc::clone(&services.pty))),
         dist_for_fallback: web_dist.clone(),
-        all_workspaces,
         services,
         channel_hub,
         web_channel,
+        preview_client,
     };
 
     let auth_state = AuthState(Arc::clone(&auth_token));

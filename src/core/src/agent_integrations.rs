@@ -189,7 +189,9 @@ pub async fn install_acp_agents(settings: &serde_json::Value) {
 // Private — MCP config install/uninstall
 // ---------------------------------------------------------------------------
 
-fn resolve_enabled_agents(settings: &serde_json::Value, all_agents: &[&str]) -> Vec<String> {
+/// Resolve which agents are enabled from settings JSON.
+/// Falls back to all agents if `enabled_agents` is not set.
+pub fn resolve_enabled_agents(settings: &serde_json::Value, all_agents: &[&str]) -> Vec<String> {
     settings
         .get("enabled_agents")
         .and_then(|v| v.as_array())
@@ -202,10 +204,11 @@ fn resolve_enabled_agents(settings: &serde_json::Value, all_agents: &[&str]) -> 
 }
 
 fn home_dir() -> anyhow::Result<PathBuf> {
-    std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map(PathBuf::from)
-        .map_err(|_| anyhow!("Cannot determine home directory"))
+    let dir = config::home_dir();
+    if dir.as_os_str() == "/tmp" {
+        anyhow::bail!("Cannot determine home directory");
+    }
+    Ok(dir)
 }
 
 /// Check if the agent uses TOML config format.

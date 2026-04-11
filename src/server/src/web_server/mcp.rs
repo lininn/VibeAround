@@ -83,7 +83,7 @@ fn mcp_initialize(id: Option<serde_json::Value>) -> Json<serde_json::Value> {
     jsonrpc_ok(id, serde_json::json!({
         "protocolVersion": "2025-03-26",
         "capabilities": { "tools": {} },
-        "serverInfo": { "name": "vibearound", "version": "0.1.0" }
+        "serverInfo": { "name": "vibearound", "version": env!("CARGO_PKG_VERSION") }
     }))
 }
 
