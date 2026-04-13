@@ -1,5 +1,5 @@
 //! Axum HTTP + WebSocket server: serves Web SPA (from given dist path), WS at /ws for xterm ↔ PTY,
-//! agent chat WS at /ws/chat, static preview (/preview/:project_id, /raw/:project_id/*),
+//! agent chat WS at /ws/chat, live preview (/preview/:slug with iframe wrapper + reverse proxy),
 //! and MCP endpoint at /mcp.
 
 mod api;
@@ -22,7 +22,6 @@ use tower_http::services::ServeDir;
 
 use common::auth::AuthToken;
 use common::channel_manager::{ChannelManager, WebChannelManager};
-use common::config;
 use common::pty::PtySessionManager;
 
 use self::auth::{require_auth, AuthState};
@@ -50,10 +49,11 @@ struct WsQuery {
 pub(crate) struct AppState {
     pty_manager: Arc<PtySessionManager>,
     dist_for_fallback: PathBuf,
-    all_workspaces: Vec<PathBuf>,
     services: Arc<common::service::ServiceStatusManager>,
     channel_hub: Arc<ChannelManager>,
     web_channel: Arc<WebChannelManager>,
+    /// Shared HTTP client for preview proxy (connection pooling).
+    preview_client: reqwest::Client,
 }
 
 /// Ensure web dist exists (build web first).
@@ -111,14 +111,17 @@ pub async fn run_web_server(
     );
 
     let assets_dir = web_dist.join("assets");
-    let all_workspaces = config::ensure_loaded().all_workspaces();
+    let preview_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("reqwest client");
     let state = AppState {
         pty_manager: Arc::new(PtySessionManager::from_registry(Arc::clone(&services.pty))),
         dist_for_fallback: web_dist.clone(),
-        all_workspaces,
         services,
         channel_hub,
         web_channel,
+        preview_client,
     };
 
     let auth_state = AuthState(Arc::clone(&auth_token));
@@ -142,9 +145,6 @@ pub async fn run_web_server(
         )
         .route("/api/tmux/sessions", get(api::list_tmux_sessions_handler))
         .route("/api/agents", get(api::list_agents_handler))
-        .route("/preview/{project_id}", get(preview::preview_page_handler))
-        .route("/raw/{project_id}", get(preview::raw_root_handler))
-        .route("/raw/{project_id}/{*path}", get(preview::raw_path_handler))
         .route("/ws", get(ws_pty::ws_handler))
         .route("/ws/chat", get(ws_chat::ws_chat_handler))
         .route("/ws/services", get(ws_services::ws_services_handler))
@@ -168,12 +168,18 @@ pub async fn run_web_server(
             require_auth,
         ));
 
-    // --- Open routes: the SPA shell + static assets only. -------------------
+    // --- Open routes: the SPA shell, static assets, and live previews. ------
     //
-    // These are intentionally un-authed so the initial page load can boot
-    // and read the `?token=` parameter from its own URL. Nothing here
-    // exposes sensitive data — index.html is a compiled SPA bundle.
+    // The SPA shell + static assets are intentionally un-authed so the initial
+    // page load can boot and read the `?token=` parameter from its own URL.
+    //
+    // Preview routes are also un-authed — the 8-char slug itself acts as a
+    // short-lived authentication token (5-min TTL, cryptographically random).
     let public = Router::new()
+        .route("/preview/{slug}", get(preview::wrapper_handler))
+        .route("/preview/{slug}/proxy/", get(preview::proxy_root_handler))
+        .route("/preview/{slug}/proxy/{*path}", get(preview::proxy_handler))
+        .route("/md-preview/{slug}", get(preview::md_preview_handler))
         .nest_service("/assets", ServeDir::new(assets_dir))
         .fallback(any(spa_fallback_handler));
 

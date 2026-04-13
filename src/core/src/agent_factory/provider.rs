@@ -190,8 +190,21 @@ fn spawn_stdio_acp(
     let child_stdout = child.stdout.take().context("Process has no stdout")?;
     let child_stdin = child.stdin.take().context("Process has no stdin")?;
 
+    // Transfer ownership of `Child` to the global ChildRegistry. kill_on_drop
+    // alone is not enough: the old code moved `child` into the stdout reader
+    // closure, which only dropped it on stdout EOF. On abrupt runtime teardown
+    // that task never ran its destructor, leaving PPID=1 orphans.
+    // The registry's kill_all() path synchronously SIGKILLs every child on
+    // daemon stop + Tauri Exit, regardless of task scheduler state.
+    let registry_id = crate::child_registry::ChildRegistry::global().register(
+        crate::child_registry::ChildKind::AgentAcp,
+        format!("{}-acp", kind),
+        child,
+    );
+
     // stdout → client_read
     let (client_read, mut bridge_write) = tokio::io::duplex(64 * 1024);
+    let kind_label = kind.to_string();
     tokio::task::spawn_local(async move {
         let mut stdout = child_stdout;
         let mut buf = [0u8; 8192];
@@ -204,7 +217,11 @@ fn spawn_stdio_acp(
                 Err(_) => break,
             }
         }
-        drop(child);
+        // Clean shutdown path: pull the child out of the registry and drop
+        // it. kill_on_drop fires if the process is still alive.
+        if let Some(_c) = crate::child_registry::ChildRegistry::global().remove(registry_id) {
+            eprintln!("[{}-acp] stdout EOF — dropping child via registry", kind_label);
+        }
     });
 
     // client_write → stdin

@@ -339,8 +339,6 @@ impl ACPPod {
         let is_handover = resume_session_id.is_some();
         let suppress_replay = Arc::new(AtomicBool::new(is_handover));
         let handler: Arc<dyn BridgeClientHandler> = Arc::new(SessionBridgeHandler {
-            route: self.route.clone(),
-            event_tx: self.event_tx.clone(),
             downstream: downstream_handler,
             suppress_replay: Arc::clone(&suppress_replay),
         });
@@ -562,8 +560,6 @@ async fn relocate_cached_media(
 // ---------------------------------------------------------------------------
 
 struct SessionBridgeHandler {
-    route: RouteKey,
-    event_tx: broadcast::Sender<SystemEvent>,
     downstream: Arc<dyn BridgeClientHandler>,
     /// When true, session_notification events are swallowed (not forwarded to IM).
     /// Used during handover load_session to suppress history replay.

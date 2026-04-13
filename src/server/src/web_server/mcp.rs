@@ -83,7 +83,7 @@ fn mcp_initialize(id: Option<serde_json::Value>) -> Json<serde_json::Value> {
     jsonrpc_ok(id, serde_json::json!({
         "protocolVersion": "2025-03-26",
         "capabilities": { "tools": {} },
-        "serverInfo": { "name": "vibearound", "version": "0.1.0" }
+        "serverInfo": { "name": "vibearound", "version": env!("CARGO_PKG_VERSION") }
     }))
 }
 
@@ -110,7 +110,9 @@ async fn mcp_tools_call(
     match tool_name {
         "prepare_handover" => mcp_prepare_handover(id, arguments).await,
         "register_workspace" => mcp_register_workspace(id, arguments).await,
-        "dispatch_task" => mcp_dispatch_task(id, arguments, state).await,
+        "preview" => mcp_preview_start(id, arguments, state).await,
+        "md_preview" => mcp_md_preview(id, arguments, state).await,
+        // dispatch_task: removed — stub was misleading MCP clients.
         _ => jsonrpc_err(id, -32602, &format!("Unknown tool: {}", tool_name)),
     }
 }
@@ -250,34 +252,159 @@ async fn mcp_register_workspace(
 }
 
 // ---------------------------------------------------------------------------
-// dispatch_task — existing tool (TODO: migrate to AgentManager)
+// preview_start — register a live preview for a running local server
 // ---------------------------------------------------------------------------
 
-async fn mcp_dispatch_task(
+async fn mcp_preview_start(
     id: Option<serde_json::Value>,
     arguments: &serde_json::Value,
-    _state: &AppState,
+    state: &AppState,
 ) -> Json<serde_json::Value> {
-    let workspace = match arguments.get("workspace").and_then(|v| v.as_str()) {
-        Some(w) => std::path::PathBuf::from(w),
-        None => return jsonrpc_err(id, -32602, "Missing required argument: workspace"),
+    let port = match arguments.get("port").and_then(|v| v.as_u64()) {
+        Some(p) if p > 0 && p <= 65535 => p as u16,
+        _ => return jsonrpc_err(id, -32602, "Missing or invalid required argument: port (1-65535)"),
     };
 
-    let data_dir = common::config::data_dir();
-    if workspace == data_dir || workspace == data_dir.join("") {
+    if is_denied_port(port) {
         return mcp_error_text(id, &format!(
-            "Error: workspace must be a project-specific directory under {}/workspaces/<name>/.",
-            data_dir.display()
+            "Port {} is a well-known service port and cannot be previewed for security reasons. \
+             Use a typical dev server port (e.g. 3000, 5173, 8080).",
+            port
         ));
     }
 
-    let _message = match arguments.get("message").and_then(|v| v.as_str()) {
-        Some(m) => m,
-        None => return jsonrpc_err(id, -32602, "Missing required argument: message"),
+    let cwd = match arguments.get("cwd").and_then(|v| v.as_str()) {
+        Some(c) => c,
+        None => return jsonrpc_err(id, -32602, "Missing required argument: cwd"),
     };
 
-    // TODO: migrate to AgentManager
-    mcp_error_text(id, "MCP dispatch_task is not yet available in the new hub architecture")
+    let cwd_path = std::path::PathBuf::from(cwd);
+    if let Err(resp) = validate_workspace(&cwd_path, id.clone()) {
+        return resp;
+    }
+
+    let title = derive_title(arguments, &cwd_path);
+    let slug = common::preview_entries::store_server(port, cwd_path, title);
+    let preview_url = build_preview_url(state, "preview", &slug);
+
+    mcp_text(id, &format!(
+        "Preview ready.\n\n\
+         URL: {}\n\n\
+         The link expires in 5 minutes. Share it with the user so they can see the live preview.",
+        preview_url
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// md_preview — render a markdown file with styled preview
+// ---------------------------------------------------------------------------
+
+async fn mcp_md_preview(
+    id: Option<serde_json::Value>,
+    arguments: &serde_json::Value,
+    state: &AppState,
+) -> Json<serde_json::Value> {
+    let file_str = match arguments.get("file").and_then(|v| v.as_str()) {
+        Some(f) => f,
+        None => return jsonrpc_err(id, -32602, "Missing required argument: file"),
+    };
+    let cwd = match arguments.get("cwd").and_then(|v| v.as_str()) {
+        Some(c) => c,
+        None => return jsonrpc_err(id, -32602, "Missing required argument: cwd"),
+    };
+
+    let cwd_path = std::path::PathBuf::from(cwd);
+    if let Err(resp) = validate_workspace(&cwd_path, id.clone()) {
+        return resp;
+    }
+
+    // Resolve relative paths against cwd.
+    let file_path = {
+        let p = std::path::PathBuf::from(file_str);
+        if p.is_relative() { cwd_path.join(&p) } else { p }
+    };
+    if !file_path.is_file() {
+        return mcp_error_text(id, &format!("File not found: {}", file_path.display()));
+    }
+
+    // Security: file must be inside the workspace.
+    if let (Ok(canon_file), Ok(canon_ws)) = (file_path.canonicalize(), cwd_path.canonicalize()) {
+        if !canon_file.starts_with(&canon_ws) {
+            return mcp_error_text(id, "File must be inside the workspace directory.");
+        }
+    }
+
+    let title = arguments
+        .get("title")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .unwrap_or_else(|| {
+            file_path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Preview")
+                .to_string()
+        });
+
+    let slug = common::preview_entries::store_file(file_path, cwd_path, title);
+    let preview_url = build_preview_url(state, "md-preview", &slug);
+
+    mcp_text(id, &format!(
+        "Markdown preview ready.\n\n\
+         URL: {}\n\n\
+         The link expires in 5 minutes. Share it with the user so they can see the rendered document.",
+        preview_url
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+/// Validate that cwd is a registered workspace. Returns Err with a JSON-RPC
+/// error response on failure.
+fn validate_workspace(
+    cwd_path: &std::path::Path,
+    id: Option<serde_json::Value>,
+) -> Result<(), Json<serde_json::Value>> {
+    let config = common::config::ensure_loaded();
+    let builtin_dir = common::config::builtin_workspaces_dir();
+    let is_builtin = cwd_path.starts_with(&builtin_dir);
+    let is_registered = config.all_workspaces().iter().any(|ws| ws == cwd_path);
+
+    if !is_builtin && !is_registered {
+        return Err(mcp_error_text(id, &format!(
+            "Workspace {} is not registered in VibeAround.\n\
+             Use the `register_workspace` tool to add it first, then retry.",
+            cwd_path.display()
+        )));
+    }
+    Ok(())
+}
+
+/// Derive a title from the MCP arguments or the workspace directory name.
+fn derive_title(arguments: &serde_json::Value, cwd_path: &std::path::Path) -> String {
+    arguments
+        .get("title")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .unwrap_or_else(|| {
+            cwd_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Preview")
+                .to_string()
+        })
+}
+
+/// Build a full preview URL from the tunnel (or localhost fallback).
+fn build_preview_url(state: &AppState, route: &str, slug: &str) -> String {
+    let base = state
+        .services
+        .get_tunnel_url()
+        .unwrap_or_else(|| format!("http://127.0.0.1:{}", state.services.port));
+    format!("{}/{}/{}", base.trim_end_matches('/'), route, slug)
 }
 
 // ---------------------------------------------------------------------------
@@ -460,4 +587,67 @@ fn find_latest_codex_session(cwd: &std::path::Path) -> Option<String> {
 
     walk_codex_sessions(&sessions_dir, &cwd_str, &mut best);
     best.map(|(_, session_id)| session_id)
+}
+
+// ---------------------------------------------------------------------------
+// Port deny-list for preview security
+// ---------------------------------------------------------------------------
+
+/// Well-known service ports that must not be exposed through the preview proxy.
+const DENIED_PORTS: &[u16] = &[
+    22,    // SSH
+    25,    // SMTP
+    53,    // DNS
+    110,   // POP3
+    143,   // IMAP
+    389,   // LDAP
+    443,   // HTTPS (typically reverse proxy)
+    445,   // SMB
+    993,   // IMAPS
+    995,   // POP3S
+    1433,  // MSSQL
+    1521,  // Oracle
+    2049,  // NFS
+    3306,  // MySQL
+    5432,  // PostgreSQL
+    5672,  // RabbitMQ
+    6379,  // Redis
+    6380,  // Redis TLS
+    9200,  // Elasticsearch
+    11211, // Memcached
+    27017, // MongoDB
+];
+
+fn is_denied_port(port: u16) -> bool {
+    DENIED_PORTS.contains(&port)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn denies_database_ports() {
+        assert!(is_denied_port(3306), "MySQL");
+        assert!(is_denied_port(5432), "PostgreSQL");
+        assert!(is_denied_port(27017), "MongoDB");
+        assert!(is_denied_port(6379), "Redis");
+    }
+
+    #[test]
+    fn denies_infrastructure_ports() {
+        assert!(is_denied_port(22), "SSH");
+        assert!(is_denied_port(25), "SMTP");
+        assert!(is_denied_port(443), "HTTPS");
+    }
+
+    #[test]
+    fn allows_typical_dev_server_ports() {
+        assert!(!is_denied_port(3000), "common node dev port");
+        assert!(!is_denied_port(5173), "vite default");
+        assert!(!is_denied_port(5181), "custom vite port");
+        assert!(!is_denied_port(8080), "common alt HTTP");
+        assert!(!is_denied_port(8000), "python/django");
+        assert!(!is_denied_port(4200), "angular");
+    }
 }

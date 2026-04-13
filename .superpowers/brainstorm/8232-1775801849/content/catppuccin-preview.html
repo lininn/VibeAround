@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VibeAround - Catppuccin Theme Preview</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    /* Mocha (dark) */
+    --ctp-base: #1e1e2e;
+    --ctp-mantle: #181825;
+    --ctp-crust: #11111b;
+    --ctp-text: #cdd6f4;
+    --ctp-subtext1: #bac2de;
+    --ctp-subtext0: #a6adc8;
+    --ctp-overlay2: #9399b2;
+    --ctp-overlay1: #7f849c;
+    --ctp-overlay0: #6c7086;
+    --ctp-surface2: #585b70;
+    --ctp-surface1: #45475a;
+    --ctp-surface0: #313244;
+    --ctp-green: #a6e3a1;
+    --ctp-teal: #94e2d5;
+    --ctp-sky: #89dceb;
+    --ctp-sapphire: #74c7ec;
+    --ctp-blue: #89b4fa;
+    --ctp-lavender: #b4befe;
+    --ctp-mauve: #cba6f7;
+    --ctp-pink: #f5c2e7;
+    --ctp-peach: #fab387;
+    --ctp-yellow: #f9e2af;
+    --ctp-red: #f38ba8;
+    --ctp-rosewater: #f5e0dc;
+    --ctp-flamingo: #f2cdcd;
+  }
+
+  [data-theme="latte"] {
+    --ctp-base: #eff1f5;
+    --ctp-mantle: #e6e9ef;
+    --ctp-crust: #dce0e8;
+    --ctp-text: #4c4f69;
+    --ctp-subtext1: #5c5f77;
+    --ctp-subtext0: #6c6f85;
+    --ctp-overlay2: #7c7f93;
+    --ctp-overlay1: #8c8fa1;
+    --ctp-overlay0: #9ca0b0;
+    --ctp-surface2: #acb0be;
+    --ctp-surface1: #bcc0cc;
+    --ctp-surface0: #ccd0da;
+    --ctp-green: #40a02b;
+    --ctp-teal: #179299;
+    --ctp-sky: #04a5e5;
+    --ctp-sapphire: #209fb5;
+    --ctp-blue: #1e66f5;
+    --ctp-lavender: #7287fd;
+    --ctp-mauve: #8839ef;
+    --ctp-pink: #ea76cb;
+    --ctp-peach: #fe640b;
+    --ctp-yellow: #df8e1d;
+    --ctp-red: #d20f39;
+    --ctp-rosewater: #dc8a78;
+    --ctp-flamingo: #dd7878;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--ctp-base);
+    color: var(--ctp-text);
+    transition: background 0.3s, color 0.3s;
+  }
+
+  .toggle-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    background: var(--ctp-crust);
+    border-bottom: 1px solid var(--ctp-surface0);
+    z-index: 100;
+  }
+
+  .toggle-btn {
+    padding: 6px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--ctp-surface1);
+    background: var(--ctp-surface0);
+    color: var(--ctp-text);
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+  }
+  .toggle-btn.active {
+    background: var(--ctp-mauve);
+    color: var(--ctp-crust);
+    border-color: var(--ctp-mauve);
+  }
+
+  .preview-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 80px 40px 60px;
+  }
+
+  .label {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--ctp-overlay1);
+    margin-bottom: 24px;
+  }
+
+  /* --- HERO --- */
+  .hero {
+    text-align: center;
+    padding: 80px 0 60px;
+  }
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 14px;
+    border-radius: 20px;
+    background: var(--ctp-surface0);
+    border: 1px solid var(--ctp-surface1);
+    font-size: 12px;
+    color: var(--ctp-green);
+    margin-bottom: 24px;
+  }
+  .hero-badge .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--ctp-green);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .hero h1 {
+    font-size: clamp(2.5rem, 1rem + 5vw, 4.5rem);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -1.5px;
+    margin-bottom: 20px;
+  }
+  .hero h1 .accent {
+    background: linear-gradient(135deg, var(--ctp-mauve), var(--ctp-blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .hero .subtitle {
+    font-size: 1.15rem;
+    color: var(--ctp-subtext0);
+    max-width: 560px;
+    margin: 0 auto 32px;
+    line-height: 1.6;
+  }
+  .hero-ctas {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+  }
+  .btn-primary {
+    padding: 10px 24px;
+    border-radius: 10px;
+    background: var(--ctp-mauve);
+    color: var(--ctp-crust);
+    font-weight: 600;
+    font-size: 14px;
+    border: none;
+    cursor: pointer;
+  }
+  .btn-secondary {
+    padding: 10px 24px;
+    border-radius: 10px;
+    background: var(--ctp-surface0);
+    color: var(--ctp-text);
+    font-weight: 600;
+    font-size: 14px;
+    border: 1px solid var(--ctp-surface1);
+    cursor: pointer;
+  }
+
+  /* --- TERMINAL DEMO --- */
+  .terminal {
+    background: var(--ctp-crust);
+    border-radius: 12px;
+    border: 1px solid var(--ctp-surface0);
+    overflow: hidden;
+    margin: 40px auto;
+    max-width: 700px;
+  }
+  .terminal-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: var(--ctp-mantle);
+    border-bottom: 1px solid var(--ctp-surface0);
+  }
+  .terminal-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+  }
+  .terminal-body {
+    padding: 20px;
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.8;
+  }
+  .terminal-body .prompt { color: var(--ctp-green); }
+  .terminal-body .cmd { color: var(--ctp-text); }
+  .terminal-body .comment { color: var(--ctp-overlay1); }
+  .terminal-body .success { color: var(--ctp-green); }
+  .terminal-body .info { color: var(--ctp-blue); }
+  .terminal-body .accent { color: var(--ctp-mauve); }
+  .terminal-body .warn { color: var(--ctp-yellow); }
+
+  /* --- FEATURE CARDS --- */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+    margin: 40px 0;
+  }
+  .feature-card {
+    background: var(--ctp-mantle);
+    border: 1px solid var(--ctp-surface0);
+    border-radius: 12px;
+    padding: 24px;
+    transition: border-color 0.2s;
+  }
+  .feature-card:hover {
+    border-color: var(--ctp-surface2);
+  }
+  .feature-icon {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    margin-bottom: 14px;
+  }
+  .feature-card h3 {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .feature-card p {
+    font-size: 13px;
+    color: var(--ctp-subtext0);
+    line-height: 1.6;
+  }
+
+  /* --- AGENT GRID --- */
+  .agent-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin: 30px 0;
+  }
+  .agent-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 10px;
+    background: var(--ctp-surface0);
+    border: 1px solid var(--ctp-surface1);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ctp-text);
+  }
+  .agent-pill .dot-color {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+
+  /* --- PALETTE SWATCH --- */
+  .palette-section {
+    margin: 50px 0 30px;
+    padding: 30px;
+    background: var(--ctp-mantle);
+    border-radius: 12px;
+    border: 1px solid var(--ctp-surface0);
+  }
+  .palette-section h3 {
+    font-size: 14px;
+    margin-bottom: 16px;
+  }
+  .swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .swatch {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .swatch-color {
+    width: 40px; height: 40px;
+    border-radius: 8px;
+    border: 1px solid var(--ctp-surface1);
+  }
+  .swatch-label {
+    font-size: 9px;
+    color: var(--ctp-overlay1);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+</style>
+</head>
+<body data-theme="mocha">
+
+<div class="toggle-bar">
+  <button class="toggle-btn active" onclick="setTheme('mocha', this)">Mocha (Dark)</button>
+  <button class="toggle-btn" onclick="setTheme('latte', this)">Latte (Light)</button>
+</div>
+
+<div class="preview-container">
+
+  <div class="label">Hero Section Preview</div>
+
+  <div class="hero">
+    <div class="hero-badge"><span class="dot"></span> v0.1 — Open Source</div>
+    <h1>Talk to your AI agent<br><span class="accent">anywhere from your IM</span></h1>
+    <p class="subtitle">Self-hosted desktop app bridging 7 AI coding agents to 8 IM platforms. No coding plan required.</p>
+    <div class="hero-ctas">
+      <button class="btn-primary">Get Started</button>
+      <button class="btn-secondary">View on GitHub</button>
+    </div>
+  </div>
+
+  <div class="terminal">
+    <div class="terminal-header">
+      <div class="terminal-dot" style="background: var(--ctp-red);"></div>
+      <div class="terminal-dot" style="background: var(--ctp-yellow);"></div>
+      <div class="terminal-dot" style="background: var(--ctp-green);"></div>
+    </div>
+    <div class="terminal-body">
+      <span class="prompt">$</span> <span class="cmd">vibearound start</span><br>
+      <span class="comment"># connecting agents...</span><br>
+      <span class="success">✓</span> <span class="info">Claude Code</span> → <span class="accent">Telegram</span> <span class="success">connected</span><br>
+      <span class="success">✓</span> <span class="info">Codex CLI</span> → <span class="accent">Slack</span> <span class="success">connected</span><br>
+      <span class="success">✓</span> <span class="info">Gemini CLI</span> → <span class="accent">Discord</span> <span class="success">connected</span><br>
+      <br>
+      <span class="prompt">$</span> <span class="cmd">/handover</span><br>
+      <span class="warn">→</span> <span class="cmd">code:</span> <span class="accent">A7K-9X2</span> <span class="comment">(expires in 2m)</span><br>
+      <span class="comment"># pick up on any IM with /pickup A7K-9X2</span>
+    </div>
+  </div>
+
+  <div class="label" style="margin-top: 50px;">Feature Cards Preview</div>
+
+  <div class="features">
+    <div class="feature-card">
+      <div class="feature-icon" style="background: color-mix(in oklch, var(--ctp-mauve) 15%, transparent);">
+        <span style="color: var(--ctp-mauve);">⚡</span>
+      </div>
+      <h3>Built on ACP</h3>
+      <p>All 7 agents speak the same Agent Client Protocol. Adding new agents is nearly free.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon" style="background: color-mix(in oklch, var(--ctp-blue) 15%, transparent);">
+        <span style="color: var(--ctp-blue);">↔</span>
+      </div>
+      <h3>Session Handover</h3>
+      <p>Bidirectional handover between terminal and IM. Generate a code, pick up anywhere.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon" style="background: color-mix(in oklch, var(--ctp-green) 15%, transparent);">
+        <span style="color: var(--ctp-green);">◉</span>
+      </div>
+      <h3>Multi-Agent Multi-Channel</h3>
+      <p>Claude on Telegram + Codex on Slack simultaneously. No collisions, no limits.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon" style="background: color-mix(in oklch, var(--ctp-peach) 15%, transparent);">
+        <span style="color: var(--ctp-peach);">✦</span>
+      </div>
+      <h3>Native IM Formatting</h3>
+      <p>Feishu cards, Slack Block Kit, Discord embeds. Not a plain-text relay.</p>
+    </div>
+  </div>
+
+  <div class="label" style="margin-top: 50px;">Supported Surfaces</div>
+
+  <div style="text-align: center;">
+    <p style="font-size: 13px; color: var(--ctp-subtext0); margin-bottom: 16px;">Agents</p>
+    <div class="agent-grid">
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-peach);"></div>Claude Code</div>
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-green);"></div>Codex CLI</div>
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-blue);"></div>Cursor CLI</div>
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-sapphire);"></div>Gemini CLI</div>
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-mauve);"></div>Kiro CLI</div>
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-sky);"></div>Qwen Code</div>
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-lavender);"></div>OpenCode</div>
+    </div>
+    <p style="font-size: 13px; color: var(--ctp-subtext0); margin: 20px 0 16px;">IM Channels</p>
+    <div class="agent-grid">
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-sky);"></div>Telegram</div>
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-blue);"></div>Feishu</div>
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-lavender);"></div>Discord</div>
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-mauve);"></div>Slack</div>
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-green);"></div>WeChat</div>
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-sapphire);"></div>DingTalk</div>
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-teal);"></div>WeCom</div>
+      <div class="agent-pill"><div class="dot-color" style="background: var(--ctp-flamingo);"></div>QQ Bot</div>
+    </div>
+  </div>
+
+  <div class="label" style="margin-top: 50px;">Active Palette</div>
+
+  <div class="palette-section">
+    <h3>Accent Colors</h3>
+    <div class="swatches">
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-mauve);"></div><span class="swatch-label">Mauve</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-blue);"></div><span class="swatch-label">Blue</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-green);"></div><span class="swatch-label">Green</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-peach);"></div><span class="swatch-label">Peach</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-sky);"></div><span class="swatch-label">Sky</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-sapphire);"></div><span class="swatch-label">Sapphire</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-teal);"></div><span class="swatch-label">Teal</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-lavender);"></div><span class="swatch-label">Lavender</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-pink);"></div><span class="swatch-label">Pink</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-yellow);"></div><span class="swatch-label">Yellow</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-red);"></div><span class="swatch-label">Red</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-rosewater);"></div><span class="swatch-label">Rosewater</span></div>
+    </div>
+    <h3 style="margin-top: 20px;">Surfaces</h3>
+    <div class="swatches">
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-crust);"></div><span class="swatch-label">Crust</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-mantle);"></div><span class="swatch-label">Mantle</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-base);"></div><span class="swatch-label">Base</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-surface0);"></div><span class="swatch-label">Surface0</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-surface1);"></div><span class="swatch-label">Surface1</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-surface2);"></div><span class="swatch-label">Surface2</span></div>
+    </div>
+    <h3 style="margin-top: 20px;">Text</h3>
+    <div class="swatches">
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-text);"></div><span class="swatch-label">Text</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-subtext1);"></div><span class="swatch-label">Subtext1</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-subtext0);"></div><span class="swatch-label">Subtext0</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-overlay2);"></div><span class="swatch-label">Overlay2</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-overlay1);"></div><span class="swatch-label">Overlay1</span></div>
+      <div class="swatch"><div class="swatch-color" style="background: var(--ctp-overlay0);"></div><span class="swatch-label">Overlay0</span></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function setTheme(theme, btn) {
+  document.body.setAttribute('data-theme', theme);
+  document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+</script>
+</body>
+</html>

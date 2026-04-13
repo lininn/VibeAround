@@ -36,6 +36,7 @@ use super::plugin_host::PluginHost;
 use super::{handle_prompt, ChannelEnvelope, ChannelInput, ChannelOutput};
 use crate::acp::routing::RouteKey;
 use crate::acp_hub::ACPHub;
+use crate::child_registry::{ChildKind, ChildRegistry};
 
 /// A running stdio plugin connected via ACP protocol.
 #[derive(Debug)]
@@ -83,6 +84,16 @@ impl StdioPluginRuntime {
 
         let channel_kind = manifest.channel_kind.clone();
 
+        // Register in the global ChildRegistry. This is the canonical owner
+        // of the `Child` handle now — the registry guarantees the process is
+        // SIGKILLed on daemon stop + Tauri RunEvent::Exit even if the tokio
+        // runtime tears down without polling this task's destructor.
+        let registry_id = ChildRegistry::global().register(
+            ChildKind::Plugin,
+            channel_kind.clone(),
+            child,
+        );
+
         // Stderr → log
         let stderr_channel = channel_kind.clone();
         tokio::spawn(async move {
@@ -96,23 +107,30 @@ impl StdioPluginRuntime {
         // Channel for outbound ChannelOutput → ACP session_notification
         let (output_tx, output_rx) = mpsc::unbounded_channel::<ChannelOutput>();
 
-        // Guardian task — owns the `Child` handle. When this task is aborted
-        // (via `shutdown()` → `abort_handle.abort()`), its future is dropped,
-        // which drops `_child`. Because the command was spawned with
-        // `kill_on_drop(true)`, the node plugin process is killed at that
-        // point. Its stdin/stdout close, `handle_io` inside the bridge thread
-        // returns on EOF, and the bridge thread exits naturally.
+        // Guardian task — on abort (via `shutdown()` → `abort_handle.abort()`)
+        // it removes the child from the registry and drops it, triggering
+        // `kill_on_drop`. This is the happy-path shutdown.
         //
-        // This replaces the previous fake `abort_handle` that pointed at an
-        // unrelated `pending::<()>` future and did nothing on abort, leaving
-        // orphaned plugin processes after a daemon restart.
+        // If the runtime tears down abruptly instead, the ChildRegistry
+        // kill_all() path (fired from `RunningDaemon::stop` and Tauri Exit)
+        // still kills the process synchronously. Either way, no orphans.
         let guardian_channel = channel_kind.clone();
         let guardian_task = tokio::spawn(async move {
-            let _child = child;
-            // Park forever; abort drops `_child` → kill_on_drop kills node.
+            // Park forever; abort triggers the drop handler below.
+            struct Guard(u64, String);
+            impl Drop for Guard {
+                fn drop(&mut self) {
+                    if let Some(_child) = ChildRegistry::global().remove(self.0) {
+                        // `_child` dropped here → kill_on_drop fires.
+                        eprintln!(
+                            "[{}] guardian drop: plugin child killed via registry",
+                            self.1
+                        );
+                    }
+                }
+            }
+            let _guard = Guard(registry_id, guardian_channel);
             std::future::pending::<()>().await;
-            // Unreachable, but names the binding so rustc doesn't warn.
-            drop(guardian_channel);
         });
         let abort_handle = guardian_task.abort_handle();
 
@@ -253,31 +271,51 @@ async fn forward_output_to_plugin(
             send_ext_notification(
                 conn,
                 channel_kind,
-                "channel/system_text",
+                "va/system_text",
                 &serde_json::json!({
-                    "channelId": format!("{}:{}", channel_kind, route.chat_id),
+                    "chatId": route.chat_id,
                     "text": text,
                 }),
             )
             .await;
         }
         ChannelOutput::AgentReady {
-            agent, version, ..
+            route, agent, version, ..
         } => {
             send_ext_notification(
                 conn,
                 channel_kind,
-                "channel/agent_ready",
-                &serde_json::json!({ "agent": agent, "version": version }),
+                "va/agent_ready",
+                &serde_json::json!({
+                    "chatId": route.chat_id,
+                    "agent": agent,
+                    "version": version,
+                }),
             )
             .await;
         }
-        ChannelOutput::SessionReady { session_id, .. } => {
+        ChannelOutput::SessionReady { route, session_id, .. } => {
             send_ext_notification(
                 conn,
                 channel_kind,
-                "channel/session_ready",
-                &serde_json::json!({ "sessionId": session_id }),
+                "va/session_ready",
+                &serde_json::json!({
+                    "chatId": route.chat_id,
+                    "sessionId": session_id,
+                }),
+            )
+            .await;
+        }
+        ChannelOutput::CommandMenu { route, system_commands, agent_commands } => {
+            send_ext_notification(
+                conn,
+                channel_kind,
+                "va/command_menu",
+                &serde_json::json!({
+                    "chatId": route.chat_id,
+                    "systemCommands": system_commands,
+                    "agentCommands": agent_commands,
+                }),
             )
             .await;
         }
@@ -316,7 +354,7 @@ async fn send_ext_notification(
 struct PluginAgentHandler {
     channel_kind: String,
     config: serde_json::Value,
-    /// Still used for fire-and-forget operations: cancel, callback, close.
+    /// Still used for fire-and-forget operations: cancel, callback.
     input_tx: mpsc::UnboundedSender<ChannelInput>,
     acp_hub: Arc<ACPHub>,
     plugin_host: Arc<PluginHost>,
@@ -417,20 +455,24 @@ impl acp::Agent for PluginAgentHandler {
     }
 
     async fn ext_notification(&self, args: acp::ExtNotification) -> acp::Result<()> {
+        // Rust ACP SDK already strips the "_" prefix before dispatching here.
         let method = args.method.to_string();
         let params: serde_json::Value = serde_json::from_str(args.params.get())
             .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
         let params_obj = params.as_object().cloned().unwrap_or_default();
 
         match method.as_str() {
-            "channel/callback" => {
-                let channel_id = params_obj
-                    .get("channelId")
+            "va/callback" => {
+                // Accept both chatId (new) and channelId (legacy, "kind:chatId") for compat.
+                let chat_id = params_obj
+                    .get("chatId")
                     .and_then(|v| v.as_str())
+                    .or_else(|| {
+                        params_obj.get("channelId").and_then(|v| v.as_str()).map(|cid| {
+                            cid.strip_prefix(&format!("{}:", self.channel_kind)).unwrap_or(cid)
+                        })
+                    })
                     .unwrap_or("");
-                let chat_id = channel_id
-                    .strip_prefix(&format!("{}:", self.channel_kind))
-                    .unwrap_or(channel_id);
                 let route = RouteKey::new(&self.channel_kind, chat_id);
                 let action_value = params_obj
                     .get("data")
@@ -461,18 +503,6 @@ impl acp::Agent for PluginAgentHandler {
                 };
                 let _ = self.input_tx.send(input);
             }
-            "channel/close" => {
-                let chat_id = params_obj
-                    .get("chatId")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let route = RouteKey::new(&self.channel_kind, chat_id);
-                let reason = params_obj
-                    .get("reason")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                let _ = self.input_tx.send(ChannelInput::Close { route, reason });
-            }
             other => {
                 eprintln!(
                     "[{}] unhandled ext_notification: {}",
@@ -485,28 +515,7 @@ impl acp::Agent for PluginAgentHandler {
 
     async fn ext_method(&self, args: acp::ExtRequest) -> acp::Result<acp::ExtResponse> {
         let method = args.method.to_string();
-        let params: serde_json::Value = serde_json::from_str(args.params.get())
-            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-
-        match method.as_str() {
-            "channel/list_agent_commands" => {
-                let chat_id = params
-                    .get("chatId")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let route = RouteKey::new(&self.channel_kind, chat_id);
-                let commands = self.acp_hub.list_agent_commands(&route).await;
-                let raw = serde_json::value::RawValue::from_string(
-                    serde_json::to_string(&serde_json::json!({ "commands": commands }))
-                        .unwrap_or_default(),
-                )
-                .map_err(|e| acp::Error::new(-32603, format!("serialize: {}", e)))?;
-                Ok(acp::ExtResponse::new(Arc::from(raw)))
-            }
-            other => {
-                eprintln!("[{}] unhandled ext_method: {}", self.channel_kind, other);
-                Err(acp::Error::method_not_found())
-            }
-        }
+        eprintln!("[{}] unhandled ext_method: {}", self.channel_kind, method);
+        Err(acp::Error::method_not_found())
     }
 }

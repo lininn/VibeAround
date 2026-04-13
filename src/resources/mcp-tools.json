@@ -40,25 +40,47 @@
     }
   },
   {
-    "name": "dispatch_task",
-    "description": "Dispatch a task to a worker agent on a project workspace.",
+    "name": "preview",
+    "description": "Start a live preview for a running local server. Returns a shareable URL that displays the app in an iframe wrapper. The URL expires in 5 minutes.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "workspace": {
+        "port": {
+          "type": "number",
+          "description": "The localhost port where the dev server is running."
+        },
+        "cwd": {
           "type": "string",
           "description": "Absolute path to the project workspace directory."
         },
-        "message": {
+        "title": {
           "type": "string",
-          "description": "The task or question for the worker agent"
-        },
-        "kind": {
-          "type": "string",
-          "description": "Agent type."
+          "description": "Optional title shown in the preview toolbar. Defaults to the workspace directory name."
         }
       },
-      "required": ["workspace", "message"]
+      "required": ["port", "cwd"]
+    }
+  },
+  {
+    "name": "md_preview",
+    "description": "Preview a markdown file with beautiful GitHub-style rendering. Returns a shareable URL. The URL expires in 5 minutes.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Path to the markdown file (absolute, or relative to cwd)."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Absolute path to the project workspace directory."
+        },
+        "title": {
+          "type": "string",
+          "description": "Optional title shown in the preview toolbar. Defaults to the filename."
+        }
+      },
+      "required": ["file", "cwd"]
     }
   }
 ]

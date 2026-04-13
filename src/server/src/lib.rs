@@ -14,6 +14,7 @@ use tokio::task::JoinHandle;
 use common::acp_hub::ACPHub;
 use common::auth::{self, AuthToken};
 use common::channel_manager::{handle_channel_input, ChannelManager, WebChannelManager};
+use common::child_registry::{self, ChildRegistry};
 use common::config;
 use common::plugins;
 use common::pty::{PtySessionManager, SessionId};
@@ -45,6 +46,11 @@ impl RunningDaemon {
     pub async fn stop(&self) {
         self.acp_hub.shutdown_all().await;
         self.channel_hub.shutdown_all().await;
+
+        // Safety net: synchronously kill any child process still registered
+        // after the graceful shutdown paths ran. Covers cases where guardian
+        // tasks didn't get a chance to poll their drop handlers.
+        ChildRegistry::global().kill_all();
 
         let pty_manager = PtySessionManager::from_registry(Arc::clone(&self.services.pty));
         let session_ids: Vec<SessionId> = self.services.pty.iter().map(|entry| entry.key().clone()).collect();
@@ -100,7 +106,16 @@ impl ServerDaemon {
             ));
         }
 
-        let cfg = config::ensure_loaded();
+        // Self-heal: kill any leftover plugin/agent-ACP node processes from
+        // a previous crashed run BEFORE we spawn our own. Cheap on the happy
+        // path (no matches) and prevents phantom children from hogging ports
+        // or auth sockets.
+        child_registry::orphan_sweep();
+
+        // Force a fresh config read on every daemon start — ensures the
+        // in-memory cache reflects the latest settings.json (which may have
+        // been rewritten by onboarding or a manual edit since last start).
+        let cfg = config::reload();
         let services = Arc::clone(&self.services);
 
         // Persist the auth token so the Tauri side (tray, desktop-ui) can
@@ -193,9 +208,10 @@ impl ServerDaemon {
         let web_channel_hub = Arc::clone(&channel_hub);
         let web_channel_manager = Arc::clone(&web_channel);
         let web_auth_token = Arc::clone(&self.auth_token);
+        let daemon_port = self.port;
         let web_handle = tokio::spawn(async move {
             run_web_server(
-                common::config::DEFAULT_PORT,
+                daemon_port,
                 dist_path,
                 web_services,
                 web_channel_hub,
