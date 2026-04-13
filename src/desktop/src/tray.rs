@@ -14,7 +14,7 @@ use tauri::{
 use crate::{AppServiceManager, OnboardingActive};
 
 const MAIN_WINDOW_LABEL: &str = "main";
-const LOCAL_DASHBOARD_URL: &str = "http://127.0.0.1:12358";
+const LOCAL_DASHBOARD_URL: &str = "http://127.0.0.1:12358/_va_";
 
 /// Build the dashboard URL with the session auth token.
 ///

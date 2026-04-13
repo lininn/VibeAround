@@ -13,8 +13,12 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-export const API_BASE = "http://127.0.0.1:12358";
-export const WS_BASE = "ws://127.0.0.1:12358";
+/** All dashboard routes live under /_va_/ to keep the root namespace free for
+ *  cookie-based dev-server preview proxying. */
+const VA_PREFIX = "/_va_";
+
+export const API_BASE = `http://127.0.0.1:12358${VA_PREFIX}`;
+export const WS_BASE = `ws://127.0.0.1:12358${VA_PREFIX}`;
 
 interface AuthFile {
   port: number;

@@ -8,14 +8,18 @@
  */
 import { getAuthToken } from "./auth";
 
+/** All dashboard routes live under /_va_/ to keep the root namespace free for
+ *  cookie-based dev-server preview proxying. */
+const VA_PREFIX = "/_va_";
+
 export function getWebSocketUrl(path: string): string {
   const base =
     typeof window === "undefined"
-      ? `ws://127.0.0.1:12358${path}`
+      ? `ws://127.0.0.1:12358${VA_PREFIX}${path}`
       : (() => {
           const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
           const host = window.location.host;
-          return `${protocol}//${host}${path}`;
+          return `${protocol}//${host}${VA_PREFIX}${path}`;
         })();
 
   const token = getAuthToken();

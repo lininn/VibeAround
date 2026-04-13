@@ -106,7 +106,7 @@ pub async fn run_web_server(
         .map_err(|e| format!("Failed to resolve web dist path: {}", e))?;
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     println!(
-        "[VibeAround] Web dashboard: http://127.0.0.1:{}, serving from {:?}",
+        "[VibeAround] Web dashboard: http://127.0.0.1:{}/_va_/, serving from {:?}",
         port, web_dist
     );
 
@@ -177,9 +177,16 @@ pub async fn run_web_server(
         .nest_service("/assets", ServeDir::new(assets_dir))
         .fallback(any(spa_fallback_handler));
 
+    // All dashboard routes live under `/_va_/` so the root `/` namespace
+    // stays free for the cookie-based dev-server preview proxy.
+    let dashboard = Router::new().merge(protected).merge(public);
+
     let app = Router::new()
-        .merge(protected)
-        .merge(public)
+        .nest("/_va_", dashboard)
+        // Bare `/` with no preview cookie → redirect to the dashboard.
+        .fallback(|| async {
+            axum::response::Redirect::permanent("/_va_/")
+        })
         .with_state(state)
         .layer(build_cors_layer(port));
 

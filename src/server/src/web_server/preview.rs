@@ -22,7 +22,7 @@ pub async fn preview_page_handler(
     let Some(p) = p else {
         return Err((StatusCode::NOT_FOUND, format!("Project not found: {}", project_id)));
     };
-    let iframe_src = format!("/raw/{}", project_id);
+    let iframe_src = format!("/_va_/raw/{}", project_id);
     let html = format!(
         r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>Preview</title></head>
 <body style="margin:0;overflow:hidden"><iframe src="{}" style="width:100%;height:100vh;border:0"></iframe></body></html>"#,
