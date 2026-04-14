@@ -24,7 +24,7 @@ use axum::{
 };
 use axum::body::Body;
 
-use common::preview_entries::PreviewKind;
+use common::preview_entries::PreviewTarget;
 
 use super::AppState;
 
@@ -32,28 +32,69 @@ use super::AppState;
 // Preview iframe — sets cookie, renders iframe with src="/"
 // ===========================================================================
 
-/// GET /preview/u/{slug} and /preview/s/{slug} — iframe preview page.
+/// Cookie name for authenticated owner sessions (set by /pair flow).
+const OWNER_COOKIE: &str = "va_owner";
+
+/// GET /preview/u/{slug} — owner preview. Requires `va_owner` cookie.
 ///
-/// Sets the `va_preview` cookie in the response header, then renders an
-/// iframe with `src="/"`. The cookie proxy fallback at root `/` will see
-/// the cookie and proxy all requests to the dev server transparently.
+/// Dispatches by session target: Server → iframe + cookie proxy,
+/// File → rendered markdown. If the cookie is missing or invalid,
+/// redirects to `/_va_/` which shows the pairing gate.
+pub async fn owner_preview_handler(
+    Path(slug): Path<String>,
+    req: Request,
+) -> Result<Response, (StatusCode, String)> {
+    if !owner_cookie_valid(&req) {
+        return Ok(Response::builder()
+            .status(StatusCode::FOUND)
+            .header("Location", "/_va_/")
+            .body(Body::empty())
+            .unwrap());
+    }
+    render_preview(&slug).await
+}
+
+/// GET /preview/s/{slug} — share preview. Slug itself is the auth.
 ///
-/// Both /u (owner) and /s (share) currently behave the same — permission
-/// differences can be added later.
-pub async fn iframe_preview_handler(
+/// Dispatches by session target: Server → iframe + cookie proxy,
+/// File → rendered markdown. No pairing required — the random share
+/// key (10-min TTL) gates access.
+pub async fn share_preview_handler(
     Path(slug): Path<String>,
 ) -> Result<Response, (StatusCode, String)> {
-    let entry = common::preview_entries::lookup(&slug)
+    render_preview(&slug).await
+}
+
+/// Check whether the request carries a valid `va_owner` cookie.
+fn owner_cookie_valid(req: &Request) -> bool {
+    let token = match extract_cookie(req, OWNER_COOKIE) {
+        Some(t) => t,
+        None => return false,
+    };
+    common::auth::read_token_file()
+        .map(|f| f.token == token)
+        .unwrap_or(false)
+}
+
+/// Look up a preview by slug and dispatch to the right renderer based on target.
+async fn render_preview(slug: &str) -> Result<Response, (StatusCode, String)> {
+    let entry = common::preview_entries::lookup(slug)
         .ok_or_else(|| (StatusCode::NOT_FOUND, "Preview not found or expired.".to_string()))?;
 
-    let port = match &entry.kind {
-        PreviewKind::Server { port } => *port,
-        PreviewKind::File { .. } => {
-            return Err((StatusCode::BAD_REQUEST, "iframe preview only supports server previews.".to_string()));
-        }
-    };
+    match entry.target {
+        PreviewTarget::Server { port } => render_server_iframe(slug, &entry, port).await,
+        PreviewTarget::File => render_md_page(&entry).await,
+    }
+}
 
-    let remaining_ms = remaining_millis(&entry);
+/// Render the iframe wrapper for a Server preview; sets `va_preview` cookie
+/// so the root-level cookie proxy can route requests to `localhost:{port}`.
+async fn render_server_iframe(
+    slug: &str,
+    entry: &common::preview_entries::PreviewEntry,
+    port: u16,
+) -> Result<Response, (StatusCode, String)> {
+    let remaining_ms = remaining_millis(entry);
     let remaining_secs = (remaining_ms / 1000) as u64;
     let title = escape_html(&entry.title);
     let subtitle = format!(":{}", port);
@@ -134,16 +175,24 @@ fn server_not_running_page(port: u16) -> Response {
 // Markdown preview — rendered document page
 // ===========================================================================
 
-/// GET /md-preview/:slug — read the markdown file and render with marked.js.
+/// Legacy route: GET /md-preview/:slug → render markdown directly.
+/// New clients use /preview/u/{slug} or /preview/s/{slug}; both dispatch
+/// to [`render_md_page`] when the session target is `File`.
 pub async fn md_preview_handler(
     Path(slug): Path<String>,
 ) -> Result<Response, (StatusCode, String)> {
     let entry = common::preview_entries::lookup(&slug)
         .ok_or_else(|| (StatusCode::NOT_FOUND, "Preview not found or expired.".to_string()))?;
+    render_md_page(&entry).await
+}
 
-    let file_path = match &entry.kind {
-        PreviewKind::File { path } => path,
-        PreviewKind::Server { .. } => {
+/// Render a markdown file preview with toolbar + GitHub CSS + marked.js.
+async fn render_md_page(
+    entry: &common::preview_entries::PreviewEntry,
+) -> Result<Response, (StatusCode, String)> {
+    let file_path = match &entry.target {
+        PreviewTarget::File => &entry.id,
+        PreviewTarget::Server { .. } => {
             return Err((StatusCode::BAD_REQUEST, "This preview serves a server, not a file.".to_string()));
         }
     };
@@ -152,7 +201,7 @@ pub async fn md_preview_handler(
         (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read file: {e}"))
     })?;
 
-    let remaining_ms = remaining_millis(&entry);
+    let remaining_ms = remaining_millis(entry);
     let title = escape_html(&entry.title);
 
     // Build subtitle: workspace_name / relative_path (or just filename)
@@ -431,9 +480,9 @@ pub async fn cookie_proxy_fallback(
         }
     };
 
-    let port = match &entry.kind {
-        PreviewKind::Server { port } => *port,
-        PreviewKind::File { .. } => return preview_error_page(),
+    let port = match &entry.target {
+        PreviewTarget::Server { port } => *port,
+        PreviewTarget::File => return preview_error_page(),
     };
 
     // Proxy the request to the dev server.

@@ -284,15 +284,16 @@ async fn mcp_preview_start(
     }
 
     let title = derive_title(arguments, &cwd_path);
-    let slug = common::preview_entries::store_server(port, cwd_path, title);
-    let owner_url = build_preview_url(state, "preview/u", &slug);
-    let share_url = build_preview_url(state, "preview/s", &slug);
+    let (owner_slug, share_slug) =
+        common::preview_entries::ensure_server(port, cwd_path, title);
+    let owner_url = build_preview_url(state, "preview/u", &owner_slug);
+    let share_url = build_preview_url(state, "preview/s", &share_slug);
 
     mcp_text(id, &format!(
         "Preview ready.\n\n\
          Owner preview: `{}`\n\
          Share preview: `{}`\n\n\
-         The links expire in 5 minutes. Share either with the user to see the live preview.",
+         The owner link is stable for this workspace. The share link expires in 10 minutes.",
         owner_url, share_url
     ))
 }
@@ -348,14 +349,17 @@ async fn mcp_md_preview(
                 .to_string()
         });
 
-    let slug = common::preview_entries::store_file(file_path, cwd_path, title);
-    let preview_url = build_preview_url(state, "md-preview", &slug);
+    let (owner_slug, share_slug) =
+        common::preview_entries::ensure_file(file_path, cwd_path, title);
+    let owner_url = build_preview_url(state, "preview/u", &owner_slug);
+    let share_url = build_preview_url(state, "preview/s", &share_slug);
 
     mcp_text(id, &format!(
         "Markdown preview ready.\n\n\
-         URL: {}\n\n\
-         The link expires in 5 minutes. Share it with the user so they can see the rendered document.",
-        preview_url
+         Owner preview: `{}`\n\
+         Share preview: `{}`\n\n\
+         The owner link is stable for this file. The share link expires in 10 minutes.",
+        owner_url, share_url
     ))
 }
 

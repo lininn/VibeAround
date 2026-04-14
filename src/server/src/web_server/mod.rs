@@ -5,6 +5,7 @@
 mod api;
 mod auth;
 mod mcp;
+mod pair;
 mod preview;
 mod ws_chat;
 mod ws_pty;
@@ -176,10 +177,16 @@ pub async fn run_web_server(
     // Preview routes are also un-authed — the 8-char slug itself acts as a
     // short-lived authentication token (5-min TTL, cryptographically random).
     let public = Router::new()
-        // Preview iframe pages: set cookie + render iframe with src="/".
-        // /u = owner, /s = share — same handler, permissions differ later.
-        .route("/preview/u/{slug}", get(preview::iframe_preview_handler))
-        .route("/preview/s/{slug}", get(preview::iframe_preview_handler))
+        // Pairing API: no auth required (pairing IS the auth flow).
+        .route("/api/pair/start", post(pair::start_handler))
+        .route("/api/pair/status", get(pair::status_handler))
+        // Preview pages dispatch by session target:
+        //   Server → iframe + `/`-scoped cookie proxy
+        //   File   → rendered markdown page
+        // /u = owner (requires va_owner cookie), /s = share (slug is auth).
+        .route("/preview/u/{slug}", get(preview::owner_preview_handler))
+        .route("/preview/s/{slug}", get(preview::share_preview_handler))
+        // Legacy markdown route (kept for backward compatibility).
         .route("/md-preview/{slug}", get(preview::md_preview_handler))
         .nest_service("/assets", ServeDir::new(assets_dir))
         .fallback(any(spa_fallback_handler));
