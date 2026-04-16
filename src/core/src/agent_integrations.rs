@@ -34,7 +34,7 @@ pub fn sync_integrations(settings: &serde_json::Value) {
     // leaking the token via `ps` / loopback-only traffic is acceptable.
     let mcp_url = match crate::auth::read_token_file() {
         Some(auth) => format!(
-            "http://127.0.0.1:{}/mcp?token={}",
+            "http://127.0.0.1:{}/va/mcp?token={}",
             port, auth.token
         ),
         None => {
@@ -42,7 +42,7 @@ pub fn sync_integrations(settings: &serde_json::Value) {
                 "[integrations] auth.json missing — writing MCP config without token; \
                  coding agents will get 401 until the daemon rewrites it"
             );
-            format!("http://127.0.0.1:{}/mcp", port)
+            format!("http://127.0.0.1:{}/va/mcp", port)
         }
     };
 
@@ -462,6 +462,7 @@ fn agent_skills(agent: &str) -> Vec<(&'static str, &'static str)> {
         ($dir:literal) => {
             vec![
                 ("vibearound",  include_str!(concat!("../../skills/", $dir, "/vibearound/SKILL.md"))),
+                ("va-session",  include_str!(concat!("../../skills/", $dir, "/va-session/SKILL.md"))),
                 ("va-preview",  include_str!(concat!("../../skills/", $dir, "/va-preview/SKILL.md"))),
                 ("va-md-preview", include_str!(concat!("../../skills/", $dir, "/va-md-preview/SKILL.md"))),
             ]
@@ -478,6 +479,7 @@ fn agent_skills(agent: &str) -> Vec<(&'static str, &'static str)> {
         // Generic fallback — top-level skills dir (no agent subdirectory).
         _ => vec![
             ("vibearound",    include_str!("../../skills/vibearound/SKILL.md")),
+            ("va-session",    include_str!("../../skills/va-session/SKILL.md")),
             ("va-preview",    include_str!("../../skills/va-preview/SKILL.md")),
             ("va-md-preview", include_str!("../../skills/va-md-preview/SKILL.md")),
         ],

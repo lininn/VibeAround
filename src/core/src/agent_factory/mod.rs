@@ -20,6 +20,7 @@ use self::runtime::{AcpBridge, BridgeClientHandler, BridgeReady};
 /// The caller owns the bridge and is responsible for its lifecycle.
 pub async fn spawn_bridge(
     channel_kind: &str,
+    chat_id: &str,
     cli_kind: &str,
     workspace: &std::path::Path,
     resume_session_id: Option<String>,
@@ -31,12 +32,20 @@ pub async fn spawn_bridge(
     let kind = AgentKind::from_str_loose(cli_kind).unwrap_or(AgentKind::Claude);
     let provider = provider_for_kind(kind);
 
+    // VibeAround-specific env vars so skills can resolve session context.
+    let env_vars = vec![
+        ("VIBEAROUND_CHANNEL_KIND".to_string(), channel_kind.to_string()),
+        ("VIBEAROUND_CHAT_ID".to_string(), chat_id.to_string()),
+        ("VIBEAROUND_AGENT_KIND".to_string(), cli_kind.to_string()),
+    ];
+
     let ready = AcpBridge::spawn(
         provider,
         kind,
         workspace,
         resume_session_id,
         client_handler,
+        env_vars,
     )
     .await?;
 

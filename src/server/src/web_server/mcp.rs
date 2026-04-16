@@ -108,12 +108,44 @@ async fn mcp_tools_call(
     };
 
     match tool_name {
+        "get_session_id" => mcp_get_session_id(id, arguments, state).await,
         "prepare_handover" => mcp_prepare_handover(id, arguments).await,
         "register_workspace" => mcp_register_workspace(id, arguments).await,
         "preview" => mcp_preview_start(id, arguments, state).await,
         "md_preview" => mcp_md_preview(id, arguments, state).await,
-        // dispatch_task: removed — stub was misleading MCP clients.
         _ => jsonrpc_err(id, -32602, &format!("Unknown tool: {}", tool_name)),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// get_session_id — resolve the current ACP session ID from route info
+// ---------------------------------------------------------------------------
+
+async fn mcp_get_session_id(
+    id: Option<serde_json::Value>,
+    arguments: &serde_json::Value,
+    state: &AppState,
+) -> Json<serde_json::Value> {
+    let channel_kind = match arguments.get("channel_kind").and_then(|v| v.as_str()) {
+        Some(c) => c,
+        None => return jsonrpc_err(id, -32602, "Missing required argument: channel_kind"),
+    };
+    let chat_id = match arguments.get("chat_id").and_then(|v| v.as_str()) {
+        Some(c) => c,
+        None => return jsonrpc_err(id, -32602, "Missing required argument: chat_id"),
+    };
+
+    let route = common::acp::routing::RouteKey::new(channel_kind, chat_id);
+    let acp_hub = state.channel_hub.acp_hub();
+
+    match acp_hub.snapshot(&route).await {
+        Some(snap) if snap.session_id.is_some() => {
+            let sid = snap.session_id.unwrap();
+            mcp_text(id, &sid)
+        }
+        _ => {
+            mcp_error_text(id, "No active session found for this route. The agent session may not have started yet.")
+        }
     }
 }
 
@@ -284,14 +316,29 @@ async fn mcp_preview_start(
     }
 
     let title = derive_title(arguments, &cwd_path);
-    let slug = common::preview_entries::store_server(port, cwd_path, title);
-    let preview_url = build_preview_url(state, "preview", &slug);
+    let session_id = arguments
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    let (owner_slug, share_slug) =
+        common::preview_entries::ensure_server(port, cwd_path, title, session_id.clone());
+    let owner_url = build_preview_url(state, "preview/u", &owner_slug);
+    let share_url = build_preview_url(state, "preview/s", &share_slug);
+
+    let session_hint = if session_id.is_none() {
+        "\n\n\u{26a0}\u{fe0f} No session_id provided. Use /va-session skill to resolve it and pass session_id for automatic dev-server cleanup."
+    } else {
+        ""
+    };
 
     mcp_text(id, &format!(
         "Preview ready.\n\n\
-         URL: {}\n\n\
-         The link expires in 5 minutes. Share it with the user so they can see the live preview.",
-        preview_url
+         Owner: `{}`\n\
+         Share: `{}`\n\
+         Port: {}\n\
+         Share expires: 10 minutes{}",
+        owner_url, share_url, port, session_hint
     ))
 }
 
@@ -346,14 +393,17 @@ async fn mcp_md_preview(
                 .to_string()
         });
 
-    let slug = common::preview_entries::store_file(file_path, cwd_path, title);
-    let preview_url = build_preview_url(state, "md-preview", &slug);
+    let (owner_slug, share_slug) =
+        common::preview_entries::ensure_file(file_path, cwd_path, title);
+    let owner_url = build_preview_url(state, "preview/u", &owner_slug);
+    let share_url = build_preview_url(state, "preview/s", &share_slug);
 
     mcp_text(id, &format!(
         "Markdown preview ready.\n\n\
-         URL: {}\n\n\
-         The link expires in 5 minutes. Share it with the user so they can see the rendered document.",
-        preview_url
+         Owner: `{}`\n\
+         Share: `{}`\n\
+         Share expires: 10 minutes",
+        owner_url, share_url
     ))
 }
 
@@ -399,12 +449,13 @@ fn derive_title(arguments: &serde_json::Value, cwd_path: &std::path::Path) -> St
 }
 
 /// Build a full preview URL from the tunnel (or localhost fallback).
+/// All preview routes live under `/va/` to avoid conflicts with dev servers.
 fn build_preview_url(state: &AppState, route: &str, slug: &str) -> String {
     let base = state
         .services
         .get_tunnel_url()
         .unwrap_or_else(|| format!("http://127.0.0.1:{}", state.services.port));
-    format!("{}/{}/{}", base.trim_end_matches('/'), route, slug)
+    format!("{}/va/{}/{}", base.trim_end_matches('/'), route, slug)
 }
 
 // ---------------------------------------------------------------------------

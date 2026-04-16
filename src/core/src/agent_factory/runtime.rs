@@ -69,6 +69,7 @@ impl AcpBridge {
         workspace: &Path,
         resume_session_id: Option<String>,
         client_handler: Arc<dyn BridgeClientHandler>,
+        extra_env: Vec<(String, String)>,
     ) -> anyhow::Result<BridgeReady> {
         let cwd = workspace.to_path_buf();
         let (ready_tx, ready_rx) =
@@ -87,6 +88,7 @@ impl AcpBridge {
                     client_handler,
                     cancel_tx,
                     cancel_rx,
+                    extra_env,
                 );
             })
             .with_context(|| format!("Failed to spawn bridge thread for {}", kind))?;
@@ -203,6 +205,7 @@ fn run_bridge_thread(
     client_handler: Arc<dyn BridgeClientHandler>,
     cancel_tx: tokio::sync::watch::Sender<bool>,
     mut cancel_rx: tokio::sync::watch::Receiver<bool>,
+    extra_env: Vec<(String, String)>,
 ) {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -220,7 +223,7 @@ fn run_bridge_thread(
         local
             .run_until(async move {
                 match init_bridge(
-                    provider, kind, cwd, resume_session_id, client_handler, cancel_tx,
+                    provider, kind, cwd, resume_session_id, client_handler, cancel_tx, extra_env,
                 )
                 .await
                 {
@@ -246,11 +249,13 @@ async fn init_bridge(
     resume_session_id: Option<String>,
     client_handler: Arc<dyn BridgeClientHandler>,
     cancel_tx: tokio::sync::watch::Sender<bool>,
+    extra_env: Vec<(String, String)>,
 ) -> anyhow::Result<BridgeReady> {
     use acp::Agent as _;
     use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-    let mut connection = provider.connect(&cwd).await?;
+    let env_refs: Vec<(&str, &str)> = extra_env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let mut connection = provider.connect(&cwd, &env_refs).await?;
     let provider_session_id_rx = connection.session_id_rx.take();
     let worker_thread = connection.worker_thread.take();
 

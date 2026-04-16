@@ -1,0 +1,70 @@
+<h2>Which visual direction feels right for VibeAround?</h2>
+<p class="subtitle">This sets the overall tone — color palette, typography, and motion style will follow from this choice</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%); height: 200px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden;">
+      <div style="position: absolute; top: 20px; left: 20px; right: 20px; font-family: 'SF Mono', monospace; font-size: 11px; color: #4ade80; opacity: 0.6; line-height: 1.8;">
+        > vibearound start<br>
+        > connecting claude → telegram...<br>
+        > session: abc123 ✓
+      </div>
+      <div style="font-size: 48px; font-weight: 800; background: linear-gradient(135deg, #4ade80, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -2px;">VA</div>
+      <div style="position: absolute; bottom: 20px; width: 60%; height: 2px; background: linear-gradient(90deg, transparent, #4ade80, transparent);"></div>
+    </div>
+    <div class="card-body">
+      <h3>Dark Terminal</h3>
+      <p>Developer-native. Dark backgrounds, monospace accents, terminal green highlights. Feels like a tool built by engineers for engineers. Think: Vercel, Linear, Warp.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background: linear-gradient(135deg, #fafaf9 0%, #f5f0eb 50%, #ede4da 100%); height: 200px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden;">
+      <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: radial-gradient(circle at 70% 30%, rgba(234, 179, 8, 0.08) 0%, transparent 60%);"></div>
+      <div style="font-size: 48px; font-weight: 300; color: #1a1a1a; letter-spacing: 8px; text-transform: uppercase;">Vibe</div>
+      <div style="position: absolute; bottom: 30px; font-size: 12px; color: #78716c; letter-spacing: 4px;">AROUND</div>
+    </div>
+    <div class="card-body">
+      <h3>Editorial / Swiss</h3>
+      <p>Clean, warm, typographic. Light backgrounds, generous whitespace, strong type hierarchy. Feels premium and approachable. Think: Stripe, Notion, Linear docs.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #312e81 100%); height: 200px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden;">
+      <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: radial-gradient(circle at 30% 40%, rgba(139, 92, 246, 0.15) 0%, transparent 50%), radial-gradient(circle at 70% 60%, rgba(6, 182, 212, 0.1) 0%, transparent 50%);"></div>
+      <div style="position: absolute; top: 20px; left: 20px; display: flex; gap: 6px;">
+        <div style="width: 28px; height: 28px; border-radius: 8px; background: rgba(255,255,255,0.08); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.1);"></div>
+        <div style="width: 28px; height: 28px; border-radius: 8px; background: rgba(139,92,246,0.2); backdrop-filter: blur(8px); border: 1px solid rgba(139,92,246,0.2);"></div>
+        <div style="width: 28px; height: 28px; border-radius: 8px; background: rgba(6,182,212,0.15); backdrop-filter: blur(8px); border: 1px solid rgba(6,182,212,0.15);"></div>
+      </div>
+      <div style="font-size: 42px; font-weight: 700; color: white; letter-spacing: -1px; text-shadow: 0 0 40px rgba(139,92,246,0.3);">VibeAround</div>
+      <div style="position: absolute; bottom: 25px; display: flex; gap: 8px;">
+        <span style="padding: 4px 12px; border-radius: 20px; background: rgba(255,255,255,0.06); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.08); color: #c4b5fd; font-size: 11px;">Claude</span>
+        <span style="padding: 4px 12px; border-radius: 20px; background: rgba(255,255,255,0.06); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.08); color: #67e8f9; font-size: 11px;">Telegram</span>
+        <span style="padding: 4px 12px; border-radius: 20px; background: rgba(255,255,255,0.06); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.08); color: #a5b4fc; font-size: 11px;">Codex</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Cosmic Glass</h3>
+      <p>Deep purples, cyan accents, glassmorphism cards, subtle glow effects. Feels modern and slightly futuristic. Think: Arc browser, Raycast, GitHub Universe.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="d" onclick="toggleSelect(this)">
+    <div class="card-image" style="background: #fafafa; height: 200px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden;">
+      <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0;">
+        <div style="position: absolute; top: 30px; left: 30px; width: 120px; height: 3px; background: #000;"></div>
+        <div style="position: absolute; top: 50px; left: 30px; width: 80px; height: 3px; background: #e5e5e5;"></div>
+        <div style="position: absolute; bottom: 0; right: 0; width: 45%; height: 70%; background: #111; display: flex; align-items: center; justify-content: center;">
+          <div style="color: #4ade80; font-family: monospace; font-size: 10px; padding: 15px; line-height: 1.6;">$ vibearound<br>→ ready</div>
+        </div>
+        <div style="position: absolute; top: 80px; left: 30px; font-size: 28px; font-weight: 900; color: #111; line-height: 1.1;">Talk to<br>your agent<br><span style="color: #ef4444;">anywhere.</span></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Neo-Brutalist</h3>
+      <p>High contrast, bold type, asymmetric layouts, raw energy. Light base with punchy color accents and hard edges. Think: Vercel v0, Figma Config, some indie dev tools.</p>
+    </div>
+  </div>
+</div>

@@ -99,6 +99,7 @@ pub trait AgentProvider: Send + Sync {
     async fn connect(
         &self,
         workspace: &Path,
+        extra_env: &[(&str, &str)],
     ) -> anyhow::Result<ProviderConnection>;
 }
 
@@ -127,6 +128,7 @@ impl AgentProvider for StdioAcpProvider {
     async fn connect(
         &self,
         workspace: &Path,
+        extra_env: &[(&str, &str)],
     ) -> anyhow::Result<ProviderConnection> {
         let agent_def = crate::resources::agent_by_id(&self.agent_kind.to_string())
             .ok_or_else(|| anyhow!("No resource definition for agent '{}'", self.agent_kind))?;
@@ -156,7 +158,7 @@ impl AgentProvider for StdioAcpProvider {
 
         let args_refs: Vec<&str> = resolved_args.iter().map(|s| s.as_str()).collect();
         let (read_stream, write_stream) =
-            spawn_stdio_acp(self.agent_kind, &program, &args_refs, workspace)?;
+            spawn_stdio_acp(self.agent_kind, &program, &args_refs, workspace, extra_env)?;
         Ok(ProviderConnection {
             read_stream,
             write_stream,
@@ -172,18 +174,22 @@ fn spawn_stdio_acp(
     program: &str,
     args: &[&str],
     cwd: &Path,
+    extra_env: &[(&str, &str)],
 ) -> anyhow::Result<(DuplexStream, DuplexStream)> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     eprintln!("[{}-acp] spawning {} {} in {:?}", kind, program, args.join(" "), cwd);
-    let mut child = crate::env::command(program)
-        .args(args)
+    let mut cmd = crate::env::command(program);
+    cmd.args(args)
         .current_dir(cwd)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
-        .kill_on_drop(true)
-        .spawn()
+        .kill_on_drop(true);
+    for (k, v) in extra_env {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.spawn()
         .with_context(|| format!("Failed to spawn {} {}. Is it installed?", program, args.join(" ")))?;
     eprintln!("[{}-acp] process spawned pid={:?}", kind, child.id());
 

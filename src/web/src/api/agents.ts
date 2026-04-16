@@ -2,9 +2,13 @@
  * Agents API: fetch enabled agents from backend.
  */
 
+/** All dashboard routes live under /va/ to keep the root namespace free for
+ *  cookie-based dev-server preview proxying. */
+const VA_PREFIX = "/va";
+
 function getBaseUrl(): string {
-  if (typeof window === "undefined") return "http://127.0.0.1:12358";
-  return window.location.origin;
+  if (typeof window === "undefined") return `http://127.0.0.1:12358${VA_PREFIX}`;
+  return `${window.location.origin}${VA_PREFIX}`;
 }
 
 export interface AgentInfo {
