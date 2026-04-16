@@ -35,9 +35,9 @@ Arguments:
 
 If the tool says the workspace is not registered, call `register_workspace` with the `cwd` first, then retry.
 
-### 2. Share the URL
+### 2. Present BOTH links
 
-Include the returned URL in your reply. The user can tap it to see the rendered markdown with GitHub-style formatting. The link expires in 5 minutes.
+Always show **both** Owner and Share URLs. Never omit either link.
 
 ## Error Handling
 

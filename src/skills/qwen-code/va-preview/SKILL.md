@@ -47,9 +47,25 @@ Arguments:
 
 If the tool says the workspace is not registered, call `register_workspace` with the `cwd` first, then retry.
 
-### 4. Share the URL
+### 4. Present BOTH links to the user
 
-Include the returned URLs in your reply. The owner link is permanent for this workspace; the share link expires in 10 minutes.
+The tool returns an Owner link and a Share link. Always show **both** in this format:
+
+```
+Preview 已就绪：
+- 你的预览: <owner_url>
+- 分享链接: <share_url>（10 分钟有效）
+```
+
+Or in English:
+
+```
+Preview ready:
+- Owner: <owner_url>
+- Share: <share_url> (expires in 10 min)
+```
+
+**Never omit either link.** The owner link is permanent (requires browser pairing). The share link is temporary and needs no auth — ideal for sending to others.
 
 ## Error Handling
 

@@ -34,9 +34,25 @@ Arguments:
 
 If the tool says the workspace is not registered, call `register_workspace` with the `cwd` first, then retry.
 
-### 2. Share the URL
+### 2. Present BOTH links to the user
 
-Include the returned URL in your reply. The user can tap it to see the rendered markdown with GitHub-style formatting. The link expires in 5 minutes.
+The tool returns an Owner link and a Share link. Always show **both** in this format:
+
+```
+Markdown preview 已就绪：
+- 你的预览: <owner_url>
+- 分享链接: <share_url>（10 分钟有效）
+```
+
+Or in English:
+
+```
+Markdown preview ready:
+- Owner: <owner_url>
+- Share: <share_url> (expires in 10 min)
+```
+
+**Never omit either link.** The owner link is permanent. The share link is temporary and needs no auth.
 
 ## Error Handling
 

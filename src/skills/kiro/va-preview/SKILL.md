@@ -28,7 +28,16 @@ Arguments:
   title: "<description>"  (optional)
 ```
 
-### 4. Share the returned URLs with the user.
+### 4. Present BOTH links to the user
+
+Always show **both** Owner and Share URLs. Never omit either link.
+
+Format:
+```
+Preview ready:
+- Owner: <owner_url>
+- Share: <share_url> (expires in 10 min)
+```
 
 # VibeAround Live Preview
 

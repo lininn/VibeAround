@@ -334,10 +334,11 @@ async fn mcp_preview_start(
 
     mcp_text(id, &format!(
         "Preview ready.\n\n\
-         Owner preview: `{}`\n\
-         Share preview: `{}`\n\n\
-         The owner link is stable for this workspace. The share link expires in 10 minutes.{}",
-        owner_url, share_url, session_hint
+         Owner: `{}`\n\
+         Share: `{}`\n\
+         Port: {}\n\
+         Share expires: 10 minutes{}",
+        owner_url, share_url, port, session_hint
     ))
 }
 
@@ -399,9 +400,9 @@ async fn mcp_md_preview(
 
     mcp_text(id, &format!(
         "Markdown preview ready.\n\n\
-         Owner preview: `{}`\n\
-         Share preview: `{}`\n\n\
-         The owner link is stable for this file. The share link expires in 10 minutes.",
+         Owner: `{}`\n\
+         Share: `{}`\n\
+         Share expires: 10 minutes",
         owner_url, share_url
     ))
 }

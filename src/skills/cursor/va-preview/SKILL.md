@@ -38,9 +38,9 @@ Arguments:
   title: "<description>"  (optional)
 ```
 
-### 4. Share the URL
+### 4. Share both URLs
 
-Include the returned URLs in your reply.
+Always present **both** URLs (owner + share) to the user. Never omit either link.
 
 # VibeAround Live Preview
 
