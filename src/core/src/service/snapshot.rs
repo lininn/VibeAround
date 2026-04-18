@@ -1,16 +1,43 @@
-//! Snapshot types serialized to Dashboard API / WebSocket clients.
+//! Wire-facing snapshot types for `GET /api/services` and the
+//! `/ws/services` WebSocket broadcast.
+//!
+//! These types exist only to be serialized for the dashboard; they are
+//! a UX-shaped facade over the underlying domain state (tunnels,
+//! channels, agent runtimes, PTY sessions). A future TUI / CLI should
+//! not reuse them — it should read the underlying managers directly
+//! and render in its own terms. Phase 1f will split this facade into
+//! per-manager endpoints; these types are their transition home.
+//!
+//! Reference TS schema: `src/shared/client-ts/src/schemas.ts`.
 
 use serde::Serialize;
 
 use super::status::ServiceStatus;
 
-/// Web server metadata (read-only).
+/// Daemon metadata emitted on every services snapshot.
+///
+/// # Wire format (JSON)
+/// ```json
+/// { "started_at": 1713456789, "port": 12358 }
+/// ```
 #[derive(Debug, Clone, Serialize)]
 pub struct ServerMeta {
     pub started_at: u64,
     pub port: u16,
 }
 
+/// `GET /api/services` response (also broadcast on `/ws/services`).
+///
+/// # Wire format (JSON)
+/// ```json
+/// {
+///   "server": { "started_at": 1713456789, "port": 12358 },
+///   "tunnels":  [ /* ServiceInfo */ ],
+///   "agents":   [ /* ServiceInfo */ ],
+///   "channels": [ /* ServiceInfo */ ],
+///   "pty_session_count": 3
+/// }
+/// ```
 #[derive(Debug, Clone, Serialize)]
 pub struct StatusSnapshot {
     pub server: ServerMeta,
@@ -20,6 +47,22 @@ pub struct StatusSnapshot {
     pub pty_session_count: usize,
 }
 
+/// One row inside a `StatusSnapshot` category. Per-category extras
+/// (provider for tunnels; crash_count/reason for channels; etc.) are
+/// flattened in via `extra` — see each manager's build path for the
+/// full set.
+///
+/// # Wire format (JSON)
+/// ```json
+/// {
+///   "id": "feishu",
+///   "name": "Feishu",
+///   "status": { "state": "crashed" },
+///   "uptime_secs": 42,
+///   "reason": "plugin exited",
+///   "crash_count": 2
+/// }
+/// ```
 #[derive(Debug, Clone, Serialize)]
 pub struct ServiceInfo {
     pub id: String,
@@ -32,13 +75,25 @@ pub struct ServiceInfo {
 
 /// Wire-level status across all service kinds (tunnels, agents, channels).
 ///
-/// This unifies `ServiceStatus` (3 variants, for tunnels/agents) and
-/// `ChannelRunStatus` (5 variants, for channel plugins) into one tagged
-/// enum. The `state` discriminant lets the frontend pattern-match
-/// exhaustively instead of reverse-parsing free-form strings.
-#[derive(Debug, Clone, Serialize, ts_rs::TS)]
+/// Unifies `ServiceStatus` (tunnels/agents) and `ChannelRunStatus`
+/// (channel plugins) into one tagged enum. Serializes as a JSON object
+/// with a `state` discriminant — consumers pattern-match on it.
+///
+/// # Wire format (JSON)
+/// ```json
+/// { "state": "running" }
+/// { "state": "spawning" }
+/// { "state": "not_started" }
+/// { "state": "stopped", "reason": "killed" }      // reason may be null
+/// { "state": "failed", "error": "spawn failed" }
+/// { "state": "crashed" }
+/// ```
+///
+/// Consumers (web, desktop-ui, future TUI/CLI) should define their own
+/// schema at the wire boundary. The TS reference implementation lives
+/// in `src/shared/client-ts/src/schemas.ts` (zod).
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
-#[ts(export)]
 pub enum ApiServiceStatus {
     Running,
     Spawning,

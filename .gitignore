@@ -69,3 +69,6 @@ wiki/
 apple-sign.config
 build.sh
 .build-env
+
+# ts-rs leftover (removed — fence against accidental resurrection)
+src/core/bindings/

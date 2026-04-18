@@ -1,5 +1,4 @@
-import type { AgentId } from "@va/generated/AgentId";
-import { AGENT_IDS } from "@va/generated/AgentId";
+import { AGENT_IDS, type AgentId } from "@va/client";
 import type { ToolType } from "@/lib/terminal-types";
 
 export type { AgentId };

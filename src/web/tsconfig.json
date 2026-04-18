@@ -19,9 +19,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@va/generated/*": ["../shared/client-ts/generated/*"],
       "@va/client": ["../shared/client-ts/src/index.ts"]
     }
   },
-  "include": ["src", "../shared/client-ts/generated", "../shared/client-ts/src"]
+  "include": ["src", "../shared/client-ts/src"]
 }

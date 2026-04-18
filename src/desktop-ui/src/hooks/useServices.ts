@@ -1,42 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { ApiServiceStatus } from "@va/generated/ApiServiceStatus";
+import {
+  StatusSnapshotSchema,
+  type ApiServiceStatus,
+  type ServerMeta,
+  type ServiceInfo,
+  type StatusSnapshot,
+} from "@va/client";
 import { apiFetch, authedWsUrl } from "../lib/api";
 
-export type { ApiServiceStatus };
+export type { ApiServiceStatus, ServerMeta, ServiceInfo };
 
 const POLL_INTERVAL = 5000;
 const WS_RECONNECT_DELAY = 3000;
 
-export interface ServiceInfo {
-  id: string;
-  category: string;
-  name: string;
-  status: ApiServiceStatus;
-  uptime_secs: number;
-  provider?: string;
-  url?: string;
-  kind?: string;
-  workspace?: string;
-  role?: "manager" | "worker";
-  // --- Channel-only extras from ChannelMonitor snapshot ---
-  reason?: string;
-  crash_count?: number;
-  last_seen_age_secs?: number;
-  restart_in_secs?: number;
-}
-
-export interface ServerMeta {
-  started_at: number;
-  port: number;
-}
-
-export interface ServicesSnapshot {
-  server: ServerMeta;
-  tunnels: ServiceInfo[];
-  agents: ServiceInfo[];
-  channels: ServiceInfo[];
-  pty_session_count: number;
-}
+/** Alias for the HTTP/WS wire snapshot. */
+export type ServicesSnapshot = StatusSnapshot;
 
 export function useServices() {
   const [data, setData] = useState<ServicesSnapshot | null>(null);
@@ -51,7 +29,7 @@ export function useServices() {
     try {
       const res = await apiFetch(`/api/services`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json: ServicesSnapshot = await res.json();
+      const json = StatusSnapshotSchema.parse(await res.json());
       setData(json);
       setError(null);
     } catch (e: unknown) {
@@ -92,12 +70,12 @@ export function useServices() {
 
     ws.onmessage = (event) => {
       try {
-        const snapshot: ServicesSnapshot = JSON.parse(event.data);
+        const snapshot = StatusSnapshotSchema.parse(JSON.parse(event.data));
         setData(snapshot);
         setError(null);
         setLoading(false);
       } catch {
-        // ignore parse errors
+        // ignore parse errors — bad frames just get skipped
       }
     };
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Eye, ExternalLink, Globe, Trash2, RefreshCw, FileText, Server,
 } from "lucide-react";
-import { PREVIEW_SHARE_TTL_SECS } from "@va/generated/preview-constants";
+import { PREVIEW_SHARE_TTL_SECS } from "@va/client";
 import { apiFetch, openDashboardUrl, API_BASE } from "./lib/api";
 
 const PREVIEW_SHARE_TTL_MINUTES = Math.round(PREVIEW_SHARE_TTL_SECS / 60);

@@ -31,10 +31,10 @@ pub async fn list_tmux_sessions_handler() -> Json<serde_json::Value> {
 }
 
 /// GET /api/agents — list enabled agents and default agent for frontend agent selector.
-pub async fn list_agents_handler() -> Json<common::api_types::AgentsConfig> {
+pub async fn list_agents_handler() -> Json<crate::api_types::AgentsConfig> {
     let cfg = config::ensure_loaded();
-    Json(common::api_types::AgentsConfig {
-        agents: common::api_types::AgentInfo::for_ids(&cfg.enabled_agents),
+    Json(crate::api_types::AgentsConfig {
+        agents: crate::api_types::AgentInfo::for_ids(&cfg.enabled_agents),
         default_agent: cfg.default_agent.clone(),
     })
 }
