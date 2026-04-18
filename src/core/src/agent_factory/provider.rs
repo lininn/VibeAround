@@ -17,10 +17,13 @@ pub struct ProviderConnection {
     pub worker_thread: Option<std::thread::JoinHandle<()>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export)]
 pub enum AgentKind {
     Claude,
     Gemini,
+    #[serde(rename = "opencode")]
     OpenCode,
     Codex,
     Cursor,
