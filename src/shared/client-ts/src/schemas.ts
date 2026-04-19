@@ -115,3 +115,63 @@ export const StatusSnapshotSchema = z.object({
   pty_session_count: z.number(),
 });
 export type StatusSnapshot = z.infer<typeof StatusSnapshotSchema>;
+
+// ---------------------------------------------------------------------------
+// Per-domain runtime endpoints (Phase 1g).
+//
+// Reference Rust shape lives in `src/server/src/api_types.rs`. Each
+// endpoint:
+// - HTTP GET returns the `Array<...>` body.
+// - WS /ws/<domain> pushes the full array whenever the kernel manager
+//   reports a change.
+// ---------------------------------------------------------------------------
+
+/** Channel lifecycle states from `ChannelMonitor`. */
+export const CHANNEL_STATUS_VALUES = [
+  "not_started",
+  "spawning",
+  "running",
+  "crashed",
+  "stopped",
+] as const;
+export const ChannelStatusSchema = z.enum(CHANNEL_STATUS_VALUES);
+export type ChannelStatus = z.infer<typeof ChannelStatusSchema>;
+
+export const ChannelRuntimeSchema = z.object({
+  kind: z.string(),
+  status: ChannelStatusSchema,
+  reason: z.string().nullable(),
+  crash_count: z.number(),
+  last_seen_age_secs: z.number(),
+  restart_in_secs: z.number(),
+  started_at: z.number(),
+});
+export type ChannelRuntime = z.infer<typeof ChannelRuntimeSchema>;
+export const ChannelRuntimeListSchema = z.array(ChannelRuntimeSchema);
+
+export const TunnelRuntimeSchema = z.object({
+  provider: z.string(),
+  url: z.string().nullable(),
+  status: ApiServiceStatusSchema,
+  uptime_secs: z.number(),
+});
+export type TunnelRuntime = z.infer<typeof TunnelRuntimeSchema>;
+export const TunnelRuntimeListSchema = z.array(TunnelRuntimeSchema);
+
+export const AgentRuntimeSchema = z.object({
+  route_key: z.string(),
+  channel_kind: z.string(),
+  chat_id: z.string(),
+  cli_kind: z.string().nullable(),
+  profile: z.string().nullable(),
+  session_id: z.string().nullable(),
+  workspace: z.string().nullable(),
+  busy: z.boolean(),
+  failed: z.string().nullable(),
+  started_at: z.number(),
+  agent_name: z.string().nullable(),
+  agent_title: z.string().nullable(),
+  agent_version: z.string().nullable(),
+});
+export type AgentRuntime = z.infer<typeof AgentRuntimeSchema>;
+export const AgentRuntimeListSchema = z.array(AgentRuntimeSchema);
