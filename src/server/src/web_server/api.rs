@@ -5,11 +5,10 @@
 //! - DELETE /api/sessions/:session_id
 //! - GET /api/tmux/sessions
 //! - GET /api/agents
-//! - GET /api/channels          (Phase 1g: per-domain runtime list)
-//! - GET /api/tunnels           (Phase 1g: per-domain runtime list)
-//! - GET /api/agents/runtime    (Phase 1g: per-domain runtime list)
-//! - GET /api/services          (legacy unified; to be removed)
-//! - DELETE /api/services/:category/:id
+//! - GET /api/channels
+//! - GET /api/tunnels
+//! - GET /api/agents/runtime
+//! - DELETE /api/services/:category/:id    (legacy kill dispatcher)
 
 use axum::{
     extract::{Path, State},
@@ -44,10 +43,6 @@ pub async fn list_agents_handler() -> Json<crate::api_types::AgentsConfig> {
 }
 
 /// GET /api/services — list all services grouped by category.
-pub async fn list_services_handler(State(state): State<AppState>) -> Json<common::service::StatusSnapshot> {
-    Json(state.services.snapshot().await)
-}
-
 /// GET /api/channels — live list of channel plugins from `ChannelMonitor`.
 pub async fn list_channels_handler(
     State(state): State<AppState>,

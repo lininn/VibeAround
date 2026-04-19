@@ -10,7 +10,6 @@ mod preview;
 mod ws_chat;
 mod ws_domains;
 mod ws_pty;
-mod ws_services;
 
 use axum::body::Body;
 use axum::http::{HeaderValue, Method, StatusCode};
@@ -149,11 +148,9 @@ pub async fn run_web_server(
         .route("/api/agents", get(api::list_agents_handler))
         .route("/ws", get(ws_pty::ws_handler))
         .route("/ws/chat", get(ws_chat::ws_chat_handler))
-        .route("/ws/services", get(ws_services::ws_services_handler))
         .route("/ws/channels", get(ws_domains::ws_channels_handler))
         .route("/ws/tunnels", get(ws_domains::ws_tunnels_handler))
         .route("/ws/agents/runtime", get(ws_domains::ws_agents_runtime_handler))
-        .route("/api/services", get(api::list_services_handler))
         .route("/api/channels", get(api::list_channels_handler))
         .route("/api/tunnels", get(api::list_tunnels_handler))
         .route("/api/agents/runtime", get(api::list_agents_runtime_handler))

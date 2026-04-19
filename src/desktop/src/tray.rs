@@ -109,9 +109,11 @@ pub fn setup<R: Runtime>(app: &App<R>) -> Result<(), Box<dyn std::error::Error>>
     // Watch for tunnel state changes → enable/disable "Open Tunnel" menu item
     let app_handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
+        use common::state::StateSource;
         let Some(state) = app_handle.try_state::<AppServiceManager>() else { return };
         let sm = &state.0;
-        let mut rx = sm.subscribe_changes();
+        let tunnels = sm.tunnels();
+        let mut rx = tunnels.subscribe_changes();
         loop {
             let has_url = sm.has_tunnel_url();
             let _ = tunnel_item_clone.set_enabled(has_url);
