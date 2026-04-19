@@ -138,6 +138,71 @@ pub struct TunnelRuntime {
     pub uptime_secs: u64,
 }
 
+// ---------------------------------------------------------------------------
+// /ws/chat wire events (Phase 2)
+// ---------------------------------------------------------------------------
+
+/// Every frame the `/ws/chat` handler pushes to the web dashboard. Tagged
+/// by `kind` so the frontend does an exhaustive `switch` instead of
+/// string-sniffing a free-form JSON blob.
+///
+/// Lifecycle events (config / agent_ready / session_ready /
+/// command_menu / permission_request / system_text / error) are
+/// dashboard meta — our own addition on top of ACP. Streaming tokens /
+/// tool calls / turn completion all arrive as raw ACP
+/// `SessionNotification` payloads under the `acp_notification` kind.
+/// The frontend imports the matching TS types from
+/// `@agentclientprotocol/sdk`, so there is no hand-written schema on
+/// top of ACP.
+///
+/// # Wire format (JSON — examples)
+/// ```json
+/// { "kind": "config", "channel_id": "web:abc", "agents": [...], "default_agent": "claude" }
+/// { "kind": "agent_ready", "agent": "Claude Code", "version": "1.0" }
+/// { "kind": "session_ready", "session_id": "01HX..." }
+/// { "kind": "system_text", "text": "Session paired." }
+/// { "kind": "acp_notification", "payload": { /* acp::SessionNotification */ } }
+/// { "kind": "permission_request", "request_id": "pr-1", "request": { ... } }
+/// { "kind": "command_menu", "system_commands": [...], "agent_commands": [...] }
+/// { "kind": "error", "error": "spawn failed: ..." }
+/// ```
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ChatEvent {
+    Config {
+        channel_id: String,
+        agents: Vec<AgentInfo>,
+        default_agent: String,
+    },
+    AgentReady {
+        agent: String,
+        version: String,
+    },
+    SessionReady {
+        session_id: String,
+    },
+    CommandMenu {
+        system_commands: serde_json::Value,
+        agent_commands: serde_json::Value,
+    },
+    PermissionRequest {
+        request_id: String,
+        request: serde_json::Value,
+    },
+    SystemText {
+        text: String,
+    },
+    /// Raw ACP payload. Consumers decode via
+    /// `@agentclientprotocol/sdk`'s `SessionNotification` on the TS
+    /// side, `acp::SessionNotification` on the Rust side.
+    AcpNotification {
+        payload: serde_json::Value,
+    },
+    Error {
+        error: String,
+    },
+}
+
 /// One agent runtime, as returned by `GET /api/agents/runtime`.
 ///
 /// Sources: `common::acp_hub::ACPHub::list()` → `ACPPod::state()`.

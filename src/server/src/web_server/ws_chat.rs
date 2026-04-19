@@ -3,8 +3,10 @@
 //! - GET /ws/chat — ACP-native websocket adapter
 //!
 //! Inbound user messages are dispatched to ACPHub via the channel-input
-//! thread (fire-and-forget through ChannelManager).  ACP events flow back
-//! through the WebChannelManager outbound channel to the websocket.
+//! thread (fire-and-forget through ChannelManager). ACP events flow back
+//! through the WebChannelManager outbound channel to the websocket,
+//! wrapped in a tagged [`crate::api_types::ChatEvent`] envelope so the
+//! frontend can discriminate exhaustively.
 
 use axum::extract::{
     ws::{Message, WebSocket, WebSocketUpgrade},
@@ -17,6 +19,8 @@ use uuid::Uuid;
 use common::acp::routing::RouteKey;
 use common::channel_manager::{ChannelEnvelope, ChannelInput, ChannelOutput};
 use common::config;
+
+use crate::api_types::{AgentInfo, ChatEvent};
 
 use super::AppState;
 
@@ -36,9 +40,10 @@ async fn handle_chat_socket(socket: WebSocket, state: AppState) {
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
-    // Load config
+    // Load config + verbose flags once — verbose filter drops
+    // thinking/tool_call frames on the server side when disabled rather
+    // than forcing every client to filter.
     let cfg = config::ensure_loaded();
-    // Try "ws" first (settings.json key), then "web" (internal channel kind)
     let verbose = {
         let v = cfg.channel_verbose("ws");
         if !v.show_thinking && !v.show_tool_use {
@@ -47,30 +52,31 @@ async fn handle_chat_socket(socket: WebSocket, state: AppState) {
             v
         }
     };
-    let agents = crate::api_types::AgentInfo::for_ids(&cfg.enabled_agents);
-    let config_msg = serde_json::json!({
-        "type": "config",
-        "channelId": channel_id,
-        "agents": agents,
-        "default_agent": cfg.default_agent,
-    });
-    let _ = ws_tx.send(Message::Text(config_msg.to_string().into())).await;
 
-    // Outbound: drain ACP events from WebChannelManager → websocket
+    // Send initial config event.
+    let config_event = ChatEvent::Config {
+        channel_id: channel_id.clone(),
+        agents: AgentInfo::for_ids(&cfg.enabled_agents),
+        default_agent: cfg.default_agent.clone(),
+    };
+    if send_event(&mut ws_tx, &config_event).await.is_err() {
+        state.web_channel.unregister_connection(&chat_id);
+        return;
+    }
+
+    // Outbound: drain ChannelOutput → ChatEvent → websocket.
     let outbound_task = tokio::spawn(async move {
         while let Some(output) = rx.recv().await {
-            let msg = output_to_client_json(output, &verbose);
-            if msg.is_null() {
-                continue; // filtered by verbose config
-            }
-            eprintln!("[ws_chat] outbound → ws: {}", msg);
-            if ws_tx.send(Message::Text(msg.to_string().into())).await.is_err() {
+            let Some(event) = output_to_chat_event(output, &verbose) else {
+                continue;
+            };
+            if send_event(&mut ws_tx, &event).await.is_err() {
                 break;
             }
         }
     });
 
-    // Inbound: ws messages → ChannelInput → channel-input thread → ACPHub
+    // Inbound: ws messages → ChannelInput → channel-input thread → ACPHub.
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             Message::Text(text) => {
@@ -83,13 +89,27 @@ async fn handle_chat_socket(socket: WebSocket, state: AppState) {
         }
     }
 
-    // Cleanup
     outbound_task.abort();
     state.web_channel.unregister_connection(&chat_id);
     state.channel_hub.acp_hub().close(&route, None).await;
 }
 
-// --- PLACEHOLDER_REST ---
+async fn send_event<S>(ws_tx: &mut S, event: &ChatEvent) -> Result<(), ()>
+where
+    S: SinkExt<Message, Error = axum::Error> + Unpin,
+{
+    let body = match serde_json::to_string(event) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[ws_chat] serialize failed: {}", e);
+            return Ok(());
+        }
+    };
+    ws_tx
+        .send(Message::Text(body.into()))
+        .await
+        .map_err(|_| ())
+}
 
 fn parse_channel_input(chat_id: &str, text: &str) -> Option<ChannelInput> {
     let parsed = serde_json::from_str::<serde_json::Value>(text);
@@ -151,119 +171,56 @@ fn parse_channel_input(chat_id: &str, text: &str) -> Option<ChannelInput> {
     }
 }
 
-fn output_to_client_json(output: ChannelOutput, verbose: &common::config::ImVerboseConfig) -> serde_json::Value {
+/// Translate a `ChannelOutput` into a wire `ChatEvent`. Returns `None`
+/// when the event should be dropped per the caller's verbose filter
+/// (thinking / tool-use chunks when the user has opted out).
+fn output_to_chat_event(
+    output: ChannelOutput,
+    verbose: &common::config::ImVerboseConfig,
+) -> Option<ChatEvent> {
     match output {
-        ChannelOutput::RawAcp { payload, .. } => acp_to_frontend(payload, verbose),
-        ChannelOutput::SystemText { text, .. } => {
-            serde_json::json!({ "kind": "text", "text": text })
+        ChannelOutput::RawAcp { payload, .. } => acp_passthrough(payload, verbose),
+        ChannelOutput::SystemText { text, .. } => Some(ChatEvent::SystemText { text }),
+        ChannelOutput::AgentReady { agent, version, .. } => {
+            Some(ChatEvent::AgentReady { agent, version })
         }
-        ChannelOutput::AgentReady {
-            agent, version, ..
-        } => {
-            serde_json::json!({
-                "kind": "agent_ready",
-                "agent": agent,
-                "version": version,
-            })
-        }
-        ChannelOutput::SessionReady {
-            session_id, ..
-        } => {
-            serde_json::json!({
-                "kind": "session_ready",
-                "sessionId": session_id,
-            })
+        ChannelOutput::SessionReady { session_id, .. } => {
+            Some(ChatEvent::SessionReady { session_id })
         }
         ChannelOutput::CommandMenu {
-            system_commands, agent_commands, ..
-        } => {
-            serde_json::json!({
-                "kind": "command_menu",
-                "systemCommands": system_commands,
-                "agentCommands": agent_commands,
-            })
-        }
+            system_commands,
+            agent_commands,
+            ..
+        } => Some(ChatEvent::CommandMenu {
+            system_commands,
+            agent_commands,
+        }),
         ChannelOutput::PermissionRequest {
-            request_id, payload, ..
-        } => {
-            // Forward to web client so it can render an approval UI. Client is
-            // expected to post `request_id` + selected `optionId` back via the
-            // websocket. If the client doesn't implement it yet, the
-            // corresponding pending oneshot in PluginHost will wait forever —
-            // which matches the "no timeout" UX for IM channels.
-            serde_json::json!({
-                "kind": "permission_request",
-                "requestId": request_id,
-                "request": payload,
-            })
-        }
+            request_id,
+            payload,
+            ..
+        } => Some(ChatEvent::PermissionRequest {
+            request_id,
+            request: payload,
+        }),
     }
 }
 
-/// Translate ACP session_notification payload into the frontend's expected format.
-///
-/// ACP shape:  { "sessionId": "...", "update": { "sessionUpdate": "<variant>", ... } }
-/// Frontend expects:  { "kind": "token"|"thinking"|"tool_use"|"tool_result"|"turn_complete"|"error", ... }
-fn acp_to_frontend(payload: serde_json::Value, verbose: &common::config::ImVerboseConfig) -> serde_json::Value {
-    let update = match payload.get("update") {
-        Some(u) => u,
-        None => return payload, // not a session_notification, pass through
-    };
-
-    let variant = update
-        .get("sessionUpdate")
+/// Pass ACP session notifications through as `AcpNotification`. The
+/// only server-side policy applied is the verbose filter: drop
+/// thinking/tool_call frames when the user has opted out so clients
+/// don't have to re-implement the same filter.
+fn acp_passthrough(
+    payload: serde_json::Value,
+    verbose: &common::config::ImVerboseConfig,
+) -> Option<ChatEvent> {
+    let variant = payload
+        .pointer("/update/sessionUpdate")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-
     match variant {
-        "agent_message_chunk" => {
-            let text = update
-                .pointer("/content/text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            serde_json::json!({ "kind": "token", "delta": text })
-        }
-        "agent_thought_chunk" => {
-            if !verbose.show_thinking {
-                return serde_json::Value::Null;
-            }
-            let text = update
-                .pointer("/content/text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            serde_json::json!({ "kind": "thinking", "text": text })
-        }
-        "tool_call_update" => {
-            if !verbose.show_tool_use {
-                return serde_json::Value::Null;
-            }
-            let title = update
-                .pointer("/fields/title")
-                .and_then(|v| v.as_str())
-                .unwrap_or("tool");
-            let status = update
-                .pointer("/fields/status")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            match status {
-                "completed" | "error" => serde_json::json!({ "kind": "tool_result" }),
-                _ => serde_json::json!({ "kind": "tool_use", "tool": title }),
-            }
-        }
-        "turn_complete" => {
-            serde_json::json!({ "kind": "turn_complete" })
-        }
-        "error" => {
-            let text = update
-                .pointer("/content/text")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown error");
-            serde_json::json!({ "kind": "error", "error": text })
-        }
-        other => {
-            eprintln!("[ws_chat] unhandled ACP variant: {:?}", other);
-            return serde_json::json!({ "kind": "debug", "variant": other, "raw": payload });
-        }
+        "agent_thought_chunk" if !verbose.show_thinking => None,
+        "tool_call" | "tool_call_update" if !verbose.show_tool_use => None,
+        _ => Some(ChatEvent::AcpNotification { payload }),
     }
 }
-

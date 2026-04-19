@@ -175,3 +175,59 @@ export const AgentRuntimeSchema = z.object({
 });
 export type AgentRuntime = z.infer<typeof AgentRuntimeSchema>;
 export const AgentRuntimeListSchema = z.array(AgentRuntimeSchema);
+
+// ---------------------------------------------------------------------------
+// /ws/chat — ChatEvent envelope (Phase 2)
+//
+// Lifecycle events have hand-curated fields; streaming agent output
+// rides through `acp_notification` carrying a raw ACP
+// `SessionNotification` (from `@agentclientprotocol/sdk`). Consumers
+// do a two-level switch: first on the envelope `kind`, then — inside
+// `acp_notification` — on `payload.update.sessionUpdate`.
+//
+// The ACP payload itself isn't re-validated here (we trust the
+// agent-client-protocol crate on the server side). If you need
+// typed access to specific update variants on the TS side, import
+// them from `@agentclientprotocol/sdk` directly.
+// ---------------------------------------------------------------------------
+
+export const ChatEventSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("config"),
+    channel_id: z.string(),
+    agents: z.array(AgentInfoSchema),
+    default_agent: z.string(),
+  }),
+  z.object({
+    kind: z.literal("agent_ready"),
+    agent: z.string(),
+    version: z.string(),
+  }),
+  z.object({
+    kind: z.literal("session_ready"),
+    session_id: z.string(),
+  }),
+  z.object({
+    kind: z.literal("command_menu"),
+    system_commands: z.unknown(),
+    agent_commands: z.unknown(),
+  }),
+  z.object({
+    kind: z.literal("permission_request"),
+    request_id: z.string(),
+    request: z.unknown(),
+  }),
+  z.object({
+    kind: z.literal("system_text"),
+    text: z.string(),
+  }),
+  z.object({
+    kind: z.literal("acp_notification"),
+    payload: z.unknown(),
+  }),
+  z.object({
+    kind: z.literal("error"),
+    error: z.string(),
+  }),
+]);
+export type ChatEvent = z.infer<typeof ChatEventSchema>;

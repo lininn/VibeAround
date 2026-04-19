@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.19.0",
     "@streamdown/cjk": "^1.0.2",
     "@streamdown/code": "^1.0.3",
     "@xterm/addon-canvas": "^0.7.0",

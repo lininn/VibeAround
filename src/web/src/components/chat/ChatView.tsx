@@ -14,6 +14,8 @@ import { ChatInput } from "./ChatInput";
 import { getWebSocketUrl } from "@/lib/ws-url";
 import { agentIdToToolType, getAgentDisplayName } from "@/lib/agents";
 import type { AgentInfo } from "@/api/agents";
+import { ChatEventSchema } from "@va/client";
+import type { SessionNotification } from "@agentclientprotocol/sdk";
 
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -58,108 +60,87 @@ export function ChatView() {
 
     ws.onmessage = (event) => {
       if (typeof event.data !== "string") return;
-      const s = event.data as string;
-      console.debug("[ChatView] ws.onmessage", s);
 
-      let j: Record<string, unknown>;
+      let parsed;
       try {
-        j = JSON.parse(s);
-      } catch {
-        appendToStreamAssistant(s);
+        parsed = ChatEventSchema.parse(JSON.parse(event.data));
+      } catch (e) {
+        console.warn("[ChatView] bad chat frame, dropping:", e);
         return;
       }
 
-      if (j.type === "config" && Array.isArray(j.agents)) {
-        setAgents(j.agents as AgentInfo[]);
-        setMeta((prev) => ({
-          ...prev,
-          channelId: typeof j.channelId === "string" ? (j.channelId as string) : prev.channelId,
-        }));
-        if (typeof j.default_agent === "string") {
-          setSelectedAgent(j.default_agent as string);
+      switch (parsed.kind) {
+        case "config": {
+          setAgents(parsed.agents);
+          setMeta((prev) => ({ ...prev, channelId: parsed.channel_id }));
+          setSelectedAgent(parsed.default_agent);
+          break;
         }
-        return;
-      }
-
-      if (typeof j.protocolVersion === "string" || typeof j.agentInfo === "object") {
-        const agentInfo = (j.agentInfo ?? {}) as Record<string, unknown>;
-        setMeta((prev) => ({
-          ...prev,
-          agentName: typeof agentInfo.name === "string" ? (agentInfo.name as string) : prev.agentName,
-          agentTitle: typeof agentInfo.title === "string" ? (agentInfo.title as string) : prev.agentTitle,
-          agentVersion:
-            typeof agentInfo.version === "string" ? (agentInfo.version as string) : prev.agentVersion,
-        }));
-        return;
-      }
-
-      if (j.kind === "agent_ready") {
-        setMeta((prev) => ({
-          ...prev,
-          agentName: typeof j.agent === "string" ? (j.agent as string) : prev.agentName,
-          agentVersion: typeof j.version === "string" ? (j.version as string) : prev.agentVersion,
-        }));
-        return;
-      }
-
-      if (j.kind === "session_ready") {
-        setMeta((prev) => ({
-          ...prev,
-          sessionId: typeof j.sessionId === "string" ? (j.sessionId as string) : prev.sessionId,
-        }));
-        return;
-      }
-
-      if (typeof j.sessionId === "string") {
-        setMeta((prev) => ({ ...prev, sessionId: j.sessionId as string }));
-      }
-
-      if (j.kind === "start") {
-        return;
-      }
-
-      if (j.kind === "turn_complete") {
-        clearStreamProgress();
-        setStreaming(false);
-        return;
-      }
-
-      if (j.kind === "error" && typeof j.error === "string") {
-        appendErrorToStream(j.error as string);
-        setStreaming(false);
-        return;
-      }
-
-      if (j.kind === "thinking" && typeof j.text === "string") {
-        setStreamProgress(j.text as string);
-        return;
-      }
-
-      if (j.kind === "tool_use" && typeof j.tool === "string") {
-        setStreamProgress(`Using tool: ${j.tool}...`);
-        return;
-      }
-
-      if (j.kind === "tool_result") {
-        clearStreamProgress();
-        return;
-      }
-
-      if (j.kind === "text" && typeof j.text === "string") {
-        appendStandaloneAssistant(j.text as string);
-        return;
-      }
-
-      if (j.kind === "token" && typeof j.delta === "string") {
-        appendToStreamAssistant(j.delta as string);
-        return;
-      }
-
-      if (typeof j.text === "string") {
-        appendToStreamAssistant(j.text as string);
-        return;
+        case "agent_ready": {
+          setMeta((prev) => ({
+            ...prev,
+            agentName: parsed.agent,
+            agentVersion: parsed.version,
+          }));
+          break;
+        }
+        case "session_ready": {
+          setMeta((prev) => ({ ...prev, sessionId: parsed.session_id }));
+          break;
+        }
+        case "system_text": {
+          appendStandaloneAssistant(parsed.text);
+          break;
+        }
+        case "error": {
+          appendErrorToStream(parsed.error);
+          setStreaming(false);
+          break;
+        }
+        case "acp_notification": {
+          handleAcpNotification(parsed.payload as SessionNotification);
+          break;
+        }
+        case "command_menu":
+        case "permission_request":
+          // Not wired into the web chat UI yet.
+          break;
       }
     };
+
+    function handleAcpNotification(notif: SessionNotification) {
+      const update = notif.update;
+      switch (update.sessionUpdate) {
+        case "agent_message_chunk": {
+          if (update.content.type === "text") {
+            appendToStreamAssistant(update.content.text);
+          }
+          break;
+        }
+        case "agent_thought_chunk": {
+          if (update.content.type === "text") {
+            setStreamProgress(update.content.text);
+          }
+          break;
+        }
+        case "tool_call":
+        case "tool_call_update": {
+          const title = "title" in update ? update.title : undefined;
+          const status = "status" in update ? update.status : undefined;
+          if (status === "completed" || status === "failed") {
+            clearStreamProgress();
+          } else {
+            setStreamProgress(`Using tool: ${title ?? "tool"}…`);
+          }
+          break;
+        }
+        // Other ACP update variants (plan, available_commands_update, etc.)
+        // are not yet surfaced in the web chat UI. Ignored rather than
+        // erroring so future SDK additions don't crash the handler.
+        default:
+          break;
+      }
+    }
 
     function appendStandaloneAssistant(text: string) {
       if (!text) return;
