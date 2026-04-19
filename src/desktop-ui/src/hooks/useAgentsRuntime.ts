@@ -12,8 +12,8 @@ export type { AgentRuntime };
  * Agents tab in the desktop dashboard. Subscribes to
  * `/ws/agents/runtime` for live updates and falls back to
  * `/api/agents/runtime` polling on disconnect. `kill` routes
- * through the existing `DELETE /api/services/agents/:id` endpoint,
- * where `id` is the route key (e.g. `telegram:chat_42`).
+ * through `DELETE /api/agents/:route_key`, where `route_key` is
+ * `channel_kind:chat_id` (e.g. `telegram:chat_42`).
  */
 export function useAgentsRuntime() {
   const base = useManagerState(

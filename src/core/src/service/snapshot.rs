@@ -1,14 +1,10 @@
 //! `ApiServiceStatus` — shared wire-adjacent enum.
 //!
-//! Most of this file used to define a `StatusSnapshot` aggregate
-//! returned by the legacy `/api/services` endpoint. That endpoint and
-//! its aggregate type were removed in Phase 1g; per-domain endpoints
-//! (`/api/channels`, `/api/tunnels`, `/api/agents/runtime`) each
-//! define their own wire shapes in `src/server/src/api_types.rs`.
-//!
-//! `ApiServiceStatus` stays because it's still the natural wire shape
-//! for "how is this one service doing" — currently reused by
-//! `TunnelRuntime`.
+//! Per-domain endpoints (`/api/channels`, `/api/tunnels`,
+//! `/api/agents/runtime`) each define their own wire shapes in
+//! `src/server/src/api_types.rs`. `ApiServiceStatus` stays because it's
+//! the natural wire shape for "how is this one service doing" —
+//! currently reused by `TunnelRuntime`.
 
 use serde::Serialize;
 

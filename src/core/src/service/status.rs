@@ -1,9 +1,7 @@
-//! `ServiceStatus` + `ServiceMeta` + `spawn_tracked`.
+//! `ServiceStatus` + `ServiceMeta`.
 //!
-//! The status enum itself, the common metadata block every registered
-//! service carries (status + started_at + kill_fn), and the helper that
-//! auto-marks a spawned task as `Stopped { reason: "completed" }` when its
-//! future completes.
+//! The status enum itself and the common metadata block every registered
+//! service carries: status + started_at + kill_fn.
 
 use std::sync::Arc;
 

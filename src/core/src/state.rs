@@ -1,10 +1,10 @@
 //! Uniform state-inspection surface every kernel manager implements.
 //!
 //! This is the contract between `common` and its shells (the axum
-//! server, the Tauri desktop, any future TUI/CLI). Each manager that
-//! holds runtime state — `ChannelMonitor`, `ACPHub`, `PtyRegistry`, the
-//! `TunnelManager` we'll extract in Phase 1g — implements
-//! [`StateSource`] so consumers have two ways to work with it:
+//! server, the Tauri desktop, any future TUI/CLI). Every manager that
+//! holds runtime state — `ChannelMonitor`, `ACPHub`, `TunnelManager`,
+//! `PtyRegistry` — implements [`StateSource`] so consumers have two
+//! ways to work with it:
 //!
 //! - **Poll**: call [`StateSource::list`] whenever you need the current
 //!   set of entries. Cheap; safe to call at polling cadence.
@@ -29,6 +29,14 @@
 
 /// Managers that expose a list of entries and notify when the list
 /// changes. See module docs for the intended usage pattern.
+///
+/// `#[allow(async_fn_in_trait)]`: the trait is only used via concrete
+/// manager handles (`Arc<ChannelMonitor>` etc.) — never as a trait object
+/// — so the missing `Send` bound in the desugared return type is
+/// inferred at each call site and causes no practical issue. The trade
+/// of readability (`async fn list`) for a one-off advisory is worth it
+/// for an internal contract.
+#[allow(async_fn_in_trait)]
 pub trait StateSource {
     /// Entry type — typically `Arc<SomeRuntimeObject>` for long-lived
     /// entities whose fields are read live (pods, PTY sessions, tunnels)

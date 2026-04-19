@@ -11,8 +11,7 @@ export type { TunnelRuntime };
 /**
  * Tunnels tab in the desktop dashboard. Subscribes to `/ws/tunnels`
  * for live updates and falls back to `/api/tunnels` polling on
- * disconnect. `kill` routes through the existing
- * `DELETE /api/services/tunnels/:id` endpoint.
+ * disconnect. `kill` routes through `DELETE /api/tunnels/:provider`.
  */
 export function useTunnelsState() {
   const base = useManagerState(

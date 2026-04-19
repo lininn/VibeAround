@@ -105,16 +105,6 @@ impl ChannelManager {
         m
     }
 
-    /// Expose the monitor's change broadcast so `ServiceStatusManager` can
-    /// unify dashboards into a single subscribe stream.
-    pub fn monitor_change_tx(&self) -> Option<tokio::sync::broadcast::Sender<()>> {
-        self.monitor
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|m| m.change_tx_clone())
-    }
-
     /// Take the input receiver so the caller can drive the processing loop.
     /// Must be called exactly once (typically during daemon startup).
     pub fn take_input_rx(&self) -> Option<mpsc::UnboundedReceiver<ChannelInput>> {

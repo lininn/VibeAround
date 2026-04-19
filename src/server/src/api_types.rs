@@ -82,9 +82,9 @@ impl AgentInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Per-domain runtime shapes (Phase 1g). Each is returned by a dedicated
+// Per-domain runtime shapes. Each is returned by a dedicated
 // `/api/<domain>` handler reading directly from the relevant kernel
-// manager — no unified `StatusSnapshot` envelope, no Services facade.
+// manager — no unified snapshot envelope, no aggregate facade.
 // ---------------------------------------------------------------------------
 
 /// One channel plugin, as returned by `GET /api/channels`.
@@ -139,7 +139,7 @@ pub struct TunnelRuntime {
 }
 
 // ---------------------------------------------------------------------------
-// /ws/chat wire events (Phase 2)
+// /ws/chat wire events
 // ---------------------------------------------------------------------------
 
 /// Every frame the `/ws/chat` handler pushes to the web dashboard. Tagged

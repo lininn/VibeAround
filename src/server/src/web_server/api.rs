@@ -45,7 +45,6 @@ pub async fn list_agents_handler() -> Json<crate::api_types::AgentsConfig> {
     })
 }
 
-/// GET /api/services — list all services grouped by category.
 /// GET /api/channels — live list of channel plugins from `ChannelMonitor`.
 pub async fn list_channels_handler(
     State(state): State<AppState>,

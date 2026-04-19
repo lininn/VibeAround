@@ -60,8 +60,9 @@ export const AgentsConfigSchema = z.object({
 export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
 
 // ---------------------------------------------------------------------------
-// GET /api/services — unified runtime snapshot (transitional — Phase 1f
-// splits this into per-manager endpoints)
+// Service status — shared discriminated union reused by `TunnelRuntime`
+// below. The legacy aggregate (`/api/services` with `ServiceInfo` /
+// `StatusSnapshot`) was removed in favor of per-domain endpoints.
 // ---------------------------------------------------------------------------
 
 export const ApiServiceStatusSchema = z.discriminatedUnion("state", [
@@ -74,50 +75,8 @@ export const ApiServiceStatusSchema = z.discriminatedUnion("state", [
 ]);
 export type ApiServiceStatus = z.infer<typeof ApiServiceStatusSchema>;
 
-/** ServiceInfo rows carry per-category extras via `#[serde(flatten)]` on
- *  the Rust side (see the `#[serde(flatten)] pub extra` field on
- *  `common::service::snapshot::ServiceInfo`). Known extras are declared
- *  here as optional so consumers get autocomplete; `passthrough()`
- *  lets any additional keys come through as `unknown`. */
-export const ServiceInfoSchema = z
-  .object({
-    id: z.string(),
-    name: z.string(),
-    status: ApiServiceStatusSchema,
-    uptime_secs: z.number(),
-    // Tunnel extras
-    provider: z.string().optional(),
-    url: z.string().optional(),
-    // Channel extras (from ChannelMonitor snapshot)
-    reason: z.string().optional(),
-    crash_count: z.number().optional(),
-    last_seen_age_secs: z.number().optional(),
-    restart_in_secs: z.number().optional(),
-    // Agent runtime extras
-    kind: z.string().optional(),
-    workspace: z.string().optional(),
-    role: z.enum(["manager", "worker"]).optional(),
-  })
-  .passthrough();
-export type ServiceInfo = z.infer<typeof ServiceInfoSchema>;
-
-export const ServerMetaSchema = z.object({
-  started_at: z.number(),
-  port: z.number(),
-});
-export type ServerMeta = z.infer<typeof ServerMetaSchema>;
-
-export const StatusSnapshotSchema = z.object({
-  server: ServerMetaSchema,
-  tunnels: z.array(ServiceInfoSchema),
-  agents: z.array(ServiceInfoSchema),
-  channels: z.array(ServiceInfoSchema),
-  pty_session_count: z.number(),
-});
-export type StatusSnapshot = z.infer<typeof StatusSnapshotSchema>;
-
 // ---------------------------------------------------------------------------
-// Per-domain runtime endpoints (Phase 1g).
+// Per-domain runtime endpoints.
 //
 // Reference Rust shape lives in `src/server/src/api_types.rs`. Each
 // endpoint:
@@ -177,7 +136,7 @@ export type AgentRuntime = z.infer<typeof AgentRuntimeSchema>;
 export const AgentRuntimeListSchema = z.array(AgentRuntimeSchema);
 
 // ---------------------------------------------------------------------------
-// /ws/chat — ChatEvent envelope (Phase 2)
+// /ws/chat — ChatEvent envelope
 //
 // Lifecycle events have hand-curated fields; streaming agent output
 // rides through `acp_notification` carrying a raw ACP

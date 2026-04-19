@@ -211,9 +211,10 @@ pub struct ChannelMonitor {
     /// and `touch` — this avoids a reference cycle.
     plugin_host: Arc<PluginHost>,
 
-    /// Broadcasts `()` when any channel status changes; subscribers re-query
-    /// snapshot. Shared with `ServiceStatusManager::change_tx` so Dashboard
-    /// gets a single unified stream.
+    /// Broadcasts `()` whenever any channel status changes. Subscribers
+    /// react by re-reading `list()` — the current snapshot IS the state,
+    /// there's no separate diff payload. Exposed via
+    /// `StateSource::subscribe_changes` for per-domain WS/HTTP consumers.
     change_tx: tokio::sync::broadcast::Sender<()>,
 }
 
@@ -513,12 +514,6 @@ impl ChannelMonitor {
 
     fn notify_change(&self) {
         let _ = self.change_tx.send(());
-    }
-
-    /// Expose the broadcast sender so callers (e.g. `ServiceStatusManager`)
-    /// can unify change notifications into a single subscribe stream.
-    pub fn change_tx_clone(&self) -> tokio::sync::broadcast::Sender<()> {
-        self.change_tx.clone()
     }
 
     /// Subscribe to change notifications.

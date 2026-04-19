@@ -199,7 +199,8 @@ pub async fn run_web_server(
     // page load can boot and read the `?token=` parameter from its own URL.
     //
     // Preview routes are also un-authed — the 8-char slug itself acts as a
-    // short-lived authentication token (5-min TTL, cryptographically random).
+    // short-lived authentication token (10-min TTL, cryptographically random;
+    // single source of truth: `common::preview_entries::SHARE_TTL_SECS`).
     let public = Router::new()
         // Pairing API: no auth required (pairing IS the auth flow).
         .route("/api/pair/start", post(pair::start_handler))

@@ -5,17 +5,20 @@
 //!
 //! ## Module layout
 //!
-//! - [`snapshot`]        — `PodSnapshot` (serialized view of pod state).
-//! - [`media`]           — relocate cached media from staging to the
-//!                         session-scoped workspace path before each prompt.
+//! - [`state`]           — `PodState` (mutable runtime fields read via
+//!                         `ACPPod::state().await`).
+//! - [`bridge`]          — agent bridge lifecycle (`ensure_bridge`,
+//!                         `ensure_session`, `full_reset`, crash watcher).
 //! - [`bridge_handler`]  — `SessionBridgeHandler` wrapper that suppresses
 //!                         session-notification replay during handover
 //!                         `load_session` to keep history out of the IM feed.
+//! - [`media`]           — relocate cached media from staging to the
+//!                         session-scoped workspace path before each prompt.
 
 mod bridge;
 mod bridge_handler;
 mod media;
-mod snapshot;
+mod state;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -31,7 +34,7 @@ use super::event::SystemEvent;
 
 use media::relocate_cached_media;
 
-pub use snapshot::PodState;
+pub use state::PodState;
 
 // ---------------------------------------------------------------------------
 // ACPPod

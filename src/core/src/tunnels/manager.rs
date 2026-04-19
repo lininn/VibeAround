@@ -1,10 +1,9 @@
 //! `TunnelManager` — owns the registry of active tunnels.
 //!
-//! Extracted from `ServiceStatusManager` so tunnels follow the same
-//! "per-domain kernel manager + `StateSource` trait" pattern as
-//! `ChannelMonitor` and `ACPHub`. Consumers read tunnel state via
-//! `list()` / `subscribe_changes()` and no longer go through the
-//! `Services` facade (which will be dismantled in a later commit).
+//! Follows the "per-domain kernel manager + `StateSource` trait" pattern
+//! shared with `ChannelMonitor` and `ACPHub`: consumers read tunnel state
+//! via `list()` / `subscribe_changes()` directly — there is no aggregate
+//! facade above these managers.
 
 use std::sync::Arc;
 

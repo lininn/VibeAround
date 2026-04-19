@@ -12,7 +12,7 @@ export type { ChannelRuntime };
  * Channels tab in the desktop dashboard. Subscribes to `/ws/channels`
  * for live updates and falls back to `/api/channels` polling on
  * disconnect. Exposes the stop/start/restart actions backed by the
- * existing `/api/services/channels/:kind/:action` endpoints.
+ * `/api/channels/:kind/:action` endpoints.
  */
 export function useChannelsState() {
   const base = useManagerState(
