@@ -26,7 +26,7 @@ use tokio::task::AbortHandle;
 
 use crate::channel_manager::monitor::ChannelMonitor;
 
-use crate::pty::{unix_now_secs, Registry, SessionId};
+use crate::pty::{unix_now_secs, Registry};
 use crate::tunnels::{TunnelManager, TunnelProvider};
 
 pub use entries::{AgentStatusEntry, ChannelEntry};
@@ -116,36 +116,4 @@ impl ServiceStatusManager {
         self.tunnels.first_url()
     }
 
-    // -----------------------------------------------------------------------
-    // Kill dispatcher (legacy `/api/services/:category/:id` endpoint)
-    //
-    // Per-domain DELETE endpoints are planned — once desktop-ui switches
-    // to them this whole function + its route can go away.
-    // -----------------------------------------------------------------------
-
-    pub fn kill_service(&self, category: &str, key: &str) -> bool {
-        match category {
-            "channels" => {
-                if let Some(monitor) = self.channel_monitor() {
-                    let key = key.to_string();
-                    tokio::spawn(async move {
-                        if let Err(e) = monitor.force_stop(&key).await {
-                            eprintln!("[ServiceStatus] force_stop({}) failed: {}", key, e);
-                        }
-                    });
-                    return true;
-                }
-                false
-            }
-            "tunnels" => self.tunnels.kill(key),
-            "pty" => {
-                if let Ok(uuid) = uuid::Uuid::parse_str(key) {
-                    self.pty.remove(&SessionId(uuid));
-                    return true;
-                }
-                false
-            }
-            _ => false,
-        }
-    }
 }

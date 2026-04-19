@@ -155,21 +155,20 @@ pub async fn run_web_server(
         .route("/api/tunnels", get(api::list_tunnels_handler))
         .route("/api/agents/runtime", get(api::list_agents_runtime_handler))
         .route(
-            "/api/services/{category}/{id}",
-            delete(api::kill_service_handler),
-        )
-        .route(
-            "/api/services/channels/{kind}/stop",
+            "/api/channels/{kind}/stop",
             post(api::stop_channel_handler),
         )
         .route(
-            "/api/services/channels/{kind}/restart",
+            "/api/channels/{kind}/restart",
             post(api::restart_channel_handler),
         )
         .route(
-            "/api/services/channels/{kind}/start",
+            "/api/channels/{kind}/start",
             post(api::start_channel_handler),
         )
+        .route("/api/tunnels/{provider}", delete(api::kill_tunnel_handler))
+        .route("/api/agents/{route_key}", delete(api::kill_agent_handler))
+        .route("/api/pty/{session_id}", delete(api::kill_pty_handler))
         .route("/api/previews", get(api::list_previews_handler))
         .route("/api/previews/{slug}", delete(api::delete_preview_handler))
         .route(

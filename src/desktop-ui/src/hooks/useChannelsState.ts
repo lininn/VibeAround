@@ -25,7 +25,7 @@ export function useChannelsState() {
     async (kind: string, verb: "start" | "stop" | "restart") => {
       try {
         const res = await apiFetch(
-          `/api/services/channels/${encodeURIComponent(kind)}/${verb}`,
+          `/api/channels/${encodeURIComponent(kind)}/${verb}`,
           { method: "POST" },
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

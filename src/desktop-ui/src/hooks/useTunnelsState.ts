@@ -25,7 +25,7 @@ export function useTunnelsState() {
     async (provider: string) => {
       try {
         const res = await apiFetch(
-          `/api/services/tunnels/${encodeURIComponent(provider)}`,
+          `/api/tunnels/${encodeURIComponent(provider)}`,
           { method: "DELETE" },
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

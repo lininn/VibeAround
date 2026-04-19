@@ -26,7 +26,7 @@ export function useAgentsRuntime() {
     async (routeKey: string) => {
       try {
         const res = await apiFetch(
-          `/api/services/agents/${encodeURIComponent(routeKey)}`,
+          `/api/agents/${encodeURIComponent(routeKey)}`,
           { method: "DELETE" },
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

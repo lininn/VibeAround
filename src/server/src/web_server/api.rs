@@ -5,10 +5,13 @@
 //! - DELETE /api/sessions/:session_id
 //! - GET /api/tmux/sessions
 //! - GET /api/agents
-//! - GET /api/channels
-//! - GET /api/tunnels
-//! - GET /api/agents/runtime
-//! - DELETE /api/services/:category/:id    (legacy kill dispatcher)
+//! - GET  /api/channels
+//! - POST /api/channels/:kind/{stop,restart,start}
+//! - GET  /api/tunnels
+//! - DELETE /api/tunnels/:provider
+//! - GET  /api/agents/runtime
+//! - DELETE /api/agents/:route_key
+//! - DELETE /api/pty/:session_id
 
 use axum::{
     extract::{Path, State},
@@ -119,7 +122,7 @@ pub async fn list_agents_runtime_handler(
     Json(out)
 }
 
-/// POST /api/services/channels/:kind/stop — user-initiated stop of a channel
+/// POST /api/channels/:kind/stop — user-initiated stop of a channel
 /// plugin (no auto-respawn).
 pub async fn stop_channel_handler(
     State(state): State<AppState>,
@@ -134,7 +137,7 @@ pub async fn stop_channel_handler(
     }
 }
 
-/// POST /api/services/channels/:kind/restart — user-initiated restart (kill +
+/// POST /api/channels/:kind/restart — user-initiated restart (kill +
 /// immediate respawn, no 15s backoff).
 pub async fn restart_channel_handler(
     State(state): State<AppState>,
@@ -149,7 +152,7 @@ pub async fn restart_channel_handler(
     }
 }
 
-/// POST /api/services/channels/:kind/start — transition a Stopped channel
+/// POST /api/channels/:kind/start — transition a Stopped channel
 /// back to Crashed(restart_at=now) so the next monitor tick respawns it.
 pub async fn start_channel_handler(
     State(state): State<AppState>,
@@ -164,36 +167,53 @@ pub async fn start_channel_handler(
     }
 }
 
-/// DELETE /api/services/:category/:id — kill a specific service.
-pub async fn kill_service_handler(
+/// DELETE /api/tunnels/:provider — kill a running tunnel.
+pub async fn kill_tunnel_handler(
     State(state): State<AppState>,
-    Path((category, id)): Path<(String, String)>,
+    Path(provider): Path<String>,
 ) -> impl IntoResponse {
-    // Agent kill is async (needs ACPHub.close) — handle it here rather than in
-    // the sync ServiceStatusManager.kill_service().
-    if category == "agents" {
-        if let Some(route) = common::acp::routing::RouteKey::from_key(&id) {
-            state.channel_hub.acp_hub().close(&route, Some("killed by user".to_string())).await;
-            return (StatusCode::OK, format!("Killed {}/{}", category, id));
-        }
-        return (StatusCode::NOT_FOUND, format!("Invalid agent route key: {}", id));
-    }
-
-    // PTY kill must go through PtySessionManager to actually kill the child
-    // process, not just remove the registry entry.
-    if category == "pty" {
-        if let Ok(uuid) = uuid::Uuid::parse_str(&id) {
-            if state.pty_manager.delete_session(SessionId(uuid)) {
-                return (StatusCode::OK, format!("Killed {}/{}", category, id));
-            }
-        }
-        return (StatusCode::NOT_FOUND, format!("Service {}/{} not found", category, id));
-    }
-
-    if state.services.kill_service(&category, &id) {
-        (StatusCode::OK, format!("Killed {}/{}", category, id))
+    if state.services.tunnels().kill(&provider) {
+        (StatusCode::OK, format!("Killed tunnel {}", provider))
     } else {
-        (StatusCode::NOT_FOUND, format!("Service {}/{} not found", category, id))
+        (StatusCode::NOT_FOUND, format!("Tunnel {} not found", provider))
+    }
+}
+
+/// DELETE /api/agents/:route_key — close an agent pod.
+///
+/// `route_key` is the colon-joined form from `RouteKey::as_key()`, e.g.
+/// `telegram:chat_42`. The handler closes the pod (shutting down its
+/// bridge) and returns `404` if the key doesn't parse.
+pub async fn kill_agent_handler(
+    State(state): State<AppState>,
+    Path(route_key): Path<String>,
+) -> impl IntoResponse {
+    let Some(route) = common::acp::routing::RouteKey::from_key(&route_key) else {
+        return (StatusCode::NOT_FOUND, format!("Invalid agent route key: {}", route_key));
+    };
+    state
+        .channel_hub
+        .acp_hub()
+        .close(&route, Some("killed by user".to_string()))
+        .await;
+    (StatusCode::OK, format!("Killed agent {}", route_key))
+}
+
+/// DELETE /api/pty/:session_id — kill a PTY session.
+///
+/// Goes through `PtySessionManager::delete_session` so the child
+/// process gets SIGKILL'd, not just the registry entry removed.
+pub async fn kill_pty_handler(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> impl IntoResponse {
+    let Ok(uuid) = uuid::Uuid::parse_str(&session_id) else {
+        return (StatusCode::BAD_REQUEST, format!("Invalid session id: {}", session_id));
+    };
+    if state.pty_manager.delete_session(SessionId(uuid)) {
+        (StatusCode::OK, format!("Killed pty {}", session_id))
+    } else {
+        (StatusCode::NOT_FOUND, format!("PTY session {} not found", session_id))
     }
 }
 
