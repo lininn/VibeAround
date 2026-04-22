@@ -256,6 +256,9 @@ impl ServerDaemon {
                     Ok((guard, url)) => {
                         tracing::info!(url = %url, "tunnel connected");
                         tunnel_manager.set_url(tunnel_provider.as_str(), &url);
+                        if let Some(id) = guard.registry_id() {
+                            tunnel_manager.set_registry_id(tunnel_provider.as_str(), id);
+                        }
                         guard.wait().await;
                     }
                     Err(e) => {
