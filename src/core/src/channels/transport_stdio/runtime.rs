@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
 
 use crate::conversations::ConversationManager;
-use crate::process::registry::{ChildKind, ChildRegistry};
+use crate::process::registry::{ChildRegistry, ProcessKind};
 
 use super::super::manifest::ChannelPluginManifest;
 use super::super::plugin_host::PluginHost;
@@ -72,7 +72,7 @@ impl StdioPluginRuntime {
         // SIGKILLed on daemon stop + Tauri RunEvent::Exit even if the tokio
         // runtime tears down without polling this task's destructor.
         let registry_id =
-            ChildRegistry::global().register(ChildKind::Plugin, channel_kind.clone(), child);
+            ChildRegistry::global().register(ProcessKind::ChannelPlugin, channel_kind.clone(), child);
 
         // Stderr → log
         let stderr_channel = channel_kind.clone();

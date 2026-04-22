@@ -407,7 +407,7 @@ fn spawn_stdio_process(
     // The registry's kill_all() path synchronously SIGKILLs every child on
     // daemon stop + Tauri Exit, regardless of task scheduler state.
     let registry_id = crate::process::registry::ChildRegistry::global().register(
-        crate::process::registry::ChildKind::AgentAcp,
+        crate::process::registry::ProcessKind::AcpAgent,
         format!("{}-agent", agent_id),
         child,
     );
