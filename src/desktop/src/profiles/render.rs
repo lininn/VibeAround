@@ -1,6 +1,6 @@
-//! Render orchestrator — resolve a profile against a catalog endpoint and
-//! produce the env vars + (optional) settings file the launcher will hand
-//! to the spawned terminal.
+//! Render orchestrator — resolve a profile against a provider API kind and
+//! CLI launch target, then produce the env vars + optional settings files
+//! the launcher will hand to the spawned terminal.
 //!
 //! The mustache-lite engine is intentionally tiny: it supports `{{name}}`
 //! substitution against a flat string context and nothing else (no pipes,
@@ -13,7 +13,9 @@ use std::collections::BTreeMap;
 
 use anyhow::{anyhow, bail};
 
-use super::catalog::{AuthModeDef, EndpointDef, ProviderCatalog};
+use super::catalog::{
+    AuthModeDef, EndpointDef, ProviderCatalog, RenderRules, SettingsFileTemplate,
+};
 use super::schema::{ApiTypeOverrides, AuthMode, ProfileDef};
 
 // ---------------------------------------------------------------------------
@@ -24,17 +26,27 @@ use super::schema::{ApiTypeOverrides, AuthMode, ProfileDef};
 pub struct RenderedProfile {
     pub env: Vec<(String, String)>,
     pub settings_files: Vec<RenderedSettingsFile>,
-    /// Which env var should point at the per-profile state directory once
-    /// the launcher materializes any settings files. `None` when no files
-    /// are rendered (e.g. anthropic-only API key flow that just relies on
-    /// ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY env).
-    pub config_dir_env: Option<&'static str>,
+    pub command_args: Vec<String>,
+    /// Which env var should point at profile-local rendered config once
+    /// the launcher materializes any settings files. Some CLIs expect a
+    /// directory (`CODEX_HOME`), while others expect a concrete file path
+    /// (`OPENCODE_CONFIG`).
+    pub config_env: Option<ConfigEnvTarget>,
 }
 
 #[derive(Debug, Clone)]
 pub struct RenderedSettingsFile {
     pub rel_path: String,
     pub contents: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum ConfigEnvTarget {
+    Directory(&'static str),
+    File {
+        env: &'static str,
+        rel_path: &'static str,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -44,16 +56,27 @@ pub struct RenderedSettingsFile {
 pub fn render(
     profile: &ProfileDef,
     api_type: &str,
+    launch_target: &str,
     catalog: &ProviderCatalog,
 ) -> anyhow::Result<RenderedProfile> {
     let endpoint = pick_endpoint(catalog, api_type)?;
     let auth = pick_auth_mode(endpoint, &profile.auth_mode)?;
-    let render_rules = auth
-        .render
-        .as_ref()
-        .ok_or_else(|| anyhow!("auth mode '{}' has no render rules (only oauth flows skip rendering, which v1 doesn't expose)", auth.mode))?;
+    let opencode_rules;
+    let render_rules = if launch_target == "opencode" {
+        opencode_rules = opencode_render_rules(api_type)?;
+        &opencode_rules
+    } else {
+        auth.render
+            .as_ref()
+            .ok_or_else(|| {
+                anyhow!(
+                    "auth mode '{}' has no render rules (only oauth flows skip rendering, which v1 doesn't expose)",
+                    auth.mode
+                )
+            })?
+    };
 
-    let context = build_context(profile, api_type, endpoint);
+    let context = build_context(profile, api_type, endpoint, catalog);
 
     // Env vars — drop entries whose substituted value is empty so we don't
     // end up exporting blank keys (e.g. `ANTHROPIC_MODEL=""` when the user
@@ -79,16 +102,17 @@ pub fn render(
         });
     }
 
-    let config_dir_env = if settings_files.is_empty() {
+    let config_env = if settings_files.is_empty() {
         None
     } else {
-        config_dir_env_for(api_type)
+        config_env_for(launch_target)
     };
 
     Ok(RenderedProfile {
         env,
         settings_files,
-        config_dir_env,
+        command_args: command_args_for(launch_target, &context),
+        config_env,
     })
 }
 
@@ -134,12 +158,87 @@ fn pick_auth_mode<'a>(
         })
 }
 
-fn config_dir_env_for(api_type: &str) -> Option<&'static str> {
-    match api_type {
-        "anthropic" => Some("CLAUDE_CONFIG_DIR"),
-        "openai-chat" => Some("CODEX_HOME"),
+fn config_env_for(launch_target: &str) -> Option<ConfigEnvTarget> {
+    match launch_target {
+        "claude" => Some(ConfigEnvTarget::Directory("CLAUDE_CONFIG_DIR")),
+        "codex" => Some(ConfigEnvTarget::Directory("CODEX_HOME")),
+        "opencode" => Some(ConfigEnvTarget::File {
+            env: "OPENCODE_CONFIG",
+            rel_path: "opencode.json",
+        }),
         _ => None,
     }
+}
+
+fn opencode_render_rules(api_type: &str) -> anyhow::Result<RenderRules> {
+    match api_type {
+        "openai-responses" => Ok(RenderRules {
+            env: [(
+                "VIBEAROUND_OPENCODE_API_KEY".to_string(),
+                "{{api_key}}".to_string(),
+            )]
+            .into_iter()
+            .collect(),
+            settings_files: vec![SettingsFileTemplate {
+                rel_path: "opencode.json".to_string(),
+                template: "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"model\": \"{{provider_id}}/{{model|json}}\",\n  \"provider\": {\n    \"{{provider_id}}\": {\n      \"npm\": \"@ai-sdk/openai\",\n      \"name\": \"{{provider_label|json}}\",\n      \"options\": {\n        \"baseURL\": \"{{base_url|json}}\",\n        \"apiKey\": \"{env:VIBEAROUND_OPENCODE_API_KEY}\",\n        \"setCacheKey\": true\n      },\n      \"models\": {\n        \"{{model|json}}\": { \"name\": \"{{model|json}}\" }\n      }\n    }\n  }\n}\n".to_string(),
+            }],
+        }),
+        "openai-chat" => Ok(RenderRules {
+            env: [(
+                "VIBEAROUND_OPENCODE_API_KEY".to_string(),
+                "{{api_key}}".to_string(),
+            )]
+            .into_iter()
+            .collect(),
+            settings_files: vec![SettingsFileTemplate {
+                rel_path: "opencode.json".to_string(),
+                template: "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"model\": \"{{provider_id}}/{{model|json}}\",\n  \"provider\": {\n    \"{{provider_id}}\": {\n      \"npm\": \"@ai-sdk/openai-compatible\",\n      \"name\": \"{{provider_label|json}}\",\n      \"options\": {\n        \"baseURL\": \"{{base_url|json}}\",\n        \"apiKey\": \"{env:VIBEAROUND_OPENCODE_API_KEY}\",\n        \"setCacheKey\": true\n      },\n      \"models\": {\n        \"{{model|json}}\": { \"name\": \"{{model|json}}\" }\n      }\n    }\n  }\n}\n".to_string(),
+            }],
+        }),
+        other => bail!("opencode launch is not wired for api kind '{}'", other),
+    }
+}
+
+fn command_args_for(launch_target: &str, ctx: &BTreeMap<String, String>) -> Vec<String> {
+    if launch_target != "codex" {
+        return Vec::new();
+    }
+
+    let mut args = Vec::new();
+    if let Some(model) = ctx.get("model").filter(|v| !v.is_empty()) {
+        args.push("-c".to_string());
+        args.push(format!("model={}", toml_string(model)));
+    }
+    if let Some(provider_id) = ctx.get("provider_id").filter(|v| !v.is_empty()) {
+        args.push("-c".to_string());
+        args.push(format!("model_provider={}", toml_string(provider_id)));
+    }
+    if let Some(reasoning_effort) = ctx.get("reasoning_effort").filter(|v| !v.is_empty()) {
+        args.push("-c".to_string());
+        args.push(format!(
+            "model_reasoning_effort={}",
+            toml_string(reasoning_effort)
+        ));
+    }
+    args
+}
+
+fn toml_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out.push('"');
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +249,7 @@ fn build_context(
     profile: &ProfileDef,
     api_type: &str,
     endpoint: &EndpointDef,
+    catalog: &ProviderCatalog,
 ) -> BTreeMap<String, String> {
     let overrides = profile
         .overrides
@@ -158,6 +258,9 @@ fn build_context(
         .unwrap_or_else(ApiTypeOverrides::default);
 
     let mut ctx: BTreeMap<String, String> = BTreeMap::new();
+    ctx.insert("provider_id".to_string(), profile.provider.clone());
+    ctx.insert("provider_label".to_string(), catalog.label.clone());
+    ctx.insert("api_type".to_string(), api_type.to_string());
     ctx.insert(
         "base_url".to_string(),
         overrides
@@ -165,6 +268,12 @@ fn build_context(
             .unwrap_or_else(|| endpoint.default_base_url.clone()),
     );
     ctx.insert("model".to_string(), overrides.model.unwrap_or_default());
+    ctx.insert(
+        "reasoning_effort".to_string(),
+        overrides
+            .reasoning_effort
+            .unwrap_or_else(|| "medium".to_string()),
+    );
 
     // Credentials are flattened in last so a (hypothetical) catalog field
     // named "model" doesn't shadow the explicitly-resolved override above.

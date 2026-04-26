@@ -33,12 +33,28 @@ pub struct ProfileSummary {
     pub provider_label: String,
     pub provider_icon: Option<String>,
     pub auth_mode: AuthMode,
+    /// API kinds this provider credential declares, e.g. `anthropic`,
+    /// `openai-chat`, `gemini`. Kept as `api_types` on the wire for
+    /// profile.json compatibility.
     pub api_types: Vec<String>,
+    /// Concrete CLI buttons the Launch tab should render. Derived from the
+    /// profile's API kinds plus each CLI target's adapter support.
+    pub launch_targets: Vec<LaunchTargetSummary>,
     /// `api_type → caveat string` (subset; only the api_types that have a
     /// non-empty `compatibility_warning` in the catalog appear here). Lets
     /// the UI render a ⚠ tooltip on the affected launch button without
     /// needing the full catalog client-side.
     pub api_type_warnings: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchTargetSummary {
+    pub id: String,
+    pub label: String,
+    pub api_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 /// Catalog entry sent to the UI. Nested `EndpointDef` / `AuthModeDef` /
@@ -62,6 +78,7 @@ pub struct CatalogEntry {
 pub fn profiles_list() -> Vec<ProfileSummary> {
     schema::list()
         .into_iter()
+        .map(normalize_legacy_profile)
         .map(|p| {
             let provider = catalog::get(&p.provider);
             let (label, icon) = match provider {
@@ -79,6 +96,7 @@ pub fn profiles_list() -> Vec<ProfileSummary> {
                     }
                 }
             }
+            let api_type_warnings_for_targets = api_type_warnings.clone();
             ProfileSummary {
                 id: p.id,
                 label: p.label,
@@ -86,6 +104,15 @@ pub fn profiles_list() -> Vec<ProfileSummary> {
                 provider_label: label,
                 provider_icon: icon,
                 auth_mode: p.auth_mode,
+                launch_targets: launch_targets_for_api_types(&p.api_types)
+                    .into_iter()
+                    .map(|(id, label, api_type)| LaunchTargetSummary {
+                        id: id.to_string(),
+                        label: label.to_string(),
+                        api_type: api_type.to_string(),
+                        warning: api_type_warnings_for_targets.get(api_type).cloned(),
+                    })
+                    .collect(),
                 api_types: p.api_types,
                 api_type_warnings,
             }
@@ -95,7 +122,9 @@ pub fn profiles_list() -> Vec<ProfileSummary> {
 
 #[tauri::command]
 pub fn profiles_get(id: String) -> Result<ProfileDef, String> {
-    schema::load(&id).ok_or_else(|| format!("profile '{id}' not found"))
+    schema::load(&id)
+        .map(normalize_legacy_profile)
+        .ok_or_else(|| format!("profile '{id}' not found"))
 }
 
 #[tauri::command]
@@ -106,7 +135,7 @@ pub fn profiles_upsert(profile: ProfileDef) -> Result<(), String> {
     for api_type in &profile.api_types {
         if !provider.endpoints.iter().any(|e| &e.api_type == api_type) {
             return Err(format!(
-                "provider '{}' does not support api_type '{}'",
+                "provider '{}' does not support api kind '{}'",
                 profile.provider, api_type
             ));
         }
@@ -120,14 +149,17 @@ pub fn profiles_delete(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn profiles_launch(id: String, api_type: String) -> Result<(), String> {
-    let profile = schema::load(&id).ok_or_else(|| format!("profile '{id}' not found"))?;
-    if !profile.api_types.contains(&api_type) {
-        return Err(format!(
-            "profile '{id}' does not declare api_type '{api_type}'"
-        ));
+pub fn profiles_launch(id: String, launch_target: String) -> Result<(), String> {
+    let profile = schema::load(&id)
+        .map(normalize_legacy_profile)
+        .ok_or_else(|| format!("profile '{id}' not found"))?;
+    if !launch_targets_for_api_types(&profile.api_types)
+        .iter()
+        .any(|(target, _, _)| *target == launch_target)
+    {
+        return Err(format!("profile '{id}' cannot launch '{launch_target}'"));
     }
-    launcher::launch(&profile, &api_type).map_err(|e| e.to_string())
+    launcher::launch(&profile, &launch_target).map_err(|e| e.to_string())
 }
 
 /// Launch a CLI directly with no env injection — uses whatever global
@@ -194,6 +226,50 @@ pub fn launcher_get_preferences() -> LauncherPreferences {
         terminal: terminal::read_preference().id().to_string(),
         options,
     }
+}
+
+fn launch_targets_for_api_types(
+    api_types: &[String],
+) -> Vec<(&'static str, &'static str, &'static str)> {
+    let has = |needle: &str| api_types.iter().any(|t| t == needle);
+    let mut out = Vec::new();
+    if has("anthropic") {
+        out.push(("claude", "Claude Code", "anthropic"));
+    }
+    if has("openai-responses") {
+        out.push(("codex", "Codex", "openai-responses"));
+    } else if has("openai-chat") {
+        out.push(("codex", "Codex", "openai-chat"));
+    }
+    if has("gemini") {
+        out.push(("gemini", "Gemini CLI", "gemini"));
+    }
+    if has("openai-responses") {
+        out.push(("opencode", "OpenCode", "openai-responses"));
+    } else if has("openai-chat") {
+        out.push(("opencode", "OpenCode", "openai-chat"));
+    }
+    out
+}
+
+fn normalize_legacy_profile(mut profile: ProfileDef) -> ProfileDef {
+    // Azure used to have only one API kind in early catalog iterations.
+    // Profiles saved during that window should inherit endpoint/deployment
+    // values across both kinds so users can keep editing without retyping.
+    // had only one kind should inherit the same endpoint/deployment for both.
+    if profile.provider == "azure"
+        && profile.api_types.iter().any(|t| t == "openai-responses")
+        && !profile.api_types.iter().any(|t| t == "openai-chat")
+    {
+        profile.api_types.push("openai-chat".to_string());
+        if let Some(overrides) = profile.overrides.get("openai-responses").cloned() {
+            profile
+                .overrides
+                .entry("openai-chat".to_string())
+                .or_insert(overrides);
+        }
+    }
+    profile
 }
 
 #[tauri::command]

@@ -2,9 +2,9 @@
  * Two-step modal: pick a provider, then fill its credentials.
  *
  * Step 1 lets the user click any catalog tile. Step 2 builds a form by
- * intersecting the catalog endpoints' `fields[]`. We default to the
- * api_key auth mode (the only one v1 catalog ships) and let the user
- * multi-select api_types when the provider supports more than one.
+ * intersecting the catalog API kinds' `fields[]`. We default to the
+ * api_key auth mode (the only one v1 catalog ships) and let custom
+ * providers multi-select API kinds when one key supports more than one.
  */
 import { useEffect, useMemo, useState } from "react";
 
@@ -18,7 +18,7 @@ import type {
   FieldDef,
   ProfileDef,
 } from "./types";
-import { apiTypeShort } from "./types";
+import { apiTypeLabel, apiTypeShort, isProviderApiKind } from "./types";
 
 type Step = "pick-provider" | "fill-form";
 
@@ -46,6 +46,28 @@ export const CUSTOM_PROVIDER: CatalogEntry = {
       api_type: "anthropic",
       default_base_url: "",
       models: [],
+      auth_modes: [
+        {
+          mode: "api_key",
+          label: "Use API key",
+          fields: [
+            {
+              name: "api_key",
+              label: "API key",
+              secret: true,
+              required: true,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      api_type: "openai-responses",
+      default_base_url: "",
+      models: [],
+      capabilities: {
+        reasoning_effort: true,
+      },
       auth_modes: [
         {
           mode: "api_key",
@@ -126,7 +148,7 @@ export function ProfileFormDialog({
   // preserved unchanged when editing.
   const [label, setLabel] = useState(initial?.label ?? "");
   const [selectedApiTypes, setSelectedApiTypes] = useState<string[]>(
-    initial?.api_types ?? [],
+    (initial?.api_types ?? []).filter(isProviderApiKind),
   );
   const [credentials, setCredentials] = useState<Record<string, string>>(
     initial?.credentials ?? {},
@@ -138,16 +160,19 @@ export function ProfileFormDialog({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // When user lands on step 2 fresh, default api_types to all of provider's
-  // endpoints (most users want the credential to be usable both ways) and
+  // When user lands on step 2 fresh, default api_types to all provider API
+  // kinds (most users want the credential to be usable every supported way) and
   // pre-fill model + base_url with the catalog defaults so the values are
   // visible (not just placeholder) — these are public docs anyway and the
   // "tick a model + paste api_key" flow is the goal.
   useEffect(() => {
     if (!provider || editing) return;
-    setSelectedApiTypes(provider.endpoints.map((e) => e.api_type));
+    const apiKindEndpoints = provider.endpoints.filter((e) =>
+      isProviderApiKind(e.api_type),
+    );
+    setSelectedApiTypes(apiKindEndpoints.map((e) => e.api_type));
     const next: Record<string, ApiTypeOverrides> = {};
-    for (const ep of provider.endpoints) {
+    for (const ep of apiKindEndpoints) {
       next[ep.api_type] = {
         model: ep.models[0]?.id ?? "",
         base_url: ep.default_base_url || undefined,
@@ -155,6 +180,16 @@ export function ProfileFormDialog({
     }
     setOverrides(next);
   }, [provider, editing]);
+
+  useEffect(() => {
+    if (!provider || provider.id === "custom") return;
+    const apiKinds = provider.endpoints
+      .filter((e) => isProviderApiKind(e.api_type))
+      .map((e) => e.api_type);
+    setSelectedApiTypes((current) =>
+      arraysEqual(current, apiKinds) ? current : apiKinds,
+    );
+  }, [provider]);
 
   function handlePickProvider(c: CatalogEntry) {
     setProvider(c);
@@ -189,8 +224,12 @@ export function ProfileFormDialog({
     for (const apiType of selectedApiTypes) {
       const ep = provider.endpoints.find((e) => e.api_type === apiType);
       if (!ep) continue;
-      if (ep.default_base_url) continue;
       const ov = overrides[apiType];
+      if (!ov?.model?.trim()) {
+        setError(`Model is required for ${apiType}`);
+        return;
+      }
+      if (ep.default_base_url) continue;
       if (!ov?.base_url?.trim()) {
         setError(`Base URL is required for ${apiType}`);
         return;
@@ -347,7 +386,7 @@ function ProviderGrid({
             <span className="text-sm font-medium">{c.label}</span>
           </div>
           <div className="flex flex-wrap gap-1 mt-1">
-            {c.endpoints.map((e) => (
+            {c.endpoints.filter((e) => isProviderApiKind(e.api_type)).map((e) => (
               <span
                 key={e.api_type}
                 className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
@@ -374,10 +413,13 @@ function ProviderGrid({
         </div>
         <div className="flex flex-wrap gap-1 mt-1">
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-            claude
+            anthropic
           </span>
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-            codex
+            responses
+          </span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+            openai-chat
           </span>
         </div>
         <span className="text-[10px] text-muted-foreground/60 truncate w-full">
@@ -423,6 +465,10 @@ function FormBody(props: FormBodyProps) {
   } = props;
 
   const fieldDefs = collectFields(provider, selectedApiTypes, "api_key");
+  const apiKindEndpoints = provider.endpoints.filter((e) =>
+    isProviderApiKind(e.api_type),
+  );
+  const apiKindsEditable = provider.id === "custom";
 
   return (
     <div className="space-y-4">
@@ -440,11 +486,11 @@ function FormBody(props: FormBodyProps) {
       </FieldRow>
 
       <div>
-        <div className="text-xs font-medium mb-1.5">API protocols</div>
+        <div className="text-xs font-medium mb-1.5">API kinds</div>
         <div className="flex flex-wrap gap-2">
-          {provider.endpoints.map((ep) => {
+          {apiKindEndpoints.map((ep) => {
             const checked = selectedApiTypes.includes(ep.api_type);
-            return (
+            return apiKindsEditable ? (
               <label
                 key={ep.api_type}
                 className={`flex items-center gap-2 px-3 py-1.5 border rounded cursor-pointer text-xs ${
@@ -465,13 +511,23 @@ function FormBody(props: FormBodyProps) {
                   }}
                 />
                 <span className="font-mono">{apiTypeShort(ep.api_type)}</span>
-                <span className="text-muted-foreground/70">· {ep.api_type}</span>
+                <span className="text-muted-foreground/70">· {apiTypeLabel(ep.api_type)}</span>
               </label>
+            ) : (
+              <div
+                key={ep.api_type}
+                className="flex items-center gap-2 px-3 py-1.5 border border-primary bg-primary/10 rounded text-xs"
+              >
+                <span className="font-mono">{apiTypeShort(ep.api_type)}</span>
+                <span className="text-muted-foreground/70">· {apiTypeLabel(ep.api_type)}</span>
+              </div>
             );
           })}
         </div>
         <p className="text-[11px] text-muted-foreground/70 mt-1">
-          Multi-select for keys that work on more than one endpoint.
+          {apiKindsEditable
+            ? "Multi-select for custom keys that work with more than one API shape."
+            : "Preset providers include their supported API kinds automatically."}
         </p>
       </div>
 
@@ -495,7 +551,7 @@ function FormBody(props: FormBodyProps) {
 
       {selectedApiTypes.length > 0 && (
         <div className="space-y-3 pt-2 border-t border-border/50">
-          <div className="text-xs font-medium">Per-protocol settings</div>
+          <div className="text-xs font-medium">Per-API settings</div>
           {selectedApiTypes.map((apiType) => {
             const ep = provider.endpoints.find((e) => e.api_type === apiType);
             if (!ep) return null;
@@ -508,7 +564,41 @@ function FormBody(props: FormBodyProps) {
                   </span>
                   <span className="text-muted-foreground">{apiType}</span>
                 </div>
-                <FieldRow label="Model">
+                {shouldShowBaseUrl(provider, ep, ov) && (
+                  <FieldRow
+                    label={provider.id === "azure" ? "Endpoint" : "Base URL"}
+                    required={ep.default_base_url === ""}
+                    hint={
+                      ep.default_base_url
+                        ? "Leave at default unless your provider has a region-specific endpoint"
+                        : provider.id === "custom"
+                        ? "no default — fill in the endpoint your custom provider serves"
+                        : "Fill in the endpoint URL from your provider dashboard."
+                    }
+                  >
+                    <input
+                      type="text"
+                      value={ov.base_url ?? ""}
+                      onChange={(e) =>
+                        setOverrides({
+                          ...overrides,
+                          [apiType]: { ...ov, base_url: e.target.value },
+                        })
+                      }
+                      placeholder={
+                        ep.default_base_url ||
+                        (provider.id === "azure"
+                          ? "https://your-resource.openai.azure.com/openai/v1"
+                          : "https://your-endpoint.example.com/v1")
+                      }
+                      className="w-full px-2 py-1 text-sm border border-border rounded bg-background font-mono"
+                    />
+                  </FieldRow>
+                )}
+                <FieldRow
+                  label={provider.id === "azure" ? "Deployment name" : "Model"}
+                  hint={apiKindHint(provider, apiType)}
+                >
                   {ep.models.length > 0 ? (
                     <select
                       value={ov.model ?? ""}
@@ -542,28 +632,25 @@ function FormBody(props: FormBodyProps) {
                     />
                   )}
                 </FieldRow>
-                <FieldRow
-                  label="Base URL"
-                  required={ep.default_base_url === ""}
-                  hint={
-                    ep.default_base_url
-                      ? "Leave at default unless your provider has a region-specific endpoint"
-                      : "no default — fill in the endpoint your custom provider serves"
-                  }
-                >
-                  <input
-                    type="text"
-                    value={ov.base_url ?? ""}
-                    onChange={(e) =>
-                      setOverrides({
-                        ...overrides,
-                        [apiType]: { ...ov, base_url: e.target.value },
-                      })
-                    }
-                    placeholder={ep.default_base_url || "https://your-endpoint.example.com/v1"}
-                    className="w-full px-2 py-1 text-sm border border-border rounded bg-background font-mono"
-                  />
-                </FieldRow>
+                {ep.capabilities?.reasoning_effort && (
+                  <FieldRow label="Reasoning effort">
+                    <select
+                      value={ov.reasoning_effort ?? "medium"}
+                      onChange={(e) =>
+                        setOverrides({
+                          ...overrides,
+                          [apiType]: { ...ov, reasoning_effort: e.target.value },
+                        })
+                      }
+                      className="w-full px-2 py-1 text-sm border border-border rounded bg-background"
+                    >
+                      <option value="low">low</option>
+                      <option value="medium">medium</option>
+                      <option value="high">high</option>
+                      <option value="xhigh">xhigh</option>
+                    </select>
+                  </FieldRow>
+                )}
               </div>
             );
           })}
@@ -691,6 +778,31 @@ function stripEmpty(map: Record<string, string>): Record<string, string> {
   return out;
 }
 
+function arraysEqual(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((item, index) => item === b[index]);
+}
+
+function shouldShowBaseUrl(
+  provider: CatalogEntry,
+  endpoint: { default_base_url: string },
+  overrides: ApiTypeOverrides,
+): boolean {
+  if (provider.id === "custom") return true;
+  if (!endpoint.default_base_url) return true;
+  return !!overrides.base_url && overrides.base_url !== endpoint.default_base_url;
+}
+
+function apiKindHint(provider: CatalogEntry, apiType: string): string | undefined {
+  if (provider.id !== "azure") return undefined;
+  if (apiType === "openai-responses") {
+    return "Used by Codex and OpenCode for reasoning/tools. Must be an Azure deployment that supports the Responses API.";
+  }
+  if (apiType === "openai-chat") {
+    return "Chat Completions fallback for CLIs/providers that cannot use Responses.";
+  }
+  return undefined;
+}
+
 /**
  * Strip override values that match the catalog default — keeps profile.json
  * minimal AND lets future catalog updates flow through automatically. If
@@ -711,6 +823,9 @@ function pruneOverrides(
     const defaultBaseUrl = ep?.default_base_url ?? "";
     const trimmed: ApiTypeOverrides = {};
     if (ov.model && ov.model.length > 0) trimmed.model = ov.model;
+    if (ep?.capabilities?.reasoning_effort && ov.reasoning_effort) {
+      trimmed.reasoning_effort = ov.reasoning_effort;
+    }
     // Only persist base_url if user changed it from the catalog default —
     // otherwise leave it for render-time fallback.
     if (ov.base_url && ov.base_url.length > 0 && ov.base_url !== defaultBaseUrl) {
@@ -720,4 +835,3 @@ function pruneOverrides(
   }
   return out;
 }
-

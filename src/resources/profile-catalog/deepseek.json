@@ -8,10 +8,22 @@
       "api_type": "anthropic",
       "default_base_url": "https://api.deepseek.com/anthropic",
       "models": [
-        { "id": "deepseek-v4-flash", "label": "DeepSeek V4 Flash (1M ctx, thinking + non-thinking)" },
-        { "id": "deepseek-v4-pro", "label": "DeepSeek V4 Pro (1M ctx, premium)" },
-        { "id": "deepseek-chat", "label": "DeepSeek Chat (legacy alias for v4-flash, deprecating 2026/07/24)" },
-        { "id": "deepseek-reasoner", "label": "DeepSeek Reasoner (legacy thinking alias, deprecating 2026/07/24)" }
+        {
+          "id": "deepseek-v4-flash",
+          "label": "DeepSeek V4 Flash (1M ctx, thinking + non-thinking)"
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "label": "DeepSeek V4 Pro (1M ctx, premium)"
+        },
+        {
+          "id": "deepseek-chat",
+          "label": "DeepSeek Chat (legacy alias for v4-flash, deprecating 2026/07/24)"
+        },
+        {
+          "id": "deepseek-reasoner",
+          "label": "DeepSeek Reasoner (legacy thinking alias, deprecating 2026/07/24)"
+        }
       ],
       "auth_modes": [
         {
@@ -41,10 +53,22 @@
       "api_type": "openai-chat",
       "default_base_url": "https://api.deepseek.com/v1",
       "models": [
-        { "id": "deepseek-v4-flash", "label": "DeepSeek V4 Flash" },
-        { "id": "deepseek-v4-pro", "label": "DeepSeek V4 Pro" },
-        { "id": "deepseek-chat", "label": "DeepSeek Chat (legacy)" },
-        { "id": "deepseek-reasoner", "label": "DeepSeek Reasoner (legacy)" }
+        {
+          "id": "deepseek-v4-flash",
+          "label": "DeepSeek V4 Flash"
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "label": "DeepSeek V4 Pro"
+        },
+        {
+          "id": "deepseek-chat",
+          "label": "DeepSeek Chat (legacy)"
+        },
+        {
+          "id": "deepseek-reasoner",
+          "label": "DeepSeek Reasoner (legacy)"
+        }
       ],
       "auth_modes": [
         {
@@ -66,7 +90,7 @@
             "settings_files": [
               {
                 "rel_path": "config.toml",
-                "template": "model = \"{{model}}\"\nmodel_provider = \"deepseek\"\n\n[model_providers.deepseek]\nname = \"DeepSeek\"\nbase_url = \"{{base_url}}\"\nwire_api = \"responses\"\n"
+                "template": "model = \"{{model}}\"\nmodel_provider = \"deepseek\"\nmodel_reasoning_effort = \"high\"\ndisable_response_storage = true\n\n[model_providers.deepseek]\nname = \"DeepSeek\"\nbase_url = \"{{base_url}}\"\nwire_api = \"chat\"\nrequires_openai_auth = true\n"
               },
               {
                 "rel_path": "auth.json",

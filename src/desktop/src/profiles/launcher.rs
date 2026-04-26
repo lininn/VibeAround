@@ -22,7 +22,7 @@ use anyhow::{anyhow, bail, Context};
 use common::{auth, config, resources};
 
 use super::catalog;
-use super::render::render;
+use super::render::{render, ConfigEnvTarget};
 use super::schema::ProfileDef;
 use super::terminal::{self, TerminalChoice};
 
@@ -30,11 +30,12 @@ use super::terminal::{self, TerminalChoice};
 // Public entry
 // ---------------------------------------------------------------------------
 
-pub fn launch(profile: &ProfileDef, api_type: &str) -> anyhow::Result<()> {
+pub fn launch(profile: &ProfileDef, launch_target: &str) -> anyhow::Result<()> {
     let provider = catalog::get(&profile.provider)
         .ok_or_else(|| anyhow!("unknown provider '{}'", profile.provider))?;
-    let rendered = render(profile, api_type, provider)?;
-    do_launch(profile, api_type, rendered)
+    let api_type = api_type_for_launch_target(profile, provider, launch_target)?;
+    let rendered = render(profile, api_type, launch_target, provider)?;
+    do_launch(profile, launch_target, rendered)
 }
 
 /// "Direct" launch — open a Terminal running the named coding CLI with NO
@@ -54,36 +55,100 @@ pub fn launch_direct(agent_id: &str) -> anyhow::Result<()> {
 
 fn do_launch(
     profile: &ProfileDef,
-    api_type: &str,
+    launch_target: &str,
     rendered: super::render::RenderedProfile,
 ) -> anyhow::Result<()> {
-
     let mut env: Vec<(String, String)> = rendered.env.clone();
     if !rendered.settings_files.is_empty() {
         let dir = profile_state_dir(&profile.id);
         for sf in &rendered.settings_files {
             materialize_settings_file(&dir, &sf.rel_path, &sf.contents)?;
         }
-        if let Some(env_name) = rendered.config_dir_env {
-            env.push((env_name.to_string(), dir.to_string_lossy().into_owned()));
+        if let Some(target) = rendered.config_env {
+            match target {
+                ConfigEnvTarget::Directory(env_name) => {
+                    env.push((env_name.to_string(), dir.to_string_lossy().into_owned()));
+                }
+                ConfigEnvTarget::File {
+                    env: env_name,
+                    rel_path,
+                } => {
+                    env.push((
+                        env_name.to_string(),
+                        dir.join(rel_path).to_string_lossy().into_owned(),
+                    ));
+                }
+            }
         }
     }
 
-    let agent_id = agent_id_for(api_type)?;
+    let agent_id = agent_id_for(launch_target)?;
     let agent = resources::agent_by_id(agent_id)
         .ok_or_else(|| anyhow!("agent '{}' not found in agents.json", agent_id))?;
-    let pty_command = agent.pty.command.clone();
+    let pty_command = command_with_args(&agent.pty.command, &rendered.command_args);
 
     spawn_terminal(&env, &pty_command, &profile.label)?;
     Ok(())
 }
 
-fn agent_id_for(api_type: &str) -> anyhow::Result<&'static str> {
-    match api_type {
-        "anthropic" => Ok("claude"),
-        "openai-chat" => Ok("codex"),
-        other => bail!("unsupported api_type: '{}'", other),
+fn command_with_args(command: &str, args: &[String]) -> String {
+    if args.is_empty() {
+        return command.to_string();
     }
+
+    let mut out = command.to_string();
+    for arg in args {
+        out.push(' ');
+        out.push_str(&shell_escape::unix::escape(std::borrow::Cow::Borrowed(
+            arg.as_str(),
+        )));
+    }
+    out
+}
+
+fn agent_id_for(launch_target: &str) -> anyhow::Result<&'static str> {
+    match launch_target {
+        "claude" => Ok("claude"),
+        "codex" => Ok("codex"),
+        "gemini" => Ok("gemini"),
+        "opencode" => Ok("opencode"),
+        other => bail!("unsupported launch target: '{}'", other),
+    }
+}
+
+fn api_type_for_launch_target<'a>(
+    profile: &'a ProfileDef,
+    provider: &'a catalog::ProviderCatalog,
+    launch_target: &str,
+) -> anyhow::Result<&'a str> {
+    let candidates: &[&str] = match launch_target {
+        "claude" => &["anthropic"],
+        // Prefer Responses once a provider declares it; fall back to the
+        // OpenAI-compatible chat endpoint that today's catalog uses.
+        "codex" => &["openai-responses", "openai-chat"],
+        "gemini" => &["gemini"],
+        // OpenCode is a CLI target, not a provider protocol. Prefer
+        // Responses for GPT-5.x/tool-heavy models, then fall back to
+        // Chat Completions for providers that only expose OpenAI-compatible
+        // chat.
+        "opencode" => &["openai-responses", "openai-chat"],
+        other => bail!("unsupported launch target: '{}'", other),
+    };
+
+    for candidate in candidates {
+        if profile.api_types.iter().any(|t| t == candidate)
+            && provider.endpoints.iter().any(|e| e.api_type == *candidate)
+        {
+            return Ok(candidate);
+        }
+    }
+
+    bail!(
+        "profile '{}' cannot launch '{}' with provider '{}'",
+        profile.id,
+        launch_target,
+        profile.provider
+    )
 }
 
 // ---------------------------------------------------------------------------

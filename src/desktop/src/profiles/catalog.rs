@@ -1,9 +1,9 @@
 //! Provider catalog — third-party endpoint metadata baked into the binary.
 //!
 //! Each provider has a JSON file under `src/resources/profile-catalog/`
-//! describing its supported endpoints (Anthropic-compatible, OpenAI-chat-
-//! compatible) plus per-endpoint auth modes, default base URLs, model
-//! lists, and render templates.
+//! describing its supported provider API kinds (Anthropic-compatible,
+//! OpenAI-compatible, Gemini) plus per-kind auth modes, default base URLs,
+//! model lists, and render templates for native CLI adapters.
 //!
 //! v1 is a static built-in catalog (loaded once via `LazyLock`). The
 //! intent is to migrate to a separately-versioned npm package
@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 // Note: changing the .json files alone will not trigger a tauri-dev rebuild
 // (the file watcher only sees Rust sources). Edit this file or the
 // surrounding comment to force a rebuild after touching catalog data.
+// catalog-rebuild: 2026-04-27-reasoning-effort-capability
 
 static MOONSHOT_JSON: &str = include_str!("../../../resources/profile-catalog/moonshot.json");
 static DEEPSEEK_JSON: &str = include_str!("../../../resources/profile-catalog/deepseek.json");
@@ -30,6 +31,8 @@ static MINIMAX_JSON: &str = include_str!("../../../resources/profile-catalog/min
 static MINIMAX_GLOBAL_JSON: &str =
     include_str!("../../../resources/profile-catalog/minimax-global.json");
 static ZAI_JSON: &str = include_str!("../../../resources/profile-catalog/zai.json");
+static GEMINI_JSON: &str = include_str!("../../../resources/profile-catalog/gemini.json");
+static AZURE_JSON: &str = include_str!("../../../resources/profile-catalog/azure.json");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,12 +55,20 @@ pub struct EndpointDef {
     pub default_base_url: String,
     #[serde(default)]
     pub models: Vec<ModelDef>,
+    #[serde(default)]
+    pub capabilities: EndpointCapabilities,
     pub auth_modes: Vec<AuthModeDef>,
     /// Optional caveat shown to users next to the launch button — e.g.
     /// "codex 0.X+ requires Responses API and this provider only serves
     /// chat-completions". `None` for endpoints with no known caveat.
     #[serde(default)]
     pub compatibility_warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct EndpointCapabilities {
+    #[serde(default)]
+    pub reasoning_effort: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -128,6 +139,8 @@ static CATALOG: LazyLock<Vec<ProviderCatalog>> = LazyLock::new(|| {
         ("minimax", MINIMAX_JSON),
         ("minimax-global", MINIMAX_GLOBAL_JSON),
         ("zai", ZAI_JSON),
+        ("gemini", GEMINI_JSON),
+        ("azure", AZURE_JSON),
     ];
     let mut out = Vec::with_capacity(raw.len());
     for (id, body) in raw {
@@ -155,8 +168,8 @@ pub fn get(id: &str) -> Option<&'static ProviderCatalog> {
 
 // ---------------------------------------------------------------------------
 // Synthetic "custom" provider — escape hatch for endpoints not in the
-// baked-in catalog. Same render rules as a baseline anthropic / openai-chat
-// provider, just with no default base_url and no model suggestions; the
+// baked-in catalog. Same render rules as baseline anthropic / openai-chat
+// providers, just with no default base_url and no model suggestions; the
 // user fills everything in.
 // ---------------------------------------------------------------------------
 
@@ -179,6 +192,7 @@ pub fn custom() -> &'static ProviderCatalog {
                 api_type: "anthropic".to_string(),
                 default_base_url: String::new(),
                 models: Vec::new(),
+                capabilities: EndpointCapabilities::default(),
                 compatibility_warning: None,
                 auth_modes: vec![AuthModeDef {
                     mode: "api_key".to_string(),
@@ -204,9 +218,12 @@ pub fn custom() -> &'static ProviderCatalog {
                 }],
             },
             EndpointDef {
-                api_type: "openai-chat".to_string(),
+                api_type: "openai-responses".to_string(),
                 default_base_url: String::new(),
                 models: Vec::new(),
+                capabilities: EndpointCapabilities {
+                    reasoning_effort: true,
+                },
                 compatibility_warning: None,
                 auth_modes: vec![AuthModeDef {
                     mode: "api_key".to_string(),
@@ -224,7 +241,41 @@ pub fn custom() -> &'static ProviderCatalog {
                         settings_files: vec![
                             SettingsFileTemplate {
                                 rel_path: "config.toml".to_string(),
-                                template: "model = \"{{model}}\"\nmodel_provider = \"custom\"\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"{{base_url}}\"\nwire_api = \"responses\"\n".to_string(),
+                                template: "model = \"{{model}}\"\nmodel_provider = \"custom\"\nmodel_reasoning_effort = \"{{reasoning_effort}}\"\ndisable_response_storage = true\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"{{base_url}}\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n".to_string(),
+                            },
+                            SettingsFileTemplate {
+                                rel_path: "auth.json".to_string(),
+                                template: "{\n  \"OPENAI_API_KEY\": \"{{api_key|json}}\"\n}\n".to_string(),
+                            },
+                        ],
+                    }),
+                    login_command: None,
+                    session_file_check: None,
+                }],
+            },
+            EndpointDef {
+                api_type: "openai-chat".to_string(),
+                default_base_url: String::new(),
+                models: Vec::new(),
+                capabilities: EndpointCapabilities::default(),
+                compatibility_warning: None,
+                auth_modes: vec![AuthModeDef {
+                    mode: "api_key".to_string(),
+                    label: Some("Use API key".to_string()),
+                    fields: vec![FieldDef {
+                        name: "api_key".to_string(),
+                        label: "API key".to_string(),
+                        secret: true,
+                        required: true,
+                        placeholder: None,
+                        validate: None,
+                    }],
+                    render: Some(RenderRules {
+                        env: btree_kv(&[("OPENAI_API_KEY", "{{api_key}}")]),
+                        settings_files: vec![
+                            SettingsFileTemplate {
+                                rel_path: "config.toml".to_string(),
+                                template: "model = \"{{model}}\"\nmodel_provider = \"custom\"\nmodel_reasoning_effort = \"high\"\ndisable_response_storage = true\n\n[model_providers.custom]\nname = \"Custom\"\nbase_url = \"{{base_url}}\"\nwire_api = \"chat\"\nrequires_openai_auth = true\n".to_string(),
                             },
                             SettingsFileTemplate {
                                 rel_path: "auth.json".to_string(),
@@ -259,7 +310,7 @@ mod tests {
     #[test]
     fn baseline_catalog_parses() {
         // Touching `all()` triggers the LazyLock; the panic-on-parse-error
-        // contract above means a successful call here proves all 5 baseline
+        // contract above means a successful call here proves all bundled
         // JSONs are well-formed.
         let entries = all();
         assert!(entries.len() >= 5);
@@ -268,6 +319,8 @@ mod tests {
         assert!(get("openrouter").is_some());
         assert!(get("minimax").is_some());
         assert!(get("zai").is_some());
+        assert!(get("gemini").is_some());
+        assert!(get("azure").is_some());
     }
 
     #[test]
@@ -281,4 +334,33 @@ mod tests {
         assert!(api_types.contains(&"anthropic"));
         assert!(api_types.contains(&"openai-chat"));
     }
+
+    #[test]
+    fn gemini_supports_api_key_launch() {
+        let provider = get("gemini").expect("gemini must exist");
+        let endpoint = provider
+            .endpoints
+            .iter()
+            .find(|e| e.api_type == "gemini")
+            .expect("gemini endpoint must exist");
+        let auth = endpoint
+            .auth_modes
+            .iter()
+            .find(|a| a.mode == "api_key")
+            .expect("gemini api_key auth must exist");
+        let render = auth.render.as_ref().expect("api_key auth renders env");
+        assert_eq!(
+            render.env.get("GEMINI_API_KEY").map(String::as_str),
+            Some("{{api_key}}")
+        );
+        assert_eq!(
+            render.env.get("GEMINI_MODEL").map(String::as_str),
+            Some("{{model}}")
+        );
+        assert_eq!(
+            render.env.get("GOOGLE_GEMINI_BASE_URL").map(String::as_str),
+            Some("{{base_url}}")
+        );
+    }
+
 }

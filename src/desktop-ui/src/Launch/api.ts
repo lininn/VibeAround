@@ -18,8 +18,8 @@ export function deleteProfile(id: string): Promise<void> {
   return invoke<void>("profiles_delete", { id });
 }
 
-export function launchProfile(id: string, apiType: string): Promise<void> {
-  return invoke<void>("profiles_launch", { id, apiType });
+export function launchProfile(id: string, launchTarget: string): Promise<void> {
+  return invoke<void>("profiles_launch", { id, launchTarget });
 }
 
 /** Direct launch — no env, CLI uses whatever global OAuth the user has. */

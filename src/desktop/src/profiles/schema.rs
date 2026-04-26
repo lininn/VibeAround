@@ -32,6 +32,8 @@ pub struct ApiTypeOverrides {
     pub base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -42,9 +44,8 @@ pub struct ProfileDef {
     /// not yet supported in v1; UI gates this.
     pub provider: String,
     pub auth_mode: AuthMode,
-    /// Which API protocols this credential is good for. Multi-select for
-    /// providers like Kimi / Z.AI that expose both an Anthropic and an
-    /// OpenAI-compatible endpoint behind the same key.
+    /// Which CLI launch targets this credential is good for. Internally these
+    /// are still keyed by the API/config shape each target needs.
     pub api_types: Vec<String>,
     /// Free-form credentials — `api_key` is the only field used by v1
     /// catalog entries, but we keep the bag generic so future plugins can
@@ -95,7 +96,7 @@ pub fn validate(profile: &ProfileDef) -> anyhow::Result<()> {
         bail!("profile label must not be empty");
     }
     if profile.api_types.is_empty() {
-        bail!("profile must declare at least one api_type");
+        bail!("profile must declare at least one api kind");
     }
     Ok(())
 }

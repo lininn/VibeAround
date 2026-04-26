@@ -15,15 +15,24 @@ export interface ProfileSummary {
   providerIcon: string | null;
   authMode: AuthMode;
   apiTypes: string[];
+  launchTargets: LaunchTargetSummary[];
   /** `api_type → caveat string`. Populated only for api_types whose
    * catalog endpoint has a `compatibility_warning`. UI shows ⚠ on the
    * matching launch button. */
   apiTypeWarnings: Record<string, string>;
 }
 
+export interface LaunchTargetSummary {
+  id: string;
+  label: string;
+  apiType: string;
+  warning?: string | null;
+}
+
 export interface ApiTypeOverrides {
   base_url?: string | null;
   model?: string | null;
+  reasoning_effort?: string | null;
 }
 
 export interface ProfileDef {
@@ -63,8 +72,13 @@ export interface EndpointDef {
   api_type: string;
   default_base_url: string;
   models: ModelDef[];
+  capabilities?: EndpointCapabilities | null;
   auth_modes: AuthModeDef[];
   compatibility_warning?: string | null;
+}
+
+export interface EndpointCapabilities {
+  reasoning_effort?: boolean | null;
 }
 
 export interface CatalogEntry {
@@ -75,26 +89,53 @@ export interface CatalogEntry {
   endpoints: EndpointDef[];
 }
 
-/** Pretty-print a wire api_type token. */
+/** Pretty-print an internal api_type token as the provider API kind. */
 export function apiTypeLabel(api_type: string): string {
   switch (api_type) {
     case "anthropic":
-      return "Claude (Anthropic API)";
+      return "Anthropic API";
     case "openai-chat":
-      return "Codex (OpenAI API)";
+      return "OpenAI-compatible Chat";
+    case "openai-responses":
+      return "OpenAI Responses";
+    case "gemini":
+      return "Gemini API";
     default:
       return api_type;
   }
 }
 
-/** Short pill label inside cards. */
+/** Short API kind pill label inside provider/profile forms. */
 export function apiTypeShort(api_type: string): string {
   switch (api_type) {
     case "anthropic":
-      return "claude";
+      return "anthropic";
     case "openai-chat":
-      return "codex";
+      return "openai-chat";
+    case "openai-responses":
+      return "responses";
+    case "gemini":
+      return "gemini";
     default:
       return api_type;
   }
+}
+
+export function apiTypeBadge(api_type: string): string {
+  switch (api_type) {
+    case "anthropic":
+      return "anthropic";
+    case "openai-chat":
+      return "chat";
+    case "openai-responses":
+      return "responses";
+    case "gemini":
+      return "gemini";
+    default:
+      return api_type;
+  }
+}
+
+export function isProviderApiKind(api_type: string): boolean {
+  return ["anthropic", "openai-responses", "openai-chat", "gemini"].includes(api_type);
 }

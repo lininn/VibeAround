@@ -2,9 +2,8 @@
  * Launch tab — list third-party API profiles and launch a CLI for any of
  * them in a system Terminal.app window.
  *
- * Cards are grouped by api_type so users see "what claude can use" vs
- * "what codex can use" at a glance. A profile that supports both shows
- * up under both groups (the same underlying file is the source).
+ * Profile cards show concrete CLI launch targets derived from the
+ * provider's API kinds.
  */
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Rocket } from "lucide-react";
@@ -59,10 +58,10 @@ export function Launch() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  async function handleLaunch(profile: ProfileSummary, apiType: string) {
+  async function handleLaunch(profile: ProfileSummary, launchTarget: string) {
     setError(null);
     try {
-      await launchProfile(profile.id, apiType);
+      await launchProfile(profile.id, launchTarget);
       setToast(`Terminal opened for ${profile.label}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -207,4 +206,3 @@ function EmptyState({ onNew }: { onNew: () => void }) {
     </div>
   );
 }
-

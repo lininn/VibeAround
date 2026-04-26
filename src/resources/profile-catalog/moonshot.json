@@ -8,8 +8,14 @@
       "api_type": "anthropic",
       "default_base_url": "https://api.moonshot.cn/anthropic",
       "models": [
-        { "id": "kimi-k2-0905-preview", "label": "Kimi K2 (0905 preview)" },
-        { "id": "kimi-k2-turbo-preview", "label": "Kimi K2 turbo (preview)" }
+        {
+          "id": "kimi-k2-0905-preview",
+          "label": "Kimi K2 (0905 preview)"
+        },
+        {
+          "id": "kimi-k2-turbo-preview",
+          "label": "Kimi K2 turbo (preview)"
+        }
       ],
       "auth_modes": [
         {
@@ -39,9 +45,18 @@
       "api_type": "openai-chat",
       "default_base_url": "https://api.moonshot.cn/v1",
       "models": [
-        { "id": "kimi-k2-0905-preview", "label": "Kimi K2 (0905 preview)" },
-        { "id": "moonshot-v1-32k", "label": "Moonshot v1 32K" },
-        { "id": "moonshot-v1-128k", "label": "Moonshot v1 128K" }
+        {
+          "id": "kimi-k2-0905-preview",
+          "label": "Kimi K2 (0905 preview)"
+        },
+        {
+          "id": "moonshot-v1-32k",
+          "label": "Moonshot v1 32K"
+        },
+        {
+          "id": "moonshot-v1-128k",
+          "label": "Moonshot v1 128K"
+        }
       ],
       "auth_modes": [
         {
@@ -63,7 +78,7 @@
             "settings_files": [
               {
                 "rel_path": "config.toml",
-                "template": "model = \"{{model}}\"\nmodel_provider = \"moonshot\"\n\n[model_providers.moonshot]\nname = \"Moonshot\"\nbase_url = \"{{base_url}}\"\nwire_api = \"responses\"\n"
+                "template": "model = \"{{model}}\"\nmodel_provider = \"moonshot\"\nmodel_reasoning_effort = \"high\"\ndisable_response_storage = true\n\n[model_providers.moonshot]\nname = \"Moonshot\"\nbase_url = \"{{base_url}}\"\nwire_api = \"chat\"\nrequires_openai_auth = true\n"
               },
               {
                 "rel_path": "auth.json",
