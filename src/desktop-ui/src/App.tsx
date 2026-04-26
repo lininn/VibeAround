@@ -8,6 +8,7 @@ import { useTunnelsState, type TunnelRuntime } from "./hooks/useTunnelsState";
 import { useAgentsRuntime, type AgentRuntime } from "./hooks/useAgentsRuntime";
 import { openDashboardUrl, DAEMON_PORT } from "./lib/api";
 import { Button } from "@/components/ui/button";
+import { PageHeader, PageShell, SectionCard } from "@/components/page";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Splash } from "./Splash";
 import Onboarding from "./Onboarding";
@@ -328,99 +329,77 @@ function Dashboard() {
       ) : page === "launch" ? (
         <div className="flex-1 min-h-0"><Launch /></div>
       ) : (
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold flex items-center gap-2">
-                <Activity className="w-4 h-4 text-primary" />
-                Status
-              </h2>
-              <p className="text-xs text-muted-foreground mt-1">
-                Runtime health for tunnels, agents, and messaging channels.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                void openDashboardUrl(`http://127.0.0.1:${DAEMON_PORT}/va/`);
-              }}
-              className="shrink-0 text-xs text-primary hover:underline flex items-center gap-1"
+        <div className="flex-1 overflow-y-auto">
+          <PageShell className="space-y-3">
+            <PageHeader
+              icon={<Activity className="w-4 h-4 text-primary" />}
+              title="Status"
+              description="Runtime health for tunnels, agents, and messaging channels."
+              actions={(
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="text-primary hover:text-primary"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void openDashboardUrl(`http://127.0.0.1:${DAEMON_PORT}/va/`);
+                  }}
+                >
+                  Open Web Dashboard <ExternalLink className="w-3 h-3" />
+                </Button>
+              )}
+            />
+
+            <SectionCard
+              icon={<Globe className="w-4 h-4 text-primary" />}
+              title="Tunnel"
+              badge={tunnels.tunnels.length}
             >
-              Open Web Dashboard <ExternalLink className="w-3 h-3" />
-            </button>
-          </div>
+              {tunnels.tunnels.length === 0 ? (
+                <p className="text-xs text-muted-foreground px-3 py-2">No tunnel running</p>
+              ) : (
+                tunnels.tunnels.map((t) => (
+                  <TunnelRow key={t.provider} tunnel={t} onKill={() => tunnels.kill(t.provider)} />
+                ))
+              )}
+            </SectionCard>
 
-          <Section
-            icon={<Globe className="w-4 h-4 text-primary" />}
-            title="Tunnel"
-            badge={tunnels.tunnels.length}
-          >
-            {tunnels.tunnels.length === 0 ? (
-              <p className="text-xs text-muted-foreground px-3 py-2">No tunnel running</p>
-            ) : (
-              tunnels.tunnels.map((t) => (
-                <TunnelRow key={t.provider} tunnel={t} onKill={() => tunnels.kill(t.provider)} />
-              ))
-            )}
-          </Section>
+            <SectionCard
+              icon={<Bot className="w-4 h-4 text-primary" />}
+              title="Agents"
+              badge={agents.agents.length}
+            >
+              {agents.agents.length === 0 ? (
+                <p className="text-xs text-muted-foreground px-3 py-2">No agents running</p>
+              ) : (
+                agents.agents.map((a) => (
+                  <AgentRow key={a.route_key} agent={a} onKill={() => agents.kill(a.route_key)} />
+                ))
+              )}
+            </SectionCard>
 
-          <Section
-            icon={<Bot className="w-4 h-4 text-primary" />}
-            title="Agents"
-            badge={agents.agents.length}
-          >
-            {agents.agents.length === 0 ? (
-              <p className="text-xs text-muted-foreground px-3 py-2">No agents running</p>
-            ) : (
-              agents.agents.map((a) => (
-                <AgentRow key={a.route_key} agent={a} onKill={() => agents.kill(a.route_key)} />
-              ))
-            )}
-          </Section>
-
-          <Section
-            icon={<MessageSquare className="w-4 h-4 text-primary" />}
-            title="Channels"
-            badge={channels.channels.length}
-          >
-            {channels.channels.length === 0 ? (
-              <p className="text-xs text-muted-foreground px-3 py-2">No channels running</p>
-            ) : (
-              channels.channels.map((c) => (
-                <ChannelRow
-                  key={c.kind}
-                  channel={c}
-                  onStart={() => channels.start(c.kind)}
-                  onStop={() => channels.stop(c.kind)}
-                />
-              ))
-            )}
-          </Section>
+            <SectionCard
+              icon={<MessageSquare className="w-4 h-4 text-primary" />}
+              title="Channels"
+              badge={channels.channels.length}
+            >
+              {channels.channels.length === 0 ? (
+                <p className="text-xs text-muted-foreground px-3 py-2">No channels running</p>
+              ) : (
+                channels.channels.map((c) => (
+                  <ChannelRow
+                    key={c.kind}
+                    channel={c}
+                    onStart={() => channels.start(c.kind)}
+                    onStop={() => channels.stop(c.kind)}
+                  />
+                ))
+              )}
+            </SectionCard>
+          </PageShell>
         </div>
       )}
-    </div>
-  );
-}
-
-function Section({ icon, title, children, badge }: {
-  icon: React.ReactNode;
-  title: string;
-  children: React.ReactNode;
-  badge?: string | number;
-}) {
-  return (
-    <div className="border border-border rounded-lg overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 bg-muted/40 border-b border-border">
-        {icon}
-        <span className="text-sm font-semibold">{title}</span>
-        {badge !== undefined && (
-          <span className="ml-auto text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full tabular-nums">
-            {badge}
-          </span>
-        )}
-      </div>
-      <div className="divide-y divide-border/50">{children}</div>
     </div>
   );
 }
