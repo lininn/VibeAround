@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 
-import { Eye, EyeOff, Globe } from "lucide-react";
+import { Eye, EyeOff, Globe, Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -368,6 +368,15 @@ function ProviderGrid({
   catalog: CatalogEntry[];
   onPick: (c: CatalogEntry) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredCatalog = useMemo(() => {
+    if (!normalizedQuery) return catalog;
+    return catalog.filter((provider) =>
+      providerSearchText(provider).includes(normalizedQuery),
+    );
+  }, [catalog, normalizedQuery]);
+
   if (catalog.length === 0) {
     return (
       <p className="text-xs text-muted-foreground">
@@ -376,57 +385,97 @@ function ProviderGrid({
       </p>
     );
   }
-  // Show catalog providers first, then a synthetic "Custom..." tile that
-  // routes to the same form path with `provider: "custom"`. Keeping it
-  // inside the grid (rather than as a separate row on the main Launch
-  // page) means users see "all the ways to add a provider" in one place
-  // when they hit `+ New profile`.
   return (
-    <div className="grid grid-cols-2 gap-2">
-      {catalog.map((c) => (
-        <button
-          key={c.id}
-          type="button"
-          onClick={() => onPick(c)}
-          className="flex flex-col items-start gap-1 p-3 border border-border rounded-md hover:border-primary hover:bg-accent/30 transition-colors text-left"
-        >
-          <div className="flex items-center gap-2">
-            {c.icon && <span className="text-base">{c.icon}</span>}
-            <span className="text-sm font-medium">{c.label}</span>
+    <div className="space-y-3">
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search providers"
+          className="h-8 pl-8"
+          autoFocus
+        />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="text-xs font-semibold">Preset providers</div>
+          <Badge variant="muted" className="tabular-nums">
+            {filteredCatalog.length}
+          </Badge>
+        </div>
+        {filteredCatalog.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+            No matching providers
           </div>
-          <div className="flex flex-wrap gap-1 mt-1">
-            {c.endpoints.filter((e) => isProviderApiKind(e.api_type)).map((e) => (
-              <Badge key={e.api_type} variant="muted" className="text-[10px]">
-                {apiTypeShort(e.api_type)}
-              </Badge>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {filteredCatalog.map((provider) => (
+              <ProviderTile
+                key={provider.id}
+                provider={provider}
+                onPick={() => onPick(provider)}
+              />
             ))}
           </div>
-          {c.homepage && (
-            <span className="text-[10px] text-muted-foreground/60 truncate w-full">
-              {hostnameOf(c.homepage)}
-            </span>
-          )}
-        </button>
-      ))}
-      <button
-        type="button"
-        onClick={() => onPick(CUSTOM_PROVIDER)}
-        className="flex flex-col items-start gap-1 p-3 border border-dashed border-border rounded-md hover:border-primary hover:bg-accent/30 transition-colors text-left"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-base">{CUSTOM_PROVIDER.icon}</span>
-          <span className="text-sm font-medium">Custom endpoint</span>
-        </div>
-        <div className="flex flex-wrap gap-1 mt-1">
-          <Badge variant="muted" className="text-[10px]">anthropic</Badge>
-          <Badge variant="muted" className="text-[10px]">responses</Badge>
-          <Badge variant="muted" className="text-[10px]">openai-chat</Badge>
-        </div>
-        <span className="text-[10px] text-muted-foreground/60 truncate w-full">
-          Bring your own URL + key
-        </span>
-      </button>
+        )}
+      </div>
+
+      <div className="space-y-2 border-t border-border/60 pt-3">
+        <div className="text-xs font-semibold">Custom</div>
+        <ProviderTile
+          provider={CUSTOM_PROVIDER}
+          onPick={() => onPick(CUSTOM_PROVIDER)}
+          dashed
+          description="Bring your own URL + key"
+        />
+      </div>
     </div>
+  );
+}
+
+function ProviderTile({
+  provider,
+  onPick,
+  dashed,
+  description,
+}: {
+  provider: CatalogEntry;
+  onPick: () => void;
+  dashed?: boolean;
+  description?: string;
+}) {
+  const endpoints = provider.endpoints.filter((e) =>
+    isProviderApiKind(e.api_type),
+  );
+  const subtitle = description ?? (provider.homepage ? hostnameOf(provider.homepage) : null);
+
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      className={`flex flex-col items-start gap-1 p-3 border rounded-md hover:border-primary hover:bg-accent/30 transition-colors text-left ${
+        dashed ? "border-dashed border-border" : "border-border"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        {provider.icon && <span className="text-base">{provider.icon}</span>}
+        <span className="text-sm font-medium">{provider.label}</span>
+      </div>
+      <div className="flex flex-wrap gap-1 mt-1">
+        {endpoints.map((e) => (
+          <Badge key={e.api_type} variant="muted" className="text-[10px]">
+            {apiTypeShort(e.api_type)}
+          </Badge>
+        ))}
+      </div>
+      {subtitle && (
+        <span className="text-[10px] text-muted-foreground/60 truncate w-full">
+          {subtitle}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -819,6 +868,22 @@ function hostnameOf(url: string): string {
   } catch {
     return url;
   }
+}
+
+function providerSearchText(provider: CatalogEntry): string {
+  const parts = [
+    provider.id,
+    provider.label,
+    provider.homepage ?? "",
+    ...provider.endpoints
+      .filter((endpoint) => isProviderApiKind(endpoint.api_type))
+      .flatMap((endpoint) => [
+        endpoint.api_type,
+        apiTypeShort(endpoint.api_type),
+        apiTypeLabel(endpoint.api_type),
+      ]),
+  ];
+  return parts.join(" ").toLowerCase();
 }
 
 function stripEmpty(map: Record<string, string>): Record<string, string> {
