@@ -5,6 +5,7 @@
 //! - Lazy install: `Agent::spawn` falls through here when a binary is missing.
 
 use anyhow::Context;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::resources;
 
@@ -25,6 +26,28 @@ pub async fn auto_install_npm_agent(npm_package: &str) -> anyhow::Result<()> {
 pub async fn auto_install_npm_agent_with_output(
     npm_package: &str,
 ) -> anyhow::Result<InstallOutput> {
+    auto_install_npm_agent_with_progress(npm_package, |_| {}).await
+}
+
+pub async fn auto_install_npm_agent_with_progress<F>(
+    npm_package: &str,
+    on_log: F,
+) -> anyhow::Result<InstallOutput>
+where
+    F: FnMut(String),
+{
+    auto_install_npm_agent_with_progress_and_cancel(npm_package, on_log, || false).await
+}
+
+pub async fn auto_install_npm_agent_with_progress_and_cancel<F, C>(
+    npm_package: &str,
+    mut on_log: F,
+    is_cancelled: C,
+) -> anyhow::Result<InstallOutput>
+where
+    F: FnMut(String),
+    C: Fn() -> bool,
+{
     let plugins_dir = crate::process::env::acp_agents_dir();
     std::fs::create_dir_all(&plugins_dir).with_context(|| format!("creating {:?}", plugins_dir))?;
 
@@ -35,7 +58,12 @@ pub async fn auto_install_npm_agent_with_output(
             .context("writing package.json")?;
     }
 
-    let output = npm_command(&["install", npm_package], &plugins_dir)
+    let output = npm_command_streaming(
+        &["install", npm_package],
+        &plugins_dir,
+        &mut on_log,
+        is_cancelled,
+    )
         .await
         .with_context(|| format!("running npm install {}", npm_package))?;
 
@@ -49,12 +77,10 @@ pub async fn auto_install_npm_agent_with_output(
     Ok(InstallOutput { stdout, stderr })
 }
 
-/// Invoke npm through `node npm-cli.js` so Windows does not need to spawn
-/// the `npm.cmd` wrapper directly.
-async fn npm_command(
+async fn npm_process(
     args: &[&str],
     cwd: &std::path::Path,
-) -> std::io::Result<std::process::Output> {
+) -> std::io::Result<tokio::process::Command> {
     let node_info = crate::process::env::command("node")
         .args(["-p", "process.execPath"])
         .output()
@@ -98,13 +124,97 @@ async fn npm_command(
     let mut node_args: Vec<String> = vec![npm_cli.to_string_lossy().to_string()];
     node_args.extend(args.iter().map(|s| s.to_string()));
 
-    crate::process::env::command("node")
+    let mut command = crate::process::env::command("node");
+    command
         .args(&node_args)
         .current_dir(cwd)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .await
+        .stderr(std::process::Stdio::piped());
+    Ok(command)
+}
+
+async fn npm_command_streaming<F>(
+    args: &[&str],
+    cwd: &std::path::Path,
+    on_log: &mut F,
+    is_cancelled: impl Fn() -> bool,
+) -> std::io::Result<std::process::Output>
+where
+    F: FnMut(String),
+{
+    let mut child = npm_process(args, cwd).await?.spawn()?;
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(&'static str, String)>();
+
+    if let Some(stdout) = stdout {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = tx.send(("stdout", line));
+            }
+        });
+    }
+    if let Some(stderr) = stderr {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = tx.send(("stderr", line));
+            }
+        });
+    }
+    drop(tx);
+
+    let mut stdout_buf = String::new();
+    let mut stderr_buf = String::new();
+    let mut cancel_tick = tokio::time::interval(std::time::Duration::from_millis(200));
+    let status = loop {
+        tokio::select! {
+            _ = cancel_tick.tick() => {
+                if is_cancelled() {
+                    let _ = child.start_kill();
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Interrupted,
+                        "install cancelled",
+                    ));
+                }
+                if let Some(status) = child.try_wait()? {
+                    break status;
+                }
+            }
+            maybe = rx.recv() => {
+                if let Some((stream, line)) = maybe {
+                    if stream == "stdout" {
+                        stdout_buf.push_str(&line);
+                        stdout_buf.push('\n');
+                    } else {
+                        stderr_buf.push_str(&line);
+                        stderr_buf.push('\n');
+                    }
+                    on_log(format!("{stream}: {line}"));
+                }
+            }
+        }
+    };
+
+    while let Ok((stream, line)) = rx.try_recv() {
+        if stream == "stdout" {
+            stdout_buf.push_str(&line);
+            stdout_buf.push('\n');
+        } else {
+            stderr_buf.push_str(&line);
+            stderr_buf.push('\n');
+        }
+        on_log(format!("{stream}: {line}"));
+    }
+
+    Ok(std::process::Output {
+        status,
+        stdout: stdout_buf.into_bytes(),
+        stderr: stderr_buf.into_bytes(),
+    })
 }
 
 /// Install a native agent CLI by running its official install command.

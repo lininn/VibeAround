@@ -2,6 +2,7 @@
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 use common::{config, plugins};
 
@@ -19,6 +20,7 @@ pub struct InstallPluginResponse {
     pub message: String,
     /// The plugin ID as declared in the installed plugin.json (may differ from the requested id).
     pub actual_plugin_id: Option<String>,
+    pub logs: Vec<String>,
 }
 
 /// Invoke npm via `node npm-cli.js`.
@@ -26,10 +28,10 @@ pub struct InstallPluginResponse {
 /// On Windows, `npm` is a `.cmd` batch script that `Command::new("npm")` cannot
 /// spawn directly. Locating npm-cli.js next to `node` and calling it via node
 /// works cross-platform without any PATH or shell workarounds.
-pub(super) async fn npm_command(
+async fn npm_process(
     args: &[&str],
     cwd: &std::path::Path,
-) -> std::io::Result<std::process::Output> {
+) -> std::io::Result<tokio::process::Command> {
     let node_info = common::process::env::command("node")
         .args(["-p", "process.execPath"])
         .output()
@@ -82,13 +84,13 @@ pub(super) async fn npm_command(
         npm_cli.display(),
         args.join(" ")
     );
-    common::process::env::command("node")
+    let mut command = common::process::env::command("node");
+    command
         .args(&node_args)
         .current_dir(cwd)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .await
+        .stderr(std::process::Stdio::piped());
+    Ok(command)
 }
 
 #[tauri::command]
@@ -103,8 +105,21 @@ pub async fn install_plugin(
 pub(super) async fn run_install_inner(
     request: InstallPluginRequest,
 ) -> anyhow::Result<InstallPluginResponse> {
+    run_install_inner_with_progress(request, |_| {}, || false).await
+}
+
+pub(super) async fn run_install_inner_with_progress<F, C>(
+    request: InstallPluginRequest,
+    mut on_log: F,
+    is_cancelled: C,
+) -> anyhow::Result<InstallPluginResponse>
+where
+    F: FnMut(String),
+    C: Fn() -> bool,
+{
     let plugins_dir = config::data_dir().join("plugins");
     let target_dir = plugins_dir.join(&request.plugin_id);
+    let mut logs = Vec::new();
 
     std::fs::create_dir_all(&plugins_dir).context("creating plugins directory")?;
 
@@ -115,6 +130,8 @@ pub(super) async fn run_install_inner(
                 "[install_plugin] {} already built, skipping clone",
                 request.plugin_id
             );
+            logs.push("Existing plugin directory has dist/; skipping git clone".into());
+            on_log("Existing plugin directory has dist/; skipping git clone".into());
             false
         } else {
             tracing::info!(
@@ -134,19 +151,21 @@ pub(super) async fn run_install_inner(
             request.github_url,
             target_dir
         );
-        let output = tokio::process::Command::new("git")
-            .args([
-                "clone",
-                "--depth",
-                "1",
-                &request.github_url,
-                &target_dir.to_string_lossy(),
-            ])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
+        let message = format!("Running: git clone --depth 1 {}", request.github_url);
+        logs.push(message.clone());
+        on_log(message);
+        let mut command = common::process::env::command("git");
+        command.args([
+            "clone",
+            "--depth",
+            "1",
+            &request.github_url,
+            &target_dir.to_string_lossy(),
+        ]);
+        let output = command_streaming(command, &mut on_log, &is_cancelled)
             .await
             .context("git clone")?;
+        push_output_logs(&mut logs, "git clone", &output);
         if !output.status.success() {
             bail!(
                 "git clone failed: {}",
@@ -156,9 +175,16 @@ pub(super) async fn run_install_inner(
     }
 
     tracing::info!("[install_plugin] npm install in {:?}", target_dir);
-    let output = npm_command(&["install"], &target_dir)
+    logs.push("Running: npm install".into());
+    on_log("Running: npm install".into());
+    let output = command_streaming(
+        npm_process(&["install"], &target_dir).await?,
+        &mut on_log,
+        &is_cancelled,
+    )
         .await
         .context("npm install")?;
+    push_output_logs(&mut logs, "npm install", &output);
     if !output.status.success() {
         bail!(
             "npm install failed: {}",
@@ -167,9 +193,16 @@ pub(super) async fn run_install_inner(
     }
 
     tracing::info!("[install_plugin] npm run build in {:?}", target_dir);
-    let output = npm_command(&["run", "build"], &target_dir)
+    logs.push("Running: npm run build".into());
+    on_log("Running: npm run build".into());
+    let output = command_streaming(
+        npm_process(&["run", "build"], &target_dir).await?,
+        &mut on_log,
+        &is_cancelled,
+    )
         .await
         .context("npm run build")?;
+    push_output_logs(&mut logs, "npm run build", &output);
     if !output.status.success() {
         bail!(
             "npm run build failed: {}",
@@ -186,6 +219,8 @@ pub(super) async fn run_install_inner(
             String::from_utf8_lossy(&output.stderr),
         );
     }
+    logs.push("Verified: dist/main.js exists".into());
+    on_log("Verified: dist/main.js exists".into());
 
     let actual_id = match plugins::channel::find(&request.plugin_id) {
         Some(p) => {
@@ -194,27 +229,31 @@ pub(super) async fn run_install_inner(
                 request.plugin_id,
                 p.manifest.id
             );
-            Some(p.manifest.id.clone())
+            p.manifest.id.clone()
         }
         None => {
-            // Built but not discovered — likely an ID mismatch. Surface the manifest id for the UI.
-            let fallback_id = std::fs::read_to_string(target_dir.join("plugin.json"))
-                .ok()
-                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-                .and_then(|v| v.get("id").and_then(|id| id.as_str()).map(String::from));
+            let fallback_id = plugin_manifest_id(&target_dir);
             tracing::info!(
-                "[install_plugin] WARNING: {} built but not discoverable (manifest id={:?})",
+                "[install_plugin] ERROR: {} built but not discoverable (manifest id={:?})",
                 request.plugin_id,
                 fallback_id
             );
-            fallback_id
+            bail!(
+                "plugin built but is not discoverable as '{}{}'",
+                request.plugin_id,
+                fallback_id
+                    .as_deref()
+                    .map(|id| format!(" (plugin.json id is '{id}')"))
+                    .unwrap_or_default()
+            );
         }
     };
 
     Ok(InstallPluginResponse {
         success: true,
         message: format!("Plugin '{}' installed successfully", request.plugin_id),
-        actual_plugin_id: actual_id,
+        actual_plugin_id: Some(actual_id),
+        logs,
     })
 }
 
@@ -233,5 +272,123 @@ pub fn check_plugin_status(plugin_id: String) -> String {
     if !target_dir.join("dist").join("main.js").exists() {
         return "installed_not_built".to_string();
     }
-    "ready".to_string()
+    "installed_not_discoverable".to_string()
+}
+
+fn plugin_manifest_id(target_dir: &std::path::Path) -> Option<String> {
+    std::fs::read_to_string(target_dir.join("plugin.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v.get("id").and_then(|id| id.as_str()).map(String::from))
+}
+
+fn push_output_logs(logs: &mut Vec<String>, step: &str, output: &std::process::Output) {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if let Some(excerpt) = output_excerpt(&format!("{step} stdout"), &stdout) {
+        logs.push(excerpt);
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if let Some(excerpt) = output_excerpt(&format!("{step} stderr"), &stderr) {
+        logs.push(excerpt);
+    }
+}
+
+async fn command_streaming<F, C>(
+    mut command: tokio::process::Command,
+    on_log: &mut F,
+    is_cancelled: &C,
+) -> std::io::Result<std::process::Output>
+where
+    F: FnMut(String),
+    C: Fn() -> bool,
+{
+    let mut child = command.spawn()?;
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(&'static str, String)>();
+
+    if let Some(stdout) = stdout {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = tx.send(("stdout", line));
+            }
+        });
+    }
+    if let Some(stderr) = stderr {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = tx.send(("stderr", line));
+            }
+        });
+    }
+    drop(tx);
+
+    let mut stdout_buf = String::new();
+    let mut stderr_buf = String::new();
+    let mut cancel_tick = tokio::time::interval(std::time::Duration::from_millis(200));
+    let status = loop {
+        tokio::select! {
+            _ = cancel_tick.tick() => {
+                if is_cancelled() {
+                    let _ = child.start_kill();
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Interrupted,
+                        "install cancelled",
+                    ));
+                }
+                if let Some(status) = child.try_wait()? {
+                    break status;
+                }
+            }
+            maybe = rx.recv() => {
+                if let Some((stream, line)) = maybe {
+                    if stream == "stdout" {
+                        stdout_buf.push_str(&line);
+                        stdout_buf.push('\n');
+                    } else {
+                        stderr_buf.push_str(&line);
+                        stderr_buf.push('\n');
+                    }
+                    on_log(format!("{stream}: {line}"));
+                }
+            }
+        }
+    };
+
+    while let Ok((stream, line)) = rx.try_recv() {
+        if stream == "stdout" {
+            stdout_buf.push_str(&line);
+            stdout_buf.push('\n');
+        } else {
+            stderr_buf.push_str(&line);
+            stderr_buf.push('\n');
+        }
+        on_log(format!("{stream}: {line}"));
+    }
+
+    Ok(std::process::Output {
+        status,
+        stdout: stdout_buf.into_bytes(),
+        stderr: stderr_buf.into_bytes(),
+    })
+}
+
+fn output_excerpt(label: &str, output: &str) -> Option<String> {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    const MAX_CHARS: usize = 4000;
+    let mut excerpt = trimmed.to_string();
+    if excerpt.len() > MAX_CHARS {
+        let start = excerpt.len().saturating_sub(MAX_CHARS);
+        excerpt = format!("...{}", &excerpt[start..]);
+    }
+    Some(format!("{label}:\n{excerpt}"))
 }

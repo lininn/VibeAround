@@ -102,11 +102,11 @@ pub async fn start<R: Runtime>(
 ) -> Result<(), String> {
     install_state.cancelled.store(false, Ordering::Relaxed);
 
-    // Save settings with onboarded: true
-    let mut val = settings;
-    if let Some(obj) = val.as_object_mut() {
-        obj.insert("onboarded".into(), serde_json::json!(true));
-    }
+    // Save settings early so install steps can read credentials/config, but
+    // do not mark onboarding complete yet. If the user cancels or the app
+    // quits mid-install, the next launch must return to onboarding instead
+    // of treating a partial install as ready.
+    let val = settings;
     write_settings_value(&val)?;
 
     // Create log file
@@ -197,7 +197,7 @@ async fn run_install<R: Runtime>(
                     id: task_id,
                     label: format!("{} — MCP config", agent_def.display_name),
                     status: "done".into(),
-                    message: None,
+                    message: Some("MCP config installed".into()),
                 },
             );
 
@@ -214,7 +214,7 @@ async fn run_install<R: Runtime>(
                         id: skill_id,
                         label: format!("{} — Skill file", agent_def.display_name),
                         status: "done".into(),
-                        message: None,
+                        message: Some("Skill file installed".into()),
                     },
                 );
             }
@@ -228,7 +228,15 @@ async fn run_install<R: Runtime>(
         let install_type = agent_def.install.as_ref().map(|i| i.install_type.as_str());
         match install_type {
             Some("npm") => {
-                install_npm_agent(&app, agent_id, agent_def, &log_file, &mut had_error).await
+                install_npm_agent(
+                    &app,
+                    agent_id,
+                    agent_def,
+                    &log_file,
+                    &cancelled,
+                    &mut had_error,
+                )
+                .await
             }
             Some("script") => {
                 install_script_agent(&app, agent_id, agent_def, &log_file, &mut had_error).await
@@ -248,7 +256,7 @@ async fn run_install<R: Runtime>(
         if cancelled.load(Ordering::Relaxed) {
             break;
         }
-        install_channel_plugin(&app, channel_id, &log_file, &mut had_error).await;
+        install_channel_plugin(&app, channel_id, &log_file, &cancelled, &mut had_error).await;
     }
 
     // Emit final complete event
