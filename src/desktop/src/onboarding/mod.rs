@@ -310,6 +310,12 @@ pub async fn finish_onboarding<R: Runtime>(
     }
     drop(sessions);
 
+    let mut settings = read_settings_value();
+    if let Some(obj) = settings.as_object_mut() {
+        obj.insert("onboarded".into(), serde_json::json!(true));
+    }
+    write_settings_value(&settings)?;
+
     let _ = app.emit("onboarding-complete", ());
 
     if let Some(active) = app.try_state::<OnboardingActive>() {

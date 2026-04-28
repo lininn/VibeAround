@@ -1,4 +1,6 @@
 import {
+  ChevronDown,
+  ChevronRight,
   Check,
   CircleDot,
   Loader2,
@@ -6,6 +8,7 @@ import {
   Rocket,
   X,
 } from "lucide-react";
+import { useState } from "react";
 
 import type { InstallTaskProgress, StepConfirmProps } from "../types";
 
@@ -140,38 +143,65 @@ function InstallProgressView({
 // ---------------------------------------------------------------------------
 
 function TaskRow({ task }: { task: InstallTaskProgress }) {
+  const [expanded, setExpanded] = useState(false);
+  const logs = task.logs ?? [];
+  const hasLogs = logs.length > 0;
+  const latest = task.message ?? logs.at(-1);
+
   return (
-    <div className="flex items-start gap-2.5 py-2 px-3 rounded-md bg-muted/30">
-      <div className="mt-0.5 shrink-0">
-        <StatusIcon status={task.status} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span
-            className={`text-sm ${
-              task.status === "done" || task.status === "skipped"
-                ? "text-muted-foreground"
-                : task.status === "error"
-                  ? "text-destructive"
-                  : "text-foreground"
-            }`}
-          >
-            {task.label}
-          </span>
+    <div className="rounded-md bg-muted/30">
+      <div className="flex items-start gap-2.5 py-2 px-3">
+        <div className="mt-0.5 shrink-0">
+          <StatusIcon status={task.status} />
         </div>
-        {task.message && (
-          <p
-            className={`text-[11px] mt-0.5 leading-relaxed truncate ${
-              task.status === "error"
-                ? "text-destructive/80"
-                : "text-muted-foreground"
-            }`}
-            title={task.message}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-sm ${
+                task.status === "done" || task.status === "skipped"
+                  ? "text-muted-foreground"
+                  : task.status === "error"
+                    ? "text-destructive"
+                    : "text-foreground"
+              }`}
+            >
+              {task.label}
+            </span>
+          </div>
+          {latest && (
+            <p
+              className={`text-[11px] mt-0.5 leading-relaxed truncate ${
+                task.status === "error"
+                  ? "text-destructive/80"
+                  : "text-muted-foreground"
+              }`}
+              title={latest}
+            >
+              {latest}
+            </p>
+          )}
+        </div>
+        {hasLogs && (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label={expanded ? "Collapse install log" : "Expand install log"}
           >
-            {task.message}
-          </p>
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </button>
         )}
       </div>
+
+      {expanded && hasLogs && (
+        <pre className="mx-3 mb-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-background px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+          {logs.join("\n\n")}
+        </pre>
+      )}
     </div>
   );
 }

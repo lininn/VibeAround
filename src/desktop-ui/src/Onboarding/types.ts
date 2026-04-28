@@ -78,7 +78,12 @@ export interface DiscoveredChannelPlugin {
   capabilities: PluginCapabilities;
 }
 
-export type PluginInstallStatus = "not_installed" | "installing" | "installed_not_built" | "ready";
+export type PluginInstallStatus =
+  | "not_installed"
+  | "installing"
+  | "installed_not_built"
+  | "installed_not_discoverable"
+  | "ready";
 
 export type AuthFlowStatus = "idle" | "generating" | "waiting" | "connected" | "error";
 
@@ -147,6 +152,7 @@ export interface InstallTaskProgress {
   label: string;
   status: InstallTaskStatus;
   message?: string;
+  logs?: string[];
 }
 
 export interface InstallTaskInfo {
