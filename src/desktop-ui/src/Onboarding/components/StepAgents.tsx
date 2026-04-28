@@ -1,6 +1,5 @@
 import { Bot, FolderOpen, Plus, Star, Trash2 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -8,7 +7,6 @@ import { BrandIcon } from "@/components/brand-icon";
 import type { AgentSummary, StepAgentsProps } from "../types";
 
 const RECOMMENDED_AGENT_IDS = new Set(["claude", "codex"]);
-const NO_HANDOVER_AGENTS = new Set(["opencode"]);
 
 export function StepAgents({
   agents,
@@ -146,14 +144,13 @@ function AgentGrid({
     <div className="grid grid-cols-[repeat(auto-fill,minmax(178px,220px))] gap-2">
       {agents.map((agent) => {
         const isEnabled = enabled.has(agent.id);
-        const noHandover = NO_HANDOVER_AGENTS.has(agent.id);
         return (
           <div
             key={agent.id}
             role="checkbox"
             aria-checked={isEnabled}
             tabIndex={0}
-            className={`relative flex min-h-[68px] cursor-pointer gap-2 rounded-md border p-2 pr-8 text-left transition-colors ${
+            className={`relative flex min-h-[54px] cursor-pointer items-center gap-2 rounded-md border p-2 pr-8 text-left transition-colors ${
               isEnabled
                 ? "border-primary/40 bg-primary/5"
                 : "border-border hover:border-border/80"
@@ -172,7 +169,7 @@ function AgentGrid({
               label={agent.display_name}
               className="h-7 w-7"
             />
-            <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-1 items-center">
               <div
                 className={`truncate text-[13px] font-medium ${
                   isEnabled ? "text-foreground" : "text-muted-foreground"
@@ -180,13 +177,6 @@ function AgentGrid({
               >
                 {agent.display_name}
               </div>
-              {noHandover && (
-                <div className="mt-1">
-                  <Badge variant="muted" className="font-mono text-[9px] leading-none">
-                    no handover
-                  </Badge>
-                </div>
-              )}
             </div>
             <Checkbox
               checked={isEnabled}
