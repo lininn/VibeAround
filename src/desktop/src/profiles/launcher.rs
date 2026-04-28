@@ -15,9 +15,13 @@
 //!   two are not interchangeable.
 
 use std::collections::HashMap;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::path::Path;
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
+#[cfg(target_os = "windows")]
+use std::process::Stdio;
 
 use anyhow::{anyhow, bail, Context};
 
@@ -166,6 +170,9 @@ fn spawn_terminal(
     window_label: &str,
     workspace: &Path,
 ) -> anyhow::Result<()> {
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
     let choice = terminal::read_preference();
     let script_path = write_windows_launch_script(env, command, window_label, choice, workspace)?;
     let title = format!("VibeAround - {}", window_label);
@@ -175,7 +182,15 @@ fn spawn_terminal(
         .arg("/C")
         .arg("start")
         .arg(&title)
-        .current_dir(workspace);
+        .current_dir(workspace)
+        // The launched CLI window must not inherit daemon handles. On
+        // Windows, an inherited listener handle can keep 127.0.0.1:12358
+        // alive after VibeAround exits, leaving netstat with an owner PID
+        // that no longer maps to a process.
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
 
     match choice {
         TerminalChoice::PowerShell => {
