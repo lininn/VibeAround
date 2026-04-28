@@ -15,6 +15,7 @@ use agent_client_protocol as acp;
 
 use crate::agent::{Agent, AgentClientHandler};
 use crate::config;
+use crate::profiles;
 
 use super::super::event::SystemEvent;
 use super::super::handover::HandoverHandler;
@@ -111,11 +112,33 @@ impl Conversation {
             .map(|def| def.id.clone())
             .unwrap_or_else(|| "claude".to_string());
 
-        let env_vars = vec![
-            ("VIBEAROUND_CHANNEL_KIND".to_string(), self.route.channel_kind.clone()),
+        let mut env_vars = vec![
+            (
+                "VIBEAROUND_CHANNEL_KIND".to_string(),
+                self.route.channel_kind.clone(),
+            ),
             ("VIBEAROUND_CHAT_ID".to_string(), self.route.chat_id.clone()),
             ("VIBEAROUND_AGENT_KIND".to_string(), agent_id.clone()),
         ];
+        if profile_uses_vibearound_credentials(&profile) {
+            let profile_def = profiles::schema::load(&profile)
+                .map(profiles::normalize_legacy_profile)
+                .ok_or_else(|| anyhow!("profile '{}' not found", profile))?;
+            let profile_env = profiles::runtime::env_for_launch(&profile_def, &agent_id)
+                .with_context(|| {
+                    format!(
+                        "failed to apply profile '{}' to agent '{}'",
+                        profile, agent_id
+                    )
+                })?;
+            tracing::info!(
+                route = %self.route,
+                cli_kind = %cli_kind,
+                profile = %profile,
+                "applied profile env for agent spawn"
+            );
+            env_vars.extend(profile_env);
+        }
 
         let ready = match Agent::spawn(
             agent_id,
@@ -224,4 +247,8 @@ impl Conversation {
         *self.suppress_replay.lock().await = None;
         tracing::debug!(route = %self.route, "full_reset complete");
     }
+}
+
+fn profile_uses_vibearound_credentials(profile: &str) -> bool {
+    !matches!(profile, "default" | "none" | "off" | "direct")
 }

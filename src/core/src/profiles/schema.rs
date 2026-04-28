@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, bail, Context};
 use serde::{Deserialize, Serialize};
 
-use common::{auth, config};
+use crate::{auth, config};
 
 // ---------------------------------------------------------------------------
 // Types

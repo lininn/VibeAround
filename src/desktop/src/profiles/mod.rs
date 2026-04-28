@@ -1,22 +1,19 @@
 //! Profiles — user-managed third-party API credentials + one-click launch
 //! into a system Terminal.app window with the right env vars injected.
 //!
-//! See `schema.rs` for the on-disk layout, `catalog.rs` for the built-in
-//! provider metadata, `render.rs` for the env / settings-file engine, and
-//! `launcher.rs` for the macOS Terminal spawn path.
+//! The schema/catalog/rendering engine lives in `common::profiles` so the
+//! headless core can launch IM agents with the same profile behavior.
 
-mod catalog;
 mod launcher;
-mod render;
-mod schema;
 mod terminal;
 
 use std::path::{Path, PathBuf};
 
 use common::config;
+use common::profiles::{catalog, normalize_legacy_profile, runtime, schema};
 use serde::Serialize;
 
-pub use schema::{AuthMode, ProfileDef};
+pub use common::profiles::{AuthMode, ProfileDef};
 
 // ---------------------------------------------------------------------------
 // View types — sanitized for the frontend.
@@ -107,7 +104,7 @@ pub fn profiles_list() -> Vec<ProfileSummary> {
                 provider_label: label,
                 provider_icon: icon,
                 auth_mode: p.auth_mode,
-                launch_targets: launch_targets_for_api_types(&p.api_types)
+                launch_targets: runtime::launch_targets_for_api_types(&p.api_types)
                     .into_iter()
                     .map(|(id, label, api_type)| LaunchTargetSummary {
                         id: id.to_string(),
@@ -156,7 +153,7 @@ pub fn profiles_launch(id: String, launch_target: String) -> Result<(), String> 
     let profile = schema::load(&id)
         .map(normalize_legacy_profile)
         .ok_or_else(|| format!("profile '{id}' not found"))?;
-    if !launch_targets_for_api_types(&profile.api_types)
+    if !runtime::launch_targets_for_api_types(&profile.api_types)
         .iter()
         .any(|(target, _, _)| *target == launch_target)
     {
@@ -250,50 +247,6 @@ pub fn launcher_get_preferences() -> LauncherPreferences {
         workspace,
         workspace_options,
     }
-}
-
-fn launch_targets_for_api_types(
-    api_types: &[String],
-) -> Vec<(&'static str, &'static str, &'static str)> {
-    let has = |needle: &str| api_types.iter().any(|t| t == needle);
-    let mut out = Vec::new();
-    if has("anthropic") {
-        out.push(("claude", "Claude Code", "anthropic"));
-    }
-    if has("openai-responses") {
-        out.push(("codex", "Codex", "openai-responses"));
-    } else if has("openai-chat") {
-        out.push(("codex", "Codex", "openai-chat"));
-    }
-    if has("gemini") {
-        out.push(("gemini", "Gemini CLI", "gemini"));
-    }
-    if has("openai-responses") {
-        out.push(("opencode", "OpenCode", "openai-responses"));
-    } else if has("openai-chat") {
-        out.push(("opencode", "OpenCode", "openai-chat"));
-    }
-    out
-}
-
-fn normalize_legacy_profile(mut profile: ProfileDef) -> ProfileDef {
-    // Azure used to have only one API kind in early catalog iterations.
-    // Profiles saved during that window should inherit endpoint/deployment
-    // values across both kinds so users can keep editing without retyping.
-    // had only one kind should inherit the same endpoint/deployment for both.
-    if profile.provider == "azure"
-        && profile.api_types.iter().any(|t| t == "openai-responses")
-        && !profile.api_types.iter().any(|t| t == "openai-chat")
-    {
-        profile.api_types.push("openai-chat".to_string());
-        if let Some(overrides) = profile.overrides.get("openai-responses").cloned() {
-            profile
-                .overrides
-                .entry("openai-chat".to_string())
-                .or_insert(overrides);
-        }
-    }
-    profile
 }
 
 #[tauri::command]
