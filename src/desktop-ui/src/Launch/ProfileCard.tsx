@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AlertTriangle, MoreVertical, Pencil, Star, Trash2 } from "lucide-react";
 
 import { BrandIcon } from "@/components/brand-icon";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -10,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ProfileSummary } from "./types";
-import { apiTypeShort } from "./types";
+import { apiTypeBadge, apiTypeShort } from "./types";
 
 interface Props {
   profile: ProfileSummary;
@@ -137,6 +138,9 @@ export function ProfileCard({
                   className="h-3.5 w-3.5"
                 />
                 <span>{target.label}</span>
+                <Badge className="border-0 bg-transparent p-0 text-[11px] text-primary/55">
+                  · {apiTypeBadge(target.apiType)}
+                </Badge>
                 {isDefault && <Star className="w-3 h-3 fill-current" />}
                 {warning && <AlertTriangle className="w-3 h-3 text-amber-500" />}
               </Button>
