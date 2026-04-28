@@ -18,9 +18,9 @@
 
 </div>
 
-VibeAround is a desktop hub for local coding agents such as Claude Code, Codex CLI, Gemini CLI, Cursor CLI, Kiro CLI, Qwen Code, and OpenCode. It keeps the agent running on your own machine, then gives you several natural ways to reach it: one-click desktop launch profiles, messaging apps on your phone, and a browser terminal for any device.
+VibeAround gives you a faster way to work with coding agents such as Claude Code, Codex CLI, Gemini CLI, Cursor CLI, Kiro CLI, Qwen Code, and OpenCode. It keeps your existing local workflow, then adds cleaner ways to reach it: parallel API profiles, messaging apps on your phone, and a browser terminal for any device.
 
-Use it when you want the comfort of local tools with the freedom of remote control. Start a CLI with the right provider keys, DM your agent from Feishu or Slack, hand a live session from terminal to phone, or open a tunnelled preview without wiring everything by hand.
+Use it when you want the comfort of local tools without the repetitive setup work. Start the same CLI against different providers, DM your agent from Feishu or Slack, hand a live session from terminal to phone, or open a tunnelled preview without wiring everything by hand.
 
 ## Demo
 
@@ -30,9 +30,9 @@ Use it when you want the comfort of local tools with the freedom of remote contr
 
 ## Why VibeAround
 
-### Launch any coding CLI with the right profile
+### Run parallel API profiles without config churn
 
-Save API profiles for providers such as Azure OpenAI, DeepSeek, Gemini, Minimax, Moonshot, OpenRouter, and Z.ai. Pick a workspace, choose your terminal, and launch Claude Code or Codex with the environment already wired.
+Save multiple API profiles for providers such as Azure OpenAI, DeepSeek, Gemini, Minimax, Moonshot, OpenRouter, and Z.ai. Launch Claude Code or Codex against different profiles side by side, without manually editing config files or polluting a CLI's global settings.
 
 ### Chat with local agents from your daily IM
 
@@ -49,10 +49,6 @@ The web terminal gives you a full shell from phone, tablet, or another laptop. O
 ### Share previews from local work
 
 Expose local dev servers and rendered Markdown/HTML through authenticated short-lived links. It is built for the everyday loop of "agent changed something, open it on my phone".
-
-### Set up without spelunking through config files
-
-The first-run wizard installs selected agent bridges and channel plugins, writes MCP and skill config, captures channel credentials, and shows per-step logs so install state is visible instead of mysterious.
 
 ## Get VibeAround
 
@@ -72,13 +68,13 @@ Agents communicate over stdio through [ACP (Agent Client Protocol)](https://agen
 
 | Agent | IM Chat | Session Handover | Launch Profiles |
 |---|---|---|---|
-| **Claude Code** | Yes | Yes | Yes |
-| **Codex CLI** | Yes | Yes | Yes |
-| **Gemini CLI** | Yes | Yes | Direct launch |
-| **Cursor CLI** | Yes | Yes | Direct launch |
-| **Kiro CLI** | Yes | Yes | Direct launch |
-| **Qwen Code** | Yes | Yes | Direct launch |
-| **OpenCode** | Yes | No | Direct launch |
+| **Claude Code** | ✅ | ✅ | ✅ |
+| **Codex CLI** | ✅ | ✅ | ✅ |
+| **Gemini CLI** | ✅ | ✅ | 🚀 Direct launch |
+| **Cursor CLI** | ✅ | ✅ | 🚀 Direct launch |
+| **Kiro CLI** | ✅ | ✅ | 🚀 Direct launch |
+| **Qwen Code** | ✅ | ✅ | 🚀 Direct launch |
+| **OpenCode** | ✅ | ❌ | 🚀 Direct launch |
 
 ## Channel Plugins
 
@@ -86,20 +82,20 @@ Each messaging channel runs as a standalone Node.js plugin built with [@vibearou
 
 | Channel | Auth | DM | File/Image | Streaming |
 |---|---|---|---|---|
-| **Telegram** | Bot token | Yes | Yes | Yes |
-| **Feishu / Lark** | App credentials | Yes | Yes | Yes |
-| **Discord** | Bot token | Yes | Yes | Yes |
-| **Slack** | Bot + App token | Yes | Yes | Yes |
-| **WeChat** | QR code login | Yes | Yes | No |
-| **DingTalk** | AppKey + Secret | Yes | Yes | Yes |
-| **WeCom** | Bot ID + Secret | Yes | Yes | Yes |
-| **QQ Bot** | App ID + Token | Yes | Yes | No |
+| **Telegram** | Bot token | ✅ | ✅ | ✅ |
+| **Feishu / Lark** | App credentials | ✅ | ✅ | ✅ |
+| **Discord** | Bot token | ✅ | ✅ | ✅ |
+| **Slack** | Bot + App token | ✅ | ✅ | ✅ |
+| **WeChat** | QR code login | ✅ | ✅ | ❌ |
+| **DingTalk** | AppKey + Secret | ✅ | ✅ | ✅ |
+| **WeCom** | Bot ID + Secret | ✅ | ✅ | ✅ |
+| **QQ Bot** | App ID + Token | ✅ | ✅ | ❌ |
 
 ## How It Works
 
 - **Local-first runtime** — agents, channels, and sessions run on your own machine; VibeAround exposes controlled entry points instead of moving your workspace elsewhere.
 - **Unified agent protocol** — ACP keeps Claude, Codex, Gemini, Cursor, Kiro, Qwen, and OpenCode behind one routing and session model.
-- **Provider-aware launch profiles** — desktop profiles store provider-specific API settings and launch compatible CLIs with the right environment.
+- **Parallel launch profiles** — desktop profiles let the same CLI run against different API providers without rewriting shared config files.
 - **Plugin process model** — every IM channel is isolated as its own subprocess, so new channels can be added without changing the core runtime.
 - **Native channel rendering** — plugins use platform SDKs such as Telegraf, Lark SDK, and Slack Bolt, so messages render in the richest format the channel supports.
 - **Authenticated tunnels** — web terminal and preview links can be opened from other devices while still requiring VibeAround auth.
