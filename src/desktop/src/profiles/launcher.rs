@@ -15,26 +15,25 @@
 //!   two are not interchangeable.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(target_os = "windows")]
+use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context};
 
-use common::{auth, config, resources};
+#[cfg(target_os = "windows")]
+use common::auth;
+use common::{profiles, resources};
 
-use super::catalog;
-use super::render::{render, ConfigEnvTarget};
-use super::schema::ProfileDef;
 use super::terminal::{self, TerminalChoice};
+use profiles::ProfileDef;
 
 // ---------------------------------------------------------------------------
 // Public entry
 // ---------------------------------------------------------------------------
 
 pub fn launch(profile: &ProfileDef, launch_target: &str) -> anyhow::Result<()> {
-    let provider = catalog::get(&profile.provider)
-        .ok_or_else(|| anyhow!("unknown provider '{}'", profile.provider))?;
-    let api_type = api_type_for_launch_target(profile, provider, launch_target)?;
-    let rendered = render(profile, api_type, launch_target, provider)?;
+    let rendered = profiles::runtime::render_for_launch(profile, launch_target)?;
     do_launch(profile, launch_target, rendered)
 }
 
@@ -58,36 +57,14 @@ pub fn launch_direct(agent_id: &str) -> anyhow::Result<()> {
 fn do_launch(
     profile: &ProfileDef,
     launch_target: &str,
-    rendered: super::render::RenderedProfile,
+    rendered: profiles::render::RenderedProfile,
 ) -> anyhow::Result<()> {
-    let mut env: Vec<(String, String)> = rendered.env.clone();
-    if !rendered.settings_files.is_empty() {
-        let dir = profile_state_dir(&profile.id);
-        for sf in &rendered.settings_files {
-            materialize_settings_file(&dir, &sf.rel_path, &sf.contents)?;
-        }
-        if let Some(target) = rendered.config_env {
-            match target {
-                ConfigEnvTarget::Directory(env_name) => {
-                    env.push((env_name.to_string(), dir.to_string_lossy().into_owned()));
-                }
-                ConfigEnvTarget::File {
-                    env: env_name,
-                    rel_path,
-                } => {
-                    env.push((
-                        env_name.to_string(),
-                        dir.join(rel_path).to_string_lossy().into_owned(),
-                    ));
-                }
-            }
-        }
-    }
-
-    let agent_id = agent_id_for(launch_target)?;
+    let command_args = rendered.command_args.clone();
+    let env = profiles::runtime::materialize_env(&profile.id, rendered)?;
+    let agent_id = profiles::runtime::agent_id_for(launch_target)?;
     let agent = resources::agent_by_id(agent_id)
         .ok_or_else(|| anyhow!("agent '{}' not found in agents.json", agent_id))?;
-    let pty_command = command_with_args(&agent.pty.command, &rendered.command_args);
+    let pty_command = command_with_args(&agent.pty.command, &command_args);
     let workspace = terminal::resolve_workspace_preference()?;
 
     spawn_terminal(&env, &pty_command, &profile.label, &workspace)?;
@@ -107,89 +84,6 @@ fn command_with_args(command: &str, args: &[String]) -> String {
         )));
     }
     out
-}
-
-fn agent_id_for(launch_target: &str) -> anyhow::Result<&'static str> {
-    match launch_target {
-        "claude" => Ok("claude"),
-        "codex" => Ok("codex"),
-        "gemini" => Ok("gemini"),
-        "opencode" => Ok("opencode"),
-        other => bail!("unsupported launch target: '{}'", other),
-    }
-}
-
-fn api_type_for_launch_target<'a>(
-    profile: &'a ProfileDef,
-    provider: &'a catalog::ProviderCatalog,
-    launch_target: &str,
-) -> anyhow::Result<&'a str> {
-    let candidates: &[&str] = match launch_target {
-        "claude" => &["anthropic"],
-        // Prefer Responses once a provider declares it; fall back to the
-        // OpenAI-compatible chat endpoint that today's catalog uses.
-        "codex" => &["openai-responses", "openai-chat"],
-        "gemini" => &["gemini"],
-        // OpenCode is a CLI target, not a provider protocol. Prefer
-        // Responses for GPT-5.x/tool-heavy models, then fall back to
-        // Chat Completions for providers that only expose OpenAI-compatible
-        // chat.
-        "opencode" => &["openai-responses", "openai-chat"],
-        other => bail!("unsupported launch target: '{}'", other),
-    };
-
-    for candidate in candidates {
-        if profile.api_types.iter().any(|t| t == candidate)
-            && provider.endpoints.iter().any(|e| e.api_type == *candidate)
-        {
-            return Ok(candidate);
-        }
-    }
-
-    bail!(
-        "profile '{}' cannot launch '{}' with provider '{}'",
-        profile.id,
-        launch_target,
-        profile.provider
-    )
-}
-
-// ---------------------------------------------------------------------------
-// Filesystem helpers
-// ---------------------------------------------------------------------------
-
-fn profile_state_dir(id: &str) -> PathBuf {
-    config::data_dir().join("profile-state").join(id)
-}
-
-fn materialize_settings_file(dir: &Path, rel_path: &str, contents: &str) -> anyhow::Result<()> {
-    let target = dir.join(rel_path);
-
-    // Defense in depth: even though render::validate_rel_path already
-    // rejects `..` segments, double-check after canonicalization that the
-    // resolved target lives inside the per-profile state dir. This catches
-    // catalog templates whose rel_path is a non-traversal symlink that
-    // points outside (the parent dir doesn't exist yet on first launch, so
-    // we canonicalize the parent we're about to create instead).
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent).with_context(|| format!("create {:?}", parent))?;
-        let canonical_parent =
-            std::fs::canonicalize(parent).with_context(|| format!("canonicalize {:?}", parent))?;
-        let canonical_root =
-            std::fs::canonicalize(dir).with_context(|| format!("canonicalize {:?}", dir))?;
-        if !canonical_parent.starts_with(&canonical_root) {
-            bail!(
-                "rendered settings_file escapes profile-state dir: {:?}",
-                target
-            );
-        }
-    }
-
-    let tmp = target.with_extension("tmp");
-    std::fs::write(&tmp, contents).with_context(|| format!("write {:?}", tmp))?;
-    auth::set_owner_only(&tmp).ok();
-    std::fs::rename(&tmp, &target).with_context(|| format!("rename to {:?}", target))?;
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------

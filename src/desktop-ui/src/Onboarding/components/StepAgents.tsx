@@ -1,87 +1,191 @@
-import { Bot, Check } from "lucide-react";
+import { Bot, Check, FolderOpen, Plus, Star, Trash2 } from "lucide-react";
 
-import type { StepAgentsProps } from "../types";
+import { Button } from "@/components/ui/button";
+import { BrandIcon } from "@/components/brand-icon";
+import type { AgentSummary, StepAgentsProps } from "../types";
 
-/** Agents that do not support session handover. */
+const RECOMMENDED_AGENT_IDS = new Set(["claude", "codex"]);
 const NO_HANDOVER_AGENTS = new Set(["opencode"]);
 
 export function StepAgents({
   agents,
+  profiles,
   enabled,
-  defaultAgent,
   onToggle,
-  onSetDefault,
+  onCreateProfile,
+  onDeleteProfile,
 }: StepAgentsProps) {
+  const recommended = agents.filter((agent) => RECOMMENDED_AGENT_IDS.has(agent.id));
+  const others = agents.filter((agent) => !RECOMMENDED_AGENT_IDS.has(agent.id));
+
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-base font-semibold flex items-center gap-2">
           <Bot className="w-4 h-4 text-primary" />
-          Agents
+          Quick Launch
         </h2>
         <p className="text-xs text-muted-foreground mt-1">
-          Choose which AI coding agents to enable. At least one is required.
+          Pick the CLI VibeAround should start from Launch and IM messages.
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        {agents.map((agent) => {
-          const isEnabled = enabled.has(agent.id);
-          const isDefault = defaultAgent === agent.id;
-          const noHandover = NO_HANDOVER_AGENTS.has(agent.id);
-          return (
-            <div
-              key={agent.id}
-              className={`relative flex flex-col gap-1.5 p-3 rounded-lg border cursor-pointer transition-colors ${
-                isEnabled
-                  ? "border-primary/40 bg-primary/5"
-                  : "border-border hover:border-border/80"
-              }`}
-              onClick={() => onToggle(agent.id)}
-            >
-              <div className="flex items-center justify-between">
-                <span
-                  className={`text-sm font-medium flex items-center gap-1.5 ${
-                    isEnabled ? "text-foreground" : "text-muted-foreground"
-                  }`}
-                >
-                  {agent.display_name}
-                  {noHandover && (
-                    <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-muted text-muted-foreground/60 leading-none">
-                      no session handover
-                    </span>
-                  )}
+
+      <section className="rounded-lg border border-border bg-card p-3 space-y-3">
+        <div className="flex items-center gap-2 text-xs font-medium">
+          <Star className="w-3.5 h-3.5 text-primary" />
+          Best recommended
+        </div>
+        <AgentGrid
+          agents={recommended}
+          enabled={enabled}
+          onToggle={onToggle}
+        />
+      </section>
+
+      {others.length > 0 && (
+        <section className="rounded-lg border border-border bg-card p-3 space-y-3">
+          <div className="text-xs font-medium text-muted-foreground">Other CLIs</div>
+          <AgentGrid
+            agents={others}
+            enabled={enabled}
+            onToggle={onToggle}
+          />
+        </section>
+      )}
+
+      <section className="rounded-lg border border-border bg-card p-3 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-medium">API profiles</div>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Optional. Save API keys now; choose launch defaults later in Launch.
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs"
+            onClick={onCreateProfile}
+          >
+            <Plus className="w-3 h-3" />
+            Add API profile
+          </Button>
+        </div>
+
+        {profiles.length > 0 ? (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(178px,220px))] gap-2">
+            {profiles.map((profile) => (
+              <div
+                key={profile.id}
+                className="flex min-h-[54px] items-center gap-2 rounded-md border border-border p-2 text-left"
+              >
+                <BrandIcon
+                  kind="provider"
+                  id={profile.provider}
+                  label={profile.providerLabel}
+                  fallback={profile.providerIcon}
+                  className="h-7 w-7"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium">
+                    {profile.label}
+                  </span>
+                  <span className="block truncate text-[10px] text-muted-foreground">
+                    {profile.providerLabel}
+                  </span>
                 </span>
-                <div
-                  className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
-                    isEnabled
-                      ? "bg-primary border-primary"
-                      : "border-muted-foreground/30"
-                  }`}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                  title={`Delete ${profile.label}`}
+                  onClick={() => onDeleteProfile(profile.id)}
                 >
-                  {isEnabled && (
-                    <Check className="w-3 h-3 text-primary-foreground" />
-                  )}
-                </div>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
               </div>
-              {isEnabled && (
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onSetDefault(agent.id);
-                  }}
-                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded self-start transition-colors ${
-                    isDefault
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-accent"
-                  }`}
-                >
-                  {isDefault ? "★ default" : "set default"}
-                </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            No API profiles yet. You can add one now or skip this step.
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-3">
+        <div className="flex items-center gap-2">
+          <FolderOpen className="w-4 h-4 text-primary" />
+          <div>
+            <div className="text-xs font-medium">Default workspace</div>
+            <div className="text-[11px] text-muted-foreground font-mono">
+              ~/.vibearound/workspaces
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AgentGrid({
+  agents,
+  enabled,
+  onToggle,
+}: {
+  agents: AgentSummary[];
+  enabled: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(178px,220px))] gap-2">
+      {agents.map((agent) => {
+        const isEnabled = enabled.has(agent.id);
+        const noHandover = NO_HANDOVER_AGENTS.has(agent.id);
+        return (
+          <div
+            key={agent.id}
+            className={`relative flex min-h-[68px] cursor-pointer gap-2 rounded-md border p-2 pr-8 text-left transition-colors ${
+              isEnabled
+                ? "border-primary/40 bg-primary/5"
+                : "border-border hover:border-border/80"
+            }`}
+            onClick={() => onToggle(agent.id)}
+          >
+            <BrandIcon
+              kind="cli"
+              id={agent.id}
+              label={agent.display_name}
+              className="h-7 w-7"
+            />
+            <div className="min-w-0 flex-1">
+              <div
+                className={`truncate text-[13px] font-medium ${
+                  isEnabled ? "text-foreground" : "text-muted-foreground"
+                }`}
+              >
+                {agent.display_name}
+              </div>
+              {noHandover && (
+                <div className="mt-1">
+                  <span className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] leading-none text-muted-foreground/60">
+                    no handover
+                  </span>
+                </div>
               )}
             </div>
-          );
-        })}
-      </div>
+            <div
+              className={`absolute right-2.5 top-2.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                isEnabled ? "border-primary bg-primary" : "border-muted-foreground/30"
+              }`}
+            >
+              {isEnabled && <Check className="h-3 w-3 text-primary-foreground" />}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -1,22 +1,19 @@
 //! Profiles — user-managed third-party API credentials + one-click launch
 //! into a system Terminal.app window with the right env vars injected.
 //!
-//! See `schema.rs` for the on-disk layout, `catalog.rs` for the built-in
-//! provider metadata, `render.rs` for the env / settings-file engine, and
-//! `launcher.rs` for the macOS Terminal spawn path.
+//! The schema/catalog/rendering engine lives in `common::profiles` so the
+//! headless core can launch IM agents with the same profile behavior.
 
-mod catalog;
 mod launcher;
-mod render;
-mod schema;
 mod terminal;
 
 use std::path::{Path, PathBuf};
 
-use common::config;
+use common::{config, resources};
+use common::profiles::{catalog, normalize_legacy_profile, runtime, schema};
 use serde::Serialize;
 
-pub use schema::{AuthMode, ProfileDef};
+pub use common::profiles::{AuthMode, ProfileDef};
 
 // ---------------------------------------------------------------------------
 // View types — sanitized for the frontend.
@@ -107,7 +104,7 @@ pub fn profiles_list() -> Vec<ProfileSummary> {
                 provider_label: label,
                 provider_icon: icon,
                 auth_mode: p.auth_mode,
-                launch_targets: launch_targets_for_api_types(&p.api_types)
+                launch_targets: runtime::launch_targets_for_api_types(&p.api_types)
                     .into_iter()
                     .map(|(id, label, api_type)| LaunchTargetSummary {
                         id: id.to_string(),
@@ -148,7 +145,8 @@ pub fn profiles_upsert(profile: ProfileDef) -> Result<(), String> {
 
 #[tauri::command]
 pub fn profiles_delete(id: String) -> Result<(), String> {
-    schema::delete(&id).map_err(|e| e.to_string())
+    schema::delete(&id).map_err(|e| e.to_string())?;
+    clear_default_profile_references(&id)
 }
 
 #[tauri::command]
@@ -156,7 +154,7 @@ pub fn profiles_launch(id: String, launch_target: String) -> Result<(), String> 
     let profile = schema::load(&id)
         .map(normalize_legacy_profile)
         .ok_or_else(|| format!("profile '{id}' not found"))?;
-    if !launch_targets_for_api_types(&profile.api_types)
+    if !runtime::launch_targets_for_api_types(&profile.api_types)
         .iter()
         .any(|(target, _, _)| *target == launch_target)
     {
@@ -213,6 +211,10 @@ pub struct LauncherPreferences {
     pub workspace: String,
     /// Suggested cwd choices surfaced in the Launch header.
     pub workspace_options: Vec<WorkspaceOption>,
+    /// Canonical agent id used by Quick Launch and IM defaults.
+    pub default_agent: String,
+    /// Per-agent profile defaults from settings.json.
+    pub default_profiles: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -244,56 +246,77 @@ pub fn launcher_get_preferences() -> LauncherPreferences {
         .unwrap_or_else(|_| terminal::launch_home_dir().unwrap_or_else(|_| config::data_dir()))
         .to_string_lossy()
         .to_string();
+    let cfg = config::ensure_loaded();
     LauncherPreferences {
         terminal: terminal::read_preference().id().to_string(),
         options,
         workspace,
         workspace_options,
+        default_agent: canonical_agent_id(&cfg.default_agent),
+        default_profiles: cfg.default_profiles.clone(),
     }
 }
 
-fn launch_targets_for_api_types(
-    api_types: &[String],
-) -> Vec<(&'static str, &'static str, &'static str)> {
-    let has = |needle: &str| api_types.iter().any(|t| t == needle);
-    let mut out = Vec::new();
-    if has("anthropic") {
-        out.push(("claude", "Claude Code", "anthropic"));
-    }
-    if has("openai-responses") {
-        out.push(("codex", "Codex", "openai-responses"));
-    } else if has("openai-chat") {
-        out.push(("codex", "Codex", "openai-chat"));
-    }
-    if has("gemini") {
-        out.push(("gemini", "Gemini CLI", "gemini"));
-    }
-    if has("openai-responses") {
-        out.push(("opencode", "OpenCode", "openai-responses"));
-    } else if has("openai-chat") {
-        out.push(("opencode", "OpenCode", "openai-chat"));
-    }
-    out
-}
-
-fn normalize_legacy_profile(mut profile: ProfileDef) -> ProfileDef {
-    // Azure used to have only one API kind in early catalog iterations.
-    // Profiles saved during that window should inherit endpoint/deployment
-    // values across both kinds so users can keep editing without retyping.
-    // had only one kind should inherit the same endpoint/deployment for both.
-    if profile.provider == "azure"
-        && profile.api_types.iter().any(|t| t == "openai-responses")
-        && !profile.api_types.iter().any(|t| t == "openai-chat")
-    {
-        profile.api_types.push("openai-chat".to_string());
-        if let Some(overrides) = profile.overrides.get("openai-responses").cloned() {
-            profile
-                .overrides
-                .entry("openai-chat".to_string())
-                .or_insert(overrides);
+#[tauri::command]
+pub fn profiles_launch_default() -> Result<(), String> {
+    let cfg = config::ensure_loaded();
+    let agent_id = canonical_agent_id(&cfg.default_agent);
+    if let Some(profile_id) = cfg.default_profile_for(&agent_id) {
+        if let Some(profile) = schema::load(&profile_id).map(normalize_legacy_profile) {
+            if runtime::launch_targets_for_api_types(&profile.api_types)
+                .iter()
+                .any(|(target, _, _)| *target == agent_id)
+            {
+                return launcher::launch(&profile, &agent_id).map_err(|e| e.to_string());
+            }
         }
     }
-    profile
+    launcher::launch_direct(&agent_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn launcher_set_default(agent_id: String, profile_id: Option<String>) -> Result<(), String> {
+    let agent_id = resources::agent_by_alias(&agent_id)
+        .map(|def| def.id.clone())
+        .ok_or_else(|| format!("unknown agent: '{agent_id}'"))?;
+    let profile_id = profile_id
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty());
+
+    if let Some(profile_id) = &profile_id {
+        let profile = schema::load(profile_id)
+            .map(normalize_legacy_profile)
+            .ok_or_else(|| format!("profile '{profile_id}' not found"))?;
+        if !runtime::launch_targets_for_api_types(&profile.api_types)
+            .iter()
+            .any(|(target, _, _)| *target == agent_id)
+        {
+            return Err(format!("profile '{profile_id}' cannot launch '{agent_id}'"));
+        }
+    }
+
+    config::update_settings_json(|root| {
+        if let Some(obj) = root.as_object_mut() {
+            obj.insert("default_agent".into(), serde_json::json!(agent_id.clone()));
+            let default_profiles = obj
+                .entry("default_profiles")
+                .or_insert_with(|| serde_json::json!({}));
+            if !default_profiles.is_object() {
+                *default_profiles = serde_json::json!({});
+            }
+            if let Some(map) = default_profiles.as_object_mut() {
+                match &profile_id {
+                    Some(profile_id) => {
+                        map.insert(agent_id.clone(), serde_json::json!(profile_id));
+                    }
+                    None => {
+                        map.remove(&agent_id);
+                    }
+                }
+            }
+        }
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -344,6 +367,31 @@ fn launcher_workspace_options() -> Vec<WorkspaceOption> {
         }
     }
     out
+}
+
+fn canonical_agent_id(agent_id: &str) -> String {
+    resources::agent_by_alias(agent_id)
+        .map(|def| def.id.clone())
+        .unwrap_or_else(|| agent_id.to_string())
+}
+
+fn clear_default_profile_references(profile_id: &str) -> Result<(), String> {
+    config::update_settings_json(|root| {
+        if let Some(obj) = root.as_object_mut() {
+            let mut remove_default_profiles = false;
+            if let Some(map) = obj
+                .get_mut("default_profiles")
+                .and_then(|value| value.as_object_mut())
+            {
+                map.retain(|_, value| value.as_str() != Some(profile_id));
+                remove_default_profiles = map.is_empty();
+            }
+            if remove_default_profiles {
+                obj.remove("default_profiles");
+            }
+        }
+    })
+    .map_err(|e| e.to_string())
 }
 
 fn push_workspace_option(

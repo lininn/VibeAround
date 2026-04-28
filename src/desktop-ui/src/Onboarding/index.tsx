@@ -11,6 +11,14 @@ import { StepWelcome } from "./components/StepWelcome";
 import { useChannelAuth } from "./hooks/useChannelAuth";
 import { useInstallFlow } from "./hooks/useInstallFlow";
 import { buildSettings } from "./lib/buildSettings";
+import {
+  deleteProfile,
+  listCatalog,
+  listProfiles,
+  upsertProfile,
+} from "../Launch/api";
+import { ProfileFormDialog } from "../Launch/ProfileFormDialog";
+import type { CatalogEntry, ProfileDef, ProfileSummary } from "../Launch/types";
 import type {
   AgentSummary,
   DiscoveredChannelPlugin,
@@ -25,6 +33,9 @@ export default function Onboarding() {
   const [settings, setSettings] = useState<Settings>({});
   const [discoveredPlugins, setDiscoveredPlugins] = useState<DiscoveredChannelPlugin[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
+  const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
 
   // Resource data from backend
   const [agents, setAgents] = useState<AgentSummary[]>([]);
@@ -33,15 +44,13 @@ export default function Onboarding() {
 
   // Agents
   const [enabledAgents, setEnabledAgents] = useState<Set<AgentId>>(new Set());
-  const [defaultAgent, setDefaultAgent] = useState<AgentId>("claude");
-
   // Channels
   const [enabledChannels, setEnabledChannels] = useState<Set<string>>(new Set());
   const [channelConfigs, setChannelConfigs] = useState<Record<string, Record<string, string>>>({});
   const [installingPlugins, setInstallingPlugins] = useState<Set<string>>(new Set());
 
   // Tunnel
-  const [tunnelProvider, setTunnelProvider] = useState<TunnelProvider>("none");
+  const [tunnelProvider, setTunnelProvider] = useState<TunnelProvider>("cloudflare");
   const [ngrokToken, setNgrokToken] = useState("");
   const [ngrokDomain, setNgrokDomain] = useState("");
   const [cfToken, setCfToken] = useState("");
@@ -55,23 +64,23 @@ export default function Onboarding() {
       invoke<AgentSummary[]>("list_agents"),
       invoke<TunnelSummary[]>("list_tunnels"),
       invoke<PluginRegistryEntry[]>("list_plugin_registry"),
+      listCatalog(),
+      listProfiles(),
     ])
-      .then(([loadedSettings, plugins, agentDefs, tunnelDefs, pluginDefs]) => {
+      .then(([loadedSettings, plugins, agentDefs, tunnelDefs, pluginDefs, catalogDefs, profileDefs]) => {
         setSettings(loadedSettings);
         setDiscoveredPlugins(plugins);
         setAgents(agentDefs);
         setTunnels(tunnelDefs);
         setPluginRegistry(pluginDefs);
+        setCatalog(catalogDefs);
+        setProfiles(profileDefs);
 
         if (loadedSettings.enabled_agents?.length) {
           setEnabledAgents(new Set(loadedSettings.enabled_agents as AgentId[]));
         } else {
           setEnabledAgents(new Set(agentDefs.map((a) => a.id)));
         }
-        if (loadedSettings.default_agent) {
-          setDefaultAgent(loadedSettings.default_agent as AgentId);
-        }
-
         const channels = loadedSettings.channels ?? {};
         const enabled = new Set<string>();
         const configs: Record<string, Record<string, string>> = {};
@@ -89,7 +98,12 @@ export default function Onboarding() {
         setChannelConfigs(configs);
 
         const provider = loadedSettings.tunnel?.provider;
-        if (provider === "cloudflare" || provider === "ngrok" || provider === "localtunnel") {
+        if (
+          provider === "none" ||
+          provider === "cloudflare" ||
+          provider === "ngrok" ||
+          provider === "localtunnel"
+        ) {
           setTunnelProvider(provider);
         }
         if (loadedSettings.tunnel?.ngrok?.auth_token) setNgrokToken(loadedSettings.tunnel.ngrok.auth_token);
@@ -158,7 +172,6 @@ export default function Onboarding() {
     const finalSettings = buildSettings({
       settings,
       enabledAgents,
-      defaultAgent,
       enabledChannels,
       channelConfigs,
       discoveredPlugins,
@@ -172,7 +185,6 @@ export default function Onboarding() {
   }, [
     settings,
     enabledAgents,
-    defaultAgent,
     enabledChannels,
     channelConfigs,
     discoveredPlugins,
@@ -184,23 +196,34 @@ export default function Onboarding() {
     startInstall,
   ]);
 
-  const toggleAgent = useCallback(
-    (id: AgentId) => {
-      setEnabledAgents((previous) => {
-        const next = new Set(previous);
-        if (next.has(id)) {
-          if (next.size > 1) next.delete(id);
-        } else {
-          next.add(id);
-        }
-        if (!next.has(defaultAgent)) {
-          setDefaultAgent(Array.from(next)[0]);
-        }
-        return next;
-      });
+  const toggleAgent = useCallback((id: AgentId) => {
+    setEnabledAgents((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        if (next.size > 1) next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSaveProfile = useCallback(
+    async (profile: ProfileDef) => {
+      await upsertProfile(profile);
+      const nextProfiles = await listProfiles();
+      setProfiles(nextProfiles);
     },
-    [defaultAgent],
+    [],
   );
+
+  const handleDeleteProfile = useCallback(async (id: string) => {
+    const profile = profiles.find((item) => item.id === id);
+    if (profile && !window.confirm(`Delete profile "${profile.label}"?`)) return;
+    await deleteProfile(id);
+    const nextProfiles = await listProfiles();
+    setProfiles(nextProfiles);
+  }, [profiles]);
 
   if (!loaded) {
     return (
@@ -212,7 +235,7 @@ export default function Onboarding() {
 
   const currentStep = STEPS[step];
   const isLast = step === STEPS.length - 1;
-  const canNext = currentStep !== "Agents" || enabledAgents.size > 0;
+  const canNext = currentStep !== "Quick Launch" || enabledAgents.size > 0;
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -235,13 +258,16 @@ export default function Onboarding() {
 
       <div className="flex-1 overflow-y-auto px-6 pb-4">
         {currentStep === "Welcome" && <StepWelcome />}
-        {currentStep === "Agents" && (
+        {currentStep === "Quick Launch" && (
           <StepAgents
             agents={agents}
+            profiles={profiles}
             enabled={enabledAgents}
-            defaultAgent={defaultAgent}
             onToggle={toggleAgent}
-            onSetDefault={setDefaultAgent}
+            onCreateProfile={() => setProfileEditorOpen(true)}
+            onDeleteProfile={(id) => {
+              void handleDeleteProfile(id);
+            }}
           />
         )}
         {currentStep === "Channels" && (
@@ -280,54 +306,86 @@ export default function Onboarding() {
             tunnels={tunnels}
             pluginRegistry={pluginRegistry}
             enabledAgents={enabledAgents}
-            defaultAgent={defaultAgent}
             tunnelProvider={tunnelProvider}
             enabledChannels={enabledChannels}
             isInstalling={isInstalling}
             installComplete={installComplete}
             installTasks={installTasks}
-            onCancel={cancelInstall}
-            onComplete={completeInstall}
           />
         )}
       </div>
 
-      {!isInstalling && (
-        <div className="flex items-center justify-between px-6 py-4 border-t border-border shrink-0">
-          <button
-            onClick={() => setStep((v) => Math.max(0, v - 1))}
-            disabled={step === 0}
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Back
-          </button>
-          {isLast ? (
+      <div className="flex items-center justify-between px-6 py-4 border-t border-border shrink-0">
+        {isInstalling ? (
+          <>
+            <div />
+            {installComplete ? (
+              <button
+                onClick={completeInstall}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
+              >
+                <Rocket className="w-4 h-4" />
+                {installTasks.some((task) =>
+                  task.status === "error" || task.status === "cancelled"
+                )
+                  ? "Continue Anyway"
+                  : "Open VibeAround"}
+              </button>
+            ) : (
+              <button
+                onClick={cancelInstall}
+                className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-accent transition-colors"
+              >
+                Cancel
+              </button>
+            )}
+          </>
+        ) : (
+          <>
             <button
-              onClick={handleFinish}
-              disabled={finishing}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+              onClick={() => setStep((v) => Math.max(0, v - 1))}
+              disabled={step === 0}
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
-              {finishing ? (
-                <>Launching…</>
-              ) : (
-                <>
-                  <Rocket className="w-4 h-4" />
-                  Launch VibeAround
-                </>
-              )}
+              <ChevronLeft className="w-4 h-4" />
+              Back
             </button>
-          ) : (
-            <button
-              onClick={() => setStep((v) => Math.min(STEPS.length - 1, v + 1))}
-              disabled={!canNext}
-              className="flex items-center gap-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
-            >
-              {currentStep === "Welcome" ? "Get Started" : "Next"}
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+            {isLast ? (
+              <button
+                onClick={handleFinish}
+                disabled={finishing}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+              >
+                {finishing ? (
+                  <>Confirming…</>
+                ) : (
+                  <>
+                    <Rocket className="w-4 h-4" />
+                    Confirm
+                  </>
+                )}
+              </button>
+            ) : (
+              <button
+                onClick={() => setStep((v) => Math.min(STEPS.length - 1, v + 1))}
+                disabled={!canNext}
+                className="flex items-center gap-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+              >
+                {currentStep === "Welcome" ? "Get Started" : "Next"}
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {profileEditorOpen && (
+        <ProfileFormDialog
+          catalog={catalog}
+          initial={null}
+          onClose={() => setProfileEditorOpen(false)}
+          onSave={handleSaveProfile}
+        />
       )}
     </div>
   );

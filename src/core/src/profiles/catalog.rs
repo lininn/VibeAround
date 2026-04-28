@@ -182,7 +182,8 @@ pub fn get(id: &str) -> Option<&'static ProviderCatalog> {
 // endpoint breaks.
 
 pub fn custom() -> &'static ProviderCatalog {
-    static CUSTOM: LazyLock<ProviderCatalog> = LazyLock::new(|| ProviderCatalog {
+    static CUSTOM: LazyLock<ProviderCatalog> = LazyLock::new(|| {
+        ProviderCatalog {
         id: "custom".to_string(),
         label: "Custom".to_string(),
         icon: Some("✨".to_string()),
@@ -288,6 +289,7 @@ pub fn custom() -> &'static ProviderCatalog {
                 }],
             },
         ],
+    }
     });
     &CUSTOM
 }
@@ -362,5 +364,4 @@ mod tests {
             Some("{{base_url}}")
         );
     }
-
 }

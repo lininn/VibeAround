@@ -15,6 +15,7 @@ use agent_client_protocol as acp;
 
 use crate::agent::{Agent, AgentClientHandler};
 use crate::config;
+use crate::profiles;
 
 use super::super::event::SystemEvent;
 use super::super::handover::HandoverHandler;
@@ -64,18 +65,18 @@ impl Conversation {
             }
         }
 
+        let cfg = config::ensure_loaded();
         let cli_kind = self
             .cli_kind
             .lock()
             .await
             .clone()
-            .unwrap_or_else(|| config::ensure_loaded().default_agent.clone());
+            .unwrap_or_else(|| cfg.default_agent.clone());
         tracing::info!(route = %self.route, cli_kind = %cli_kind, "spawning new agent");
-        let profile = self
-            .profile
-            .lock()
-            .await
+        let explicit_profile = self.profile.lock().await.clone();
+        let mut profile = explicit_profile
             .clone()
+            .or_else(|| cfg.default_profile_for(&cli_kind))
             .unwrap_or_else(|| "default".to_string());
 
         // Resolve workspace — handover must include cwd, normal prompt uses default.
@@ -111,11 +112,59 @@ impl Conversation {
             .map(|def| def.id.clone())
             .unwrap_or_else(|| "claude".to_string());
 
-        let env_vars = vec![
-            ("VIBEAROUND_CHANNEL_KIND".to_string(), self.route.channel_kind.clone()),
+        let mut env_vars = vec![
+            (
+                "VIBEAROUND_CHANNEL_KIND".to_string(),
+                self.route.channel_kind.clone(),
+            ),
             ("VIBEAROUND_CHAT_ID".to_string(), self.route.chat_id.clone()),
             ("VIBEAROUND_AGENT_KIND".to_string(), agent_id.clone()),
         ];
+        if profile_uses_vibearound_credentials(&profile) {
+            if let Some(profile_def) =
+                profiles::schema::load(&profile).map(profiles::normalize_legacy_profile)
+            {
+                match profiles::runtime::env_for_launch(&profile_def, &agent_id) {
+                    Ok(profile_env) => {
+                        tracing::info!(
+                            route = %self.route,
+                            cli_kind = %cli_kind,
+                            profile = %profile,
+                            "applied profile env for agent spawn"
+                        );
+                        env_vars.extend(profile_env);
+                    }
+                    Err(error) if explicit_profile.is_some() => {
+                        return Err(error).with_context(|| {
+                            format!(
+                                "failed to apply profile '{}' to agent '{}'",
+                                profile, agent_id
+                            )
+                        });
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            route = %self.route,
+                            cli_kind = %cli_kind,
+                            profile = %profile,
+                            error = %error,
+                            "default profile could not be applied; falling back to direct launch"
+                        );
+                        profile = "default".to_string();
+                    }
+                }
+            } else if explicit_profile.is_some() {
+                return Err(anyhow!("profile '{}' not found", profile));
+            } else {
+                tracing::warn!(
+                    route = %self.route,
+                    cli_kind = %cli_kind,
+                    profile = %profile,
+                    "default profile not found; falling back to direct launch"
+                );
+                profile = "default".to_string();
+            }
+        }
 
         let ready = match Agent::spawn(
             agent_id,
@@ -224,4 +273,8 @@ impl Conversation {
         *self.suppress_replay.lock().await = None;
         tracing::debug!(route = %self.route, "full_reset complete");
     }
+}
+
+fn profile_uses_vibearound_credentials(profile: &str) -> bool {
+    !matches!(profile, "default" | "none" | "off" | "direct")
 }

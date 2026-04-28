@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { AlertTriangle, MoreVertical, Pencil, Play, Trash2 } from "lucide-react";
+import { AlertTriangle, MoreVertical, Pencil, Star, Trash2 } from "lucide-react";
 
+import { BrandIcon } from "@/components/brand-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,12 +16,24 @@ import { apiTypeBadge, apiTypeShort } from "./types";
 interface Props {
   profile: ProfileSummary;
   onLaunch: (launchTarget: string) => Promise<void>;
+  onSetDefault: (launchTarget: string) => Promise<void>;
   onEdit: () => void;
   onDelete: () => Promise<void>;
+  defaultAgent?: string;
+  defaultProfiles?: Record<string, string>;
 }
 
-export function ProfileCard({ profile, onLaunch, onEdit, onDelete }: Props) {
+export function ProfileCard({
+  profile,
+  onLaunch,
+  onSetDefault,
+  onEdit,
+  onDelete,
+  defaultAgent,
+  defaultProfiles = {},
+}: Props) {
   const [busy, setBusy] = useState(false);
+  const [defaultBusy, setDefaultBusy] = useState<string | null>(null);
 
   async function handleLaunch(launchTarget: string) {
     setBusy(true);
@@ -41,12 +54,25 @@ export function ProfileCard({ profile, onLaunch, onEdit, onDelete }: Props) {
     }
   }
 
+  async function handleSetDefault(launchTarget: string) {
+    setBusy(true);
+    try {
+      await onSetDefault(launchTarget);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="border border-border rounded-md p-2.5 flex flex-col gap-1.5 hover:border-primary/40 transition-colors">
       <div className="flex items-start gap-2">
-        {profile.providerIcon && (
-          <span className="text-base shrink-0">{profile.providerIcon}</span>
-        )}
+        <BrandIcon
+          kind="provider"
+          id={profile.provider}
+          label={profile.providerLabel}
+          fallback={profile.providerIcon}
+          className="h-7 w-7"
+        />
         <div className="flex-1 min-w-0">
           <div className="text-[13px] font-medium truncate">{profile.label}</div>
           <div className="text-[11px] text-muted-foreground truncate">
@@ -85,28 +111,58 @@ export function ProfileCard({ profile, onLaunch, onEdit, onDelete }: Props) {
       <div className="flex flex-wrap gap-1.5 mt-1">
         {profile.launchTargets.map((target) => {
           const warning = target.warning ?? profile.apiTypeWarnings[target.apiType];
+          const isDefault =
+            defaultAgent === target.id && defaultProfiles[target.id] === profile.id;
           return (
-            <Button
-              key={target.id}
-              type="button"
-              variant="secondary"
-              size="xs"
-              onClick={() => handleLaunch(target.id)}
-              disabled={busy}
-              className="h-7 font-mono text-[11px] bg-primary/10 text-primary hover:bg-primary/20"
-              title={
-                warning
-                  ? `⚠ ${warning}\n\n(Click to launch ${target.label} via ${apiTypeShort(target.apiType)} anyway.)`
-                  : `Launch ${target.label} via ${apiTypeShort(target.apiType)}`
-              }
-            >
-              <Play className="w-3 h-3" />
-              <span>{target.label}</span>
-              <Badge className="border-0 bg-transparent p-0 text-[11px] text-primary/55">
-                · {apiTypeBadge(target.apiType)}
-              </Badge>
-              {warning && <AlertTriangle className="w-3 h-3 text-amber-500" />}
-            </Button>
+            <span key={target.id} className="inline-flex items-center gap-0.5">
+              <Button
+                type="button"
+                variant="secondary"
+                size="xs"
+                onClick={() => handleLaunch(target.id)}
+                disabled={busy}
+                className="h-7 font-mono text-[11px] bg-primary/10 text-primary hover:bg-primary/20"
+                title={
+                  warning
+                    ? `⚠ ${warning}\n\n(Click to launch ${target.label} via ${apiTypeShort(target.apiType)} anyway.)`
+                    : `Launch ${target.label} via ${apiTypeShort(target.apiType)}`
+                }
+              >
+                <BrandIcon
+                  kind="cli"
+                  id={target.id}
+                  label={target.label}
+                  framed={false}
+                  className="h-3.5 w-3.5"
+                />
+                <span>{target.label}</span>
+                <Badge className="border-0 bg-transparent p-0 text-[11px] text-primary/55">
+                  · {apiTypeBadge(target.apiType)}
+                </Badge>
+                {isDefault && <Star className="w-3 h-3 fill-current" />}
+                {warning && <AlertTriangle className="w-3 h-3 text-amber-500" />}
+              </Button>
+              {!isDefault && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={busy || defaultBusy === target.id}
+                  onClick={async () => {
+                    setDefaultBusy(target.id);
+                    try {
+                      await handleSetDefault(target.id);
+                    } finally {
+                      setDefaultBusy(null);
+                    }
+                  }}
+                  title={`Use ${target.label} with ${profile.label} as Quick Launch default`}
+                  className="h-7 w-7 text-muted-foreground hover:text-primary"
+                >
+                  <Star className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </span>
           );
         })}
       </div>
