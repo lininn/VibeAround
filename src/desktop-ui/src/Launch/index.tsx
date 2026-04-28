@@ -158,26 +158,26 @@ export function Launch() {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <WorkspacePicker />
-          <TerminalPicker />
-          <Button
-            type="button"
-            onClick={handleLaunchDefault}
-            size="sm"
-            variant="secondary"
-            disabled={directBusy}
-            className="h-8 text-xs"
-            title={quickLaunchTitle(prefs, profiles)}
-          >
-            <Rocket className="w-3 h-3" /> Quick launch
-          </Button>
           <Button
             type="button"
             onClick={openNewEditor}
             size="sm"
+            variant="outline"
             className="h-8 text-xs"
           >
             <Plus className="w-3 h-3" /> New profile
+          </Button>
+          <TerminalPicker />
+          <WorkspacePicker />
+          <Button
+            type="button"
+            onClick={handleLaunchDefault}
+            size="sm"
+            disabled={directBusy}
+            className="h-8 text-xs font-semibold shadow-sm"
+            title={quickLaunchTitle(prefs, profiles)}
+          >
+            <Rocket className="w-3.5 h-3.5" /> Quick launch
           </Button>
         </div>
       </header>
