@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ChevronLeft, ChevronRight, Rocket } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
+
 import { STEPS } from "./constants";
 import { StepAgents } from "./components/StepAgents";
 import { StepChannels } from "./components/StepChannels";
@@ -29,6 +31,12 @@ import type {
 import type { AgentId, TunnelProvider } from "./constants";
 
 const DEFAULT_ENABLED_AGENT_IDS = new Set<AgentId>(["claude", "codex"]);
+const AGENT_DISPLAY_ORDER = ["claude", "codex", "gemini", "opencode", "cursor", "kiro", "qwen-code"];
+
+function orderAgents(agentDefs: AgentSummary[]): AgentSummary[] {
+  const rank = new Map(AGENT_DISPLAY_ORDER.map((id, index) => [id, index]));
+  return [...agentDefs].sort((a, b) => (rank.get(a.id) ?? 999) - (rank.get(b.id) ?? 999));
+}
 
 export default function Onboarding() {
   const [step, setStep] = useState(0);
@@ -70,9 +78,10 @@ export default function Onboarding() {
       listProfiles(),
     ])
       .then(([loadedSettings, plugins, agentDefs, tunnelDefs, pluginDefs, catalogDefs, profileDefs]) => {
+        const orderedAgents = orderAgents(agentDefs);
         setSettings(loadedSettings);
         setDiscoveredPlugins(plugins);
-        setAgents(agentDefs);
+        setAgents(orderedAgents);
         setTunnels(tunnelDefs);
         setPluginRegistry(pluginDefs);
         setCatalog(catalogDefs);
@@ -83,7 +92,7 @@ export default function Onboarding() {
         } else {
           setEnabledAgents(
             new Set(
-              agentDefs
+              orderedAgents
                 .map((agent) => agent.id)
                 .filter((id) => DEFAULT_ENABLED_AGENT_IDS.has(id)),
             ),
@@ -328,9 +337,8 @@ export default function Onboarding() {
           <>
             <div />
             {installComplete ? (
-              <button
+              <Button
                 onClick={completeInstall}
-                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
               >
                 <Rocket className="w-4 h-4" />
                 {installTasks.some((task) =>
@@ -338,31 +346,30 @@ export default function Onboarding() {
                 )
                   ? "Continue Anyway"
                   : "Open VibeAround"}
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
                 onClick={cancelInstall}
-                className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-accent transition-colors"
+                variant="outline"
               >
                 Cancel
-              </button>
+              </Button>
             )}
           </>
         ) : (
           <>
-            <button
+            <Button
               onClick={() => setStep((v) => Math.max(0, v - 1))}
               disabled={step === 0}
-              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              variant="ghost"
             >
               <ChevronLeft className="w-4 h-4" />
               Back
-            </button>
+            </Button>
             {isLast ? (
-              <button
+              <Button
                 onClick={handleFinish}
                 disabled={finishing}
-                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
                 {finishing ? (
                   <>Confirming…</>
@@ -372,16 +379,15 @@ export default function Onboarding() {
                     Confirm
                   </>
                 )}
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
                 onClick={() => setStep((v) => Math.min(STEPS.length - 1, v + 1))}
                 disabled={!canNext}
-                className="flex items-center gap-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
                 {currentStep === "Welcome" ? "Get Started" : "Next"}
                 <ChevronRight className="w-4 h-4" />
-              </button>
+              </Button>
             )}
           </>
         )}

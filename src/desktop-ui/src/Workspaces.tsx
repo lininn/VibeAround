@@ -1,22 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { FolderOpen, Plus, Star, Trash2, RefreshCw } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { WorkspacesResponseSchema, type WorkspacesResponse } from "@va/client";
 
 import { EmptyBlock, PageHeader, PageShell, StatusBanner } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "./lib/api";
-
-interface WorkspaceItem {
-  path: string;
-  is_default: boolean;
-  is_builtin: boolean;
-}
-
-interface WorkspacesResponse {
-  workspaces: WorkspaceItem[];
-  default_workspace: string;
-}
 
 export function Workspaces() {
   const [data, setData] = useState<WorkspacesResponse | null>(null);
@@ -30,7 +20,7 @@ export function Workspaces() {
     try {
       const res = await apiFetch(`/api/workspaces`);
       if (!res.ok) throw new Error(await res.text());
-      setData(await res.json());
+      setData(WorkspacesResponseSchema.parse(await res.json()));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -110,7 +100,13 @@ export function Workspaces() {
                 className={`w-3.5 h-3.5 text-muted-foreground ${loading ? "animate-spin" : ""}`}
               />
             </Button>
-            <Button type="button" size="sm" onClick={addWorkspace} disabled={adding}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={addWorkspace}
+              disabled={adding}
+              className="text-xs font-semibold"
+            >
               <Plus className="w-3.5 h-3.5" />
               {adding ? "Selecting…" : "Add Folder"}
             </Button>

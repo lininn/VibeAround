@@ -5,6 +5,8 @@ import { BrandIcon } from "@/components/brand-icon";
 import { Button } from "@/components/ui/button";
 import { listAgents, type AgentSummary } from "./api";
 
+const AGENT_DISPLAY_ORDER = ["claude", "codex", "gemini", "opencode", "cursor", "kiro", "qwen-code"];
+
 interface Props {
   onLaunch: (agentId: string) => Promise<void>;
   onSetDefault: (agentId: string) => Promise<void>;
@@ -35,7 +37,10 @@ export function DirectCards({
 
   useEffect(() => {
     void listAgents()
-      .then(setAgents)
+      .then((items) => {
+        const rank = new Map(AGENT_DISPLAY_ORDER.map((id, index) => [id, index]));
+        setAgents([...items].sort((a, b) => (rank.get(a.id) ?? 999) - (rank.get(b.id) ?? 999)));
+      })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
@@ -60,14 +65,16 @@ export function DirectCards({
           {(agents ?? []).map((a) => {
             const isDefault = defaultAgent === a.id && !defaultProfiles[a.id];
             return (
-              <span key={a.id} className="inline-flex items-center gap-0.5">
+              <span key={a.id} className="inline-flex h-7 overflow-hidden rounded-md bg-primary/10 text-primary">
                 <Button
                   type="button"
-                  variant="secondary"
+                  variant="ghost"
                   size="xs"
                   onClick={() => onLaunch(a.id)}
                   disabled={busy}
-                  className="h-7 font-mono text-[11px] bg-primary/10 text-primary hover:bg-primary/20"
+                  className={`h-7 rounded-none bg-transparent px-2 text-[11px] text-primary hover:bg-primary/15 hover:text-primary ${
+                    isDefault ? "" : "pr-1.5"
+                  }`}
                   title={`${a.display_name} — ${a.description}`}
                 >
                   <BrandIcon
@@ -77,7 +84,7 @@ export function DirectCards({
                     framed={false}
                     className="h-3.5 w-3.5"
                   />
-                  {a.id}
+                  {a.display_name}
                   {isDefault && <Star className="w-3 h-3 fill-current" />}
                 </Button>
                 {!isDefault && (
@@ -95,9 +102,9 @@ export function DirectCards({
                       }
                     }}
                     title={`Use ${a.display_name} as Quick Launch default without a profile`}
-                    className="h-7 w-7 text-muted-foreground hover:text-primary"
+                    className="h-7 w-6 rounded-none border-l border-primary/15 bg-transparent text-primary/60 hover:bg-primary/15 hover:text-primary"
                   >
-                    <Star className="w-3.5 h-3.5" />
+                    <Star className="w-3 h-3" />
                   </Button>
                 )}
               </span>
