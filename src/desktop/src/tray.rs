@@ -157,25 +157,22 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .unwrap_or(false);
 
     let show_item = MenuItemBuilder::with_id(MENU_SHOW_WINDOW, "Show Window").build(app)?;
-    let launch_heading = disabled_menu_item(app, "tray_heading_launch", "Launch")?;
-    let launch_default_item = MenuItemBuilder::with_id(MENU_LAUNCH_DEFAULT, "Launch Default Agent")
+    let launch_default_item = MenuItemBuilder::with_id(MENU_LAUNCH_DEFAULT, "Quick Launch")
         .enabled(launch_enabled)
         .build(app)?;
     let direct_launch_menu = build_direct_launch_submenu(app, launch_enabled)?;
     let profile_menus = build_profile_submenus(app, launch_enabled)?;
-    let open_local_item = MenuItemBuilder::with_id(MENU_OPEN_LOCAL, "Open Local Dashboard")
+    let open_local_item = MenuItemBuilder::with_id(MENU_OPEN_LOCAL, "Open Dashboard")
         .enabled(launch_enabled)
         .build(app)?;
     let open_tunnel_item = MenuItemBuilder::with_id(MENU_OPEN_TUNNEL, "Open Tunnel")
         .enabled(launch_enabled && has_tunnel_url)
         .build(app)?;
-    let open_heading = disabled_menu_item(app, "tray_heading_open", "Open")?;
     let quit_item = MenuItemBuilder::with_id(MENU_QUIT, "Quit").build(app)?;
 
     let mut builder = MenuBuilder::new(app)
         .item(&show_item)
         .separator()
-        .item(&launch_heading)
         .item(&launch_default_item)
         .item(&direct_launch_menu);
     for profile_menu in &profile_menus {
@@ -184,7 +181,6 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
     builder
         .separator()
-        .item(&open_heading)
         .item(&open_local_item)
         .item(&open_tunnel_item)
         .separator()
@@ -196,8 +192,8 @@ fn build_direct_launch_submenu<R: Runtime>(
     app: &AppHandle<R>,
     launch_enabled: bool,
 ) -> tauri::Result<tauri::menu::Submenu<R>> {
-    let mut builder =
-        SubmenuBuilder::with_id(app, "direct_launch", "Direct Launch").enabled(launch_enabled);
+    let mut builder = SubmenuBuilder::with_id(app, "direct_launch", "Launch Without Profile")
+        .enabled(launch_enabled);
     let hint = disabled_menu_item(app, "direct_launch_hint", "Use each CLI's existing login")?;
     builder = builder.item(&hint).separator();
 
@@ -339,7 +335,8 @@ fn profile_menu_title(
         .get(&profile.provider)
         .copied()
         .unwrap_or_default()
-        > 1;
+        > 1
+        || profile.provider == "custom";
     if needs_profile_label {
         format!("{} - {}", provider_label, profile.label)
     } else {
