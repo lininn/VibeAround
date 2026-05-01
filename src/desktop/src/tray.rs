@@ -157,6 +157,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .unwrap_or(false);
 
     let show_item = MenuItemBuilder::with_id(MENU_SHOW_WINDOW, "Show Window").build(app)?;
+    let launch_heading = disabled_menu_item(app, "tray_heading_launch", "Launch")?;
     let launch_default_item = MenuItemBuilder::with_id(MENU_LAUNCH_DEFAULT, "Launch Default Agent")
         .enabled(launch_enabled)
         .build(app)?;
@@ -168,11 +169,13 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let open_tunnel_item = MenuItemBuilder::with_id(MENU_OPEN_TUNNEL, "Open Tunnel")
         .enabled(launch_enabled && has_tunnel_url)
         .build(app)?;
+    let open_heading = disabled_menu_item(app, "tray_heading_open", "Open")?;
     let quit_item = MenuItemBuilder::with_id(MENU_QUIT, "Quit").build(app)?;
 
     let mut builder = MenuBuilder::new(app)
         .item(&show_item)
         .separator()
+        .item(&launch_heading)
         .item(&launch_default_item)
         .item(&direct_launch_menu);
     for profile_menu in &profile_menus {
@@ -181,6 +184,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
     builder
         .separator()
+        .item(&open_heading)
         .item(&open_local_item)
         .item(&open_tunnel_item)
         .separator()
@@ -194,6 +198,8 @@ fn build_direct_launch_submenu<R: Runtime>(
 ) -> tauri::Result<tauri::menu::Submenu<R>> {
     let mut builder =
         SubmenuBuilder::with_id(app, "direct_launch", "Direct Launch").enabled(launch_enabled);
+    let hint = disabled_menu_item(app, "direct_launch_hint", "Use each CLI's existing login")?;
+    builder = builder.item(&hint).separator();
 
     for agent in common::resources::AGENTS.iter() {
         let item = MenuItemBuilder::with_id(
@@ -232,6 +238,12 @@ fn build_profile_submenus<R: Runtime>(
             menu_text(&title),
         )
         .enabled(launch_enabled && !targets.is_empty());
+        let hint = disabled_menu_item(
+            app,
+            format!("launch_profile_hint:{}", profile.id),
+            profile_menu_hint(profile),
+        )?;
+        profile_builder = profile_builder.item(&hint).separator();
 
         if targets.is_empty() {
             let empty_item = MenuItemBuilder::with_id(
@@ -295,6 +307,16 @@ fn handle_direct_launch_menu(menu_id: &str) -> Result<(), String> {
     crate::profiles::profiles_launch_direct(agent_id.to_string())
 }
 
+fn disabled_menu_item<R: Runtime, I: Into<tauri::menu::MenuId>, S: AsRef<str>>(
+    app: &AppHandle<R>,
+    id: I,
+    text: S,
+) -> tauri::Result<tauri::menu::MenuItem<R>> {
+    MenuItemBuilder::with_id(id, menu_text(text.as_ref()))
+        .enabled(false)
+        .build(app)
+}
+
 fn profile_provider_counts(
     profiles: &[common::profiles::ProfileDef],
 ) -> std::collections::BTreeMap<String, usize> {
@@ -313,22 +335,20 @@ fn profile_menu_title(
     let provider_label = provider
         .map(|catalog| catalog.label.as_str())
         .unwrap_or(profile.provider.as_str());
-    let icon = provider.and_then(|catalog| catalog.icon.as_deref());
     let needs_profile_label = provider_counts
         .get(&profile.provider)
         .copied()
         .unwrap_or_default()
         > 1;
-    let label = if needs_profile_label {
+    if needs_profile_label {
         format!("{} - {}", provider_label, profile.label)
     } else {
         provider_label.to_string()
-    };
-
-    match icon {
-        Some(icon) if !icon.trim().is_empty() => format!("{} {}", icon, label),
-        _ => label,
     }
+}
+
+fn profile_menu_hint(profile: &common::profiles::ProfileDef) -> String {
+    format!("Profile: {}", profile.label)
 }
 
 fn menu_text(text: &str) -> String {
