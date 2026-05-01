@@ -5,9 +5,10 @@
  * Profile cards show concrete CLI launch targets derived from the
  * provider's API kinds.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
-import { DndProvider, useDrag, useDrop } from "react-dnd";
-import { HTML5Backend } from "react-dnd-html5-backend";
+import { useCallback, useEffect, useState } from "react";
+import { DragDropProvider } from "@dnd-kit/react";
+import type { DragEndEvent } from "@dnd-kit/react";
+import { isSortable, useSortable } from "@dnd-kit/react/sortable";
 import { Plus, Rocket } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -32,18 +33,6 @@ import { TerminalPicker } from "./TerminalPicker";
 import { WorkspacePicker } from "./WorkspacePicker";
 import type { CatalogEntry, ProfileDef, ProfileSummary } from "./types";
 
-const PROFILE_DND_TYPE = "launch-profile";
-
-type DragProfileItem = {
-  id: string;
-  index: number;
-};
-
-type DragOverProfile = {
-  id: string;
-  placeAfter: boolean;
-};
-
 export function Launch() {
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
@@ -54,11 +43,7 @@ export function Launch() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<ProfileDef | null>(null);
   const [directBusy, setDirectBusy] = useState(false);
-  const [dragOverProfile, setDragOverProfile] = useState<DragOverProfile | null>(null);
   const [reorderBusy, setReorderBusy] = useState(false);
-  const profilesRef = useRef<ProfileSummary[]>([]);
-  const dragStartProfilesRef = useRef<ProfileSummary[] | null>(null);
-  const dragChangedRef = useRef(false);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -81,10 +66,6 @@ export function Launch() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  useEffect(() => {
-    profilesRef.current = profiles;
-  }, [profiles]);
 
   // Auto-clear the toast banner after 2.5s — keeps the page from
   // accumulating stale "Terminal opened" notices on rapid launches.
@@ -171,47 +152,16 @@ export function Launch() {
     await refresh();
   }
 
-  function handleProfileDragStart() {
-    dragStartProfilesRef.current = profilesRef.current;
-    dragChangedRef.current = false;
-  }
+  function handleProfileDragEnd(event: DragEndEvent) {
+    if (event.canceled || reorderBusy) return;
 
-  function handleProfileHover(
-    draggedId: string,
-    targetProfileId: string,
-    placeAfter: boolean,
-  ) {
-    if (draggedId === targetProfileId || reorderBusy) return;
+    const { source } = event.operation;
+    if (!isSortable(source) || source.initialIndex === source.index) return;
 
-    setDragOverProfile((current) => {
-      if (current?.id === targetProfileId && current.placeAfter === placeAfter) {
-        return current;
-      }
-      return { id: targetProfileId, placeAfter };
-    });
+    const previousProfiles = profiles;
+    const nextProfiles = moveProfileByIndex(profiles, source.initialIndex, source.index);
+    if (nextProfiles === profiles) return;
 
-    setProfiles((current) => {
-      const nextProfiles = moveProfile(current, draggedId, targetProfileId, placeAfter);
-      if (sameProfileOrder(current, nextProfiles)) return current;
-      profilesRef.current = nextProfiles;
-      dragChangedRef.current = true;
-      return nextProfiles;
-    });
-  }
-
-  function handleProfileDragEnd() {
-    const previousProfiles = dragStartProfilesRef.current;
-    const nextProfiles = profilesRef.current;
-    const changed =
-      dragChangedRef.current &&
-      previousProfiles !== null &&
-      !sameProfileOrder(previousProfiles, nextProfiles);
-
-    dragStartProfilesRef.current = null;
-    dragChangedRef.current = false;
-    setDragOverProfile(null);
-
-    if (!changed || previousProfiles === null) return;
     void persistProfileOrder(nextProfiles, previousProfiles);
   }
 
@@ -220,7 +170,6 @@ export function Launch() {
     previousProfiles: ProfileSummary[],
   ) {
     setProfiles(nextProfiles);
-    profilesRef.current = nextProfiles;
     setError(null);
     setReorderBusy(true);
     try {
@@ -228,7 +177,6 @@ export function Launch() {
       setToast("Profile order updated");
     } catch (e) {
       setProfiles(previousProfiles);
-      profilesRef.current = previousProfiles;
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setReorderBusy(false);
@@ -297,17 +245,13 @@ export function Launch() {
             {profiles.length === 0 ? (
               <EmptyState onNew={openNewEditor} />
             ) : (
-              <DndProvider backend={HTML5Backend}>
+              <DragDropProvider onDragEnd={handleProfileDragEnd}>
                 {profiles.map((p, index) => (
                   <SortableProfileCard
                     key={p.id}
                     profile={p}
                     index={index}
                     reorderBusy={reorderBusy}
-                    dragOverProfile={dragOverProfile}
-                    onDragStart={handleProfileDragStart}
-                    onDragHover={handleProfileHover}
-                    onDragEnd={handleProfileDragEnd}
                     onLaunch={(t) => handleLaunch(p, t)}
                     onSetDefault={(t) => handleSetDefault(t, p.id)}
                     onEdit={() => handleEdit(p)}
@@ -316,7 +260,7 @@ export function Launch() {
                     defaultProfiles={prefs?.defaultProfiles}
                   />
                 ))}
-              </DndProvider>
+              </DragDropProvider>
             )}
           </>
         )}
@@ -337,36 +281,31 @@ export function Launch() {
   );
 }
 
-function moveProfile(
+function moveProfileByIndex(
   profiles: ProfileSummary[],
-  draggedId: string,
-  targetId: string,
-  placeAfter: boolean,
+  fromIndex: number,
+  toIndex: number,
 ): ProfileSummary[] {
-  const fromIndex = profiles.findIndex((profile) => profile.id === draggedId);
-  if (fromIndex === -1) return profiles;
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= profiles.length ||
+    toIndex >= profiles.length
+  ) {
+    return profiles;
+  }
 
   const next = [...profiles];
   const [dragged] = next.splice(fromIndex, 1);
-  const targetIndex = next.findIndex((profile) => profile.id === targetId);
-  if (targetIndex === -1) return profiles;
-
-  next.splice(placeAfter ? targetIndex + 1 : targetIndex, 0, dragged);
+  next.splice(toIndex, 0, dragged);
   return next;
-}
-
-function sameProfileOrder(a: ProfileSummary[], b: ProfileSummary[]): boolean {
-  return a.length === b.length && a.every((profile, index) => profile.id === b[index]?.id);
 }
 
 function SortableProfileCard({
   profile,
   index,
   reorderBusy,
-  dragOverProfile,
-  onDragStart,
-  onDragHover,
-  onDragEnd,
   onLaunch,
   onSetDefault,
   onEdit,
@@ -377,10 +316,6 @@ function SortableProfileCard({
   profile: ProfileSummary;
   index: number;
   reorderBusy: boolean;
-  dragOverProfile: DragOverProfile | null;
-  onDragStart: () => void;
-  onDragHover: (draggedId: string, targetProfileId: string, placeAfter: boolean) => void;
-  onDragEnd: () => void;
   onLaunch: (launchTarget: string) => Promise<void>;
   onSetDefault: (launchTarget: string) => Promise<void>;
   onEdit: () => void;
@@ -388,68 +323,19 @@ function SortableProfileCard({
   defaultAgent?: string;
   defaultProfiles?: Record<string, string>;
 }) {
-  const cardRef = useRef<HTMLDivElement>(null);
-  const handleRef = useRef<HTMLDivElement>(null);
-
-  const [{ isDragging }, drag, preview] = useDrag(
-    () => ({
-      type: PROFILE_DND_TYPE,
-      item: () => {
-        onDragStart();
-        return { id: profile.id, index };
-      },
-      canDrag: () => !reorderBusy,
-      isDragging: (monitor) => monitor.getItem<DragProfileItem>()?.id === profile.id,
-      collect: (monitor) => ({
-        isDragging: monitor.isDragging(),
-      }),
-      end: () => {
-        onDragEnd();
-      },
-    }),
-    [index, onDragEnd, onDragStart, profile.id, reorderBusy],
-  );
-
-  const [{ canDrop, isOver }, drop] = useDrop(
-    () => ({
-      accept: PROFILE_DND_TYPE,
-      canDrop: (item: DragProfileItem) => item.id !== profile.id && !reorderBusy,
-      hover: (item: DragProfileItem, monitor) => {
-        if (item.id === profile.id || reorderBusy) return;
-        const placeAfter = getDropPlacement(cardRef.current, monitor.getClientOffset());
-        if (placeAfter === null) return;
-        onDragHover(item.id, profile.id, placeAfter);
-      },
-      drop: () => {
-        return { id: profile.id };
-      },
-      collect: (monitor) => ({
-        canDrop: monitor.canDrop(),
-        isOver: monitor.isOver({ shallow: true }),
-      }),
-    }),
-    [onDragHover, profile.id, reorderBusy],
-  );
-
-  drag(handleRef);
-  preview(drop(cardRef));
-
-  const showDropCue = canDrop && isOver && dragOverProfile?.id === profile.id;
+  const { ref, handleRef, isDragging, isDropTarget } = useSortable({
+    id: profile.id,
+    index,
+    disabled: reorderBusy,
+  });
 
   return (
     <div
-      ref={cardRef}
+      ref={ref}
       className={`relative rounded-md transition-shadow ${
-        showDropCue ? "ring-2 ring-primary/35" : ""
+        isDropTarget ? "ring-2 ring-primary/35" : ""
       }`}
     >
-      {showDropCue && (
-        <div
-          className={`absolute left-2 right-2 h-0.5 rounded-full bg-primary ${
-            dragOverProfile.placeAfter ? "-bottom-1" : "-top-1"
-          }`}
-        />
-      )}
       <ProfileCard
         profile={profile}
         onLaunch={onLaunch}
@@ -464,15 +350,6 @@ function SortableProfileCard({
       />
     </div>
   );
-}
-
-function getDropPlacement(
-  element: HTMLDivElement | null,
-  clientOffset: { x: number; y: number } | null,
-): boolean | null {
-  if (!element || !clientOffset) return null;
-  const rect = element.getBoundingClientRect();
-  return clientOffset.y > rect.top + rect.height / 2;
 }
 
 function quickLaunchTitle(
