@@ -7,7 +7,7 @@
 //! Adding more terminals (Ghostty, WezTerm, Warp, …) is a matter of:
 //!   1. adding a variant to `TerminalChoice`,
 //!   2. teaching `detect_installed` how to find it, and
-//!   3. adding a `spawn_*` function in `launcher.rs`.
+//!   3. adding an OS/terminal executor under `launcher/`.
 //! No catalog changes; no schema migration.
 
 use std::collections::BTreeMap;
@@ -27,7 +27,6 @@ pub enum TerminalChoice {
     Terminal,
     Iterm2,
     PowerShell,
-    Cmd,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -77,7 +76,7 @@ impl TerminalChoice {
     #[cfg(target_os = "macos")]
     pub const ALL: &'static [TerminalChoice] = &[Self::Terminal, Self::Iterm2];
     #[cfg(target_os = "windows")]
-    pub const ALL: &'static [TerminalChoice] = &[Self::PowerShell, Self::Cmd];
+    pub const ALL: &'static [TerminalChoice] = &[Self::PowerShell];
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     pub const ALL: &'static [TerminalChoice] = &[];
 
@@ -86,7 +85,6 @@ impl TerminalChoice {
             Self::Terminal => "terminal",
             Self::Iterm2 => "iterm2",
             Self::PowerShell => "powershell",
-            Self::Cmd => "cmd",
         }
     }
 
@@ -95,7 +93,6 @@ impl TerminalChoice {
             Self::Terminal => "Terminal.app",
             Self::Iterm2 => "iTerm2",
             Self::PowerShell => "PowerShell",
-            Self::Cmd => "Command Prompt",
         }
     }
 
@@ -104,7 +101,6 @@ impl TerminalChoice {
             "terminal" => Some(Self::Terminal),
             "iterm2" => Some(Self::Iterm2),
             "powershell" => Some(Self::PowerShell),
-            "cmd" => Some(Self::Cmd),
             _ => None,
         }
     }
@@ -147,9 +143,8 @@ fn is_installed(choice: TerminalChoice) -> bool {
         // Terminal.app ships with macOS; assume present.
         TerminalChoice::Terminal => cfg!(target_os = "macos"),
         TerminalChoice::Iterm2 => std::path::Path::new("/Applications/iTerm.app").exists(),
-        // Both ship with supported Windows versions.
+        // PowerShell ships with supported Windows versions.
         TerminalChoice::PowerShell => cfg!(target_os = "windows"),
-        TerminalChoice::Cmd => cfg!(target_os = "windows"),
     }
 }
 
@@ -258,7 +253,28 @@ pub fn canonical_workspace_path(path: &std::path::Path) -> anyhow::Result<PathBu
     if !canonical.is_dir() {
         anyhow::bail!("workspace is not a directory: {}", canonical.display());
     }
-    Ok(canonical)
+    Ok(strip_windows_unc_prefix(canonical))
+}
+
+/// Strip the `\\?\` extended-length path prefix that `std::fs::canonicalize`
+/// adds on Windows.  CMD and many tools choke on it.
+fn strip_windows_unc_prefix(p: PathBuf) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        let s = p.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            // Only strip if it's a regular drive path (e.g. \\?\D:\...).
+            // True UNC shares like \\?\UNC\server\share must keep the prefix.
+            if rest.len() >= 2 && rest.as_bytes()[1] == b':' {
+                return PathBuf::from(rest.to_string());
+            }
+        }
+        p
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        p
+    }
 }
 
 pub fn launch_home_dir() -> anyhow::Result<PathBuf> {
