@@ -262,6 +262,20 @@ pub async fn run_web_server(
             "/proxy/{profile_id}/{target_api_type}/v1/messages",
             post(api_proxy::legacy_messages_handler),
         )
+        // Stable local API base for manually configured clients. `scope`
+        // isolates provider state such as DeepSeek reasoning/tool replay.
+        .route(
+            "/local-api/{profile_id}/{scope}/{target_api_type}/v1/responses",
+            post(api_proxy::local_responses_handler),
+        )
+        .route(
+            "/local-api/{profile_id}/{scope}/{target_api_type}/v1/chat/completions",
+            post(api_proxy::local_chat_completions_handler),
+        )
+        .route(
+            "/local-api/{profile_id}/{scope}/{target_api_type}/v1/messages",
+            post(api_proxy::local_messages_handler),
+        )
         .route(
             "/internal/agent-hooks/codex",
             post(agent_hooks::codex_hook_handler),

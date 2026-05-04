@@ -109,6 +109,7 @@ pub async fn responses_handler(
         state,
         profile_id,
         Some(launch_id),
+        None,
         target_api_type,
         ProxyProtocol::OpenAiResponses,
         headers,
@@ -127,6 +128,26 @@ pub async fn legacy_responses_handler(
         state,
         profile_id,
         None,
+        None,
+        target_api_type,
+        ProxyProtocol::OpenAiResponses,
+        headers,
+        original_request,
+    )
+    .await
+}
+
+pub async fn local_responses_handler(
+    State(state): State<AppState>,
+    Path((profile_id, scope, target_api_type)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    Json(original_request): Json<Value>,
+) -> Response {
+    proxy_handler(
+        state,
+        profile_id,
+        None,
+        Some(scope),
         target_api_type,
         ProxyProtocol::OpenAiResponses,
         headers,
@@ -145,6 +166,7 @@ pub async fn chat_completions_handler(
         state,
         profile_id,
         Some(launch_id),
+        None,
         target_api_type,
         ProxyProtocol::OpenAiChat,
         headers,
@@ -163,6 +185,26 @@ pub async fn legacy_chat_completions_handler(
         state,
         profile_id,
         None,
+        None,
+        target_api_type,
+        ProxyProtocol::OpenAiChat,
+        headers,
+        original_request,
+    )
+    .await
+}
+
+pub async fn local_chat_completions_handler(
+    State(state): State<AppState>,
+    Path((profile_id, scope, target_api_type)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    Json(original_request): Json<Value>,
+) -> Response {
+    proxy_handler(
+        state,
+        profile_id,
+        None,
+        Some(scope),
         target_api_type,
         ProxyProtocol::OpenAiChat,
         headers,
@@ -181,6 +223,7 @@ pub async fn messages_handler(
         state,
         profile_id,
         Some(launch_id),
+        None,
         target_api_type,
         ProxyProtocol::AnthropicMessages,
         headers,
@@ -199,6 +242,26 @@ pub async fn legacy_messages_handler(
         state,
         profile_id,
         None,
+        None,
+        target_api_type,
+        ProxyProtocol::AnthropicMessages,
+        headers,
+        original_request,
+    )
+    .await
+}
+
+pub async fn local_messages_handler(
+    State(state): State<AppState>,
+    Path((profile_id, scope, target_api_type)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    Json(original_request): Json<Value>,
+) -> Response {
+    proxy_handler(
+        state,
+        profile_id,
+        None,
+        Some(scope),
         target_api_type,
         ProxyProtocol::AnthropicMessages,
         headers,
@@ -211,6 +274,7 @@ async fn proxy_handler(
     state: AppState,
     profile_id: String,
     launch_id: Option<String>,
+    manual_scope: Option<String>,
     target_api_type: String,
     client_protocol: ProxyProtocol,
     headers: HeaderMap,
@@ -223,6 +287,13 @@ async fn proxy_handler(
     let codex_session_state = launch_id
         .as_deref()
         .and_then(|launch_id| state.hook_registry.codex_session_for_launch(launch_id));
+    let manual_session_id = match manual_scope.as_deref() {
+        Some(scope) => match manual_scope_session_id(scope) {
+            Ok(session_id) => Some(session_id),
+            Err(response) => return response,
+        },
+        None => None,
+    };
     let provider_context = ProviderProxyContext {
         launch_id: codex_session_state
             .as_ref()
@@ -230,7 +301,8 @@ async fn proxy_handler(
             .or_else(|| launch_id.clone()),
         session_id: codex_session_state
             .as_ref()
-            .and_then(|state| state.session_id.clone()),
+            .and_then(|state| state.session_id.clone())
+            .or(manual_session_id),
         transcript_path: codex_session_state
             .as_ref()
             .and_then(|state| state.transcript_path.clone()),
@@ -282,6 +354,7 @@ async fn proxy_handler(
         target: "server::web_server::api_proxy",
         profile_id = %profile_id,
         launch_id = ?launch_id,
+        manual_scope = ?manual_scope,
         target_api_type = %target_api_type,
         upstream = %redacted_url(&upstream.url),
         stream = stream,
@@ -320,6 +393,26 @@ async fn proxy_handler(
     }
 }
 
+fn manual_scope_session_id(scope: &str) -> Result<String, Response> {
+    if scope.is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "manual proxy scope must not be empty",
+        ));
+    }
+    if scope.len() > 128 || !scope.chars().all(is_manual_scope_char) {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "manual proxy scope must be 1-128 characters and contain only ASCII letters, digits, '.', '_' or '-'",
+        ));
+    }
+    Ok(format!("manual:{scope}"))
+}
+
+fn is_manual_scope_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-')
+}
+
 fn json_error(status: StatusCode, message: &str) -> Response {
     (
         status,
@@ -331,4 +424,25 @@ fn json_error(status: StatusCode, message: &str) -> Response {
         })),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::manual_scope_session_id;
+
+    #[test]
+    fn accepts_manual_proxy_scope() {
+        assert_eq!(
+            manual_scope_session_id("codex.project_1").unwrap(),
+            "manual:codex.project_1"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_manual_proxy_scope() {
+        assert!(manual_scope_session_id("").is_err());
+        assert!(manual_scope_session_id("codex/project").is_err());
+        assert!(manual_scope_session_id("codex project").is_err());
+        assert!(manual_scope_session_id(&"a".repeat(129)).is_err());
+    }
 }
