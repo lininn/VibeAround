@@ -6,12 +6,10 @@
 //!
 //! each containing a `plugin.json` manifest describing the plugin.
 //! Channel plugins (`kind == "channel"`) cover IM integrations like Telegram /
-//! Feishu / etc. Provider plugins (`kind == "provider"`) carry model-provider
-//! catalog metadata. Future kinds add another `plugins/<kind>.rs` sibling
-//! without changing the discovery infrastructure here.
+//! Feishu / etc. Future plugin kinds can add another `plugins/<kind>.rs`
+//! sibling without changing the discovery infrastructure here.
 
 pub mod channel;
-pub mod provider;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,7 +17,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::config;
-use crate::profiles::catalog::ProviderCatalog;
 
 pub(crate) const PLUGIN_MANIFEST_NAME: &str = "plugin.json";
 pub(crate) const PROJECT_PLUGINS_DIR: &str = "plugins";
@@ -82,8 +79,6 @@ pub struct PluginManifest {
     pub config_schema: Option<serde_json::Value>,
     #[serde(default)]
     pub capabilities: PluginCapabilities,
-    #[serde(default, rename = "providerCatalog")]
-    pub provider_catalog: Option<ProviderCatalog>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -333,7 +333,6 @@ fn discover_installed_plugin(
 ) -> Option<plugins::DiscoveredPlugin> {
     match plugin_kind {
         "channel" => plugins::channel::find(plugin_id),
-        "provider" => plugins::provider::find(plugin_id),
         _ => plugins::find(plugin_id),
     }
 }

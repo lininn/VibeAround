@@ -70,14 +70,5 @@
     "description": "Connect QQ Guild Bot via WebSocket gateway (no public IP required).",
     "github": "https://github.com/jazzenchen/va-plugin-channel-qqbot",
     "install_steps": ["git_clone", "npm_install", "npm_build"]
-  },
-  {
-    "id": "deepseek",
-    "kind": "provider",
-    "slug": "va-plugin-provider-deepseek",
-    "name": "DeepSeek",
-    "description": "Adds DeepSeek model provider catalog metadata for profile launches.",
-    "github": "https://github.com/jazzenchen/va-plugin-provider-deepseek",
-    "install_steps": ["git_clone"]
   }
 ]
