@@ -309,6 +309,9 @@ async fn proxy_handler(
     };
     let mut provider_adapter =
         ProviderProxyAdapter::for_profile(&upstream.profile, provider_context);
+    let manual_profile_api_key = manual_scope
+        .as_ref()
+        .and_then(|_| upstream.profile.credentials.get("api_key").cloned());
 
     let universal_request = match client_protocol.decode_agent_request(original_request.clone()) {
         Ok(request) => request,
@@ -345,7 +348,12 @@ async fn proxy_handler(
         .post(&upstream.url)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body(body);
-    let request = match apply_upstream_auth(request, upstream.protocol, &headers) {
+    let request = match apply_upstream_auth(
+        request,
+        upstream.protocol,
+        &headers,
+        manual_profile_api_key.as_deref(),
+    ) {
         Ok(request) => request,
         Err(response) => return response,
     };
