@@ -678,14 +678,20 @@ fn build_cmd_script(
     out
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn powershell_command_block(command: &str, args: &[String]) -> String {
+    let argv = command_words_with_args(command, args);
+    let Some((program, program_args)) = argv.split_first() else {
+        return String::new();
+    };
+
     let mut out = String::new();
     out.push_str(&format!(
         "$vaCommand = {}\n",
-        powershell_single_quoted(command)
+        powershell_single_quoted(program)
     ));
     out.push_str("$vaArgs = @(\n");
-    for arg in args {
+    for arg in program_args {
         out.push_str("  ");
         out.push_str(&powershell_single_quoted(arg));
         out.push('\n');
@@ -694,19 +700,68 @@ fn powershell_command_block(command: &str, args: &[String]) -> String {
     out
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn powershell_single_quoted(value: &str) -> String {
     format!("'{}'", escape_powershell_single_quoted(value))
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn command_with_windows_args(command: &str, args: &[String]) -> String {
-    let mut out = windows_batch_arg(command);
-    for arg in args {
-        out.push(' ');
-        out.push_str(&windows_batch_arg(arg));
-    }
-    out
+    command_words_with_args(command, args)
+        .iter()
+        .map(|arg| windows_batch_arg(arg))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn command_words_with_args(command: &str, args: &[String]) -> Vec<String> {
+    let mut words = split_command_words(command);
+    words.extend(args.iter().cloned());
+    words
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn split_command_words(command: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut chars = command.chars().peekable();
+    let mut quote: Option<char> = None;
+
+    while let Some(ch) = chars.next() {
+        match quote {
+            Some(q) if ch == q => {
+                quote = None;
+            }
+            Some('"') if ch == '\\' => {
+                if matches!(chars.peek(), Some('"') | Some('\\')) {
+                    let next = chars.next().expect("peeked next char");
+                    current.push(next);
+                } else {
+                    current.push(ch);
+                }
+            }
+            Some(_) => current.push(ch),
+            None if ch == '\'' || ch == '"' => {
+                quote = Some(ch);
+            }
+            None if ch.is_whitespace() => {
+                if !current.is_empty() {
+                    words.push(std::mem::take(&mut current));
+                }
+            }
+            None => current.push(ch),
+        }
+    }
+
+    if !current.is_empty() {
+        words.push(current);
+    }
+
+    words
+}
+
+#[cfg(any(target_os = "windows", test))]
 fn windows_batch_arg(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
@@ -810,6 +865,7 @@ fn append_bash_color_env(out: &mut String) {
     out.push_str("export CLICOLOR=${CLICOLOR:-1}\n");
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn escape_powershell_single_quoted(value: &str) -> String {
     value.replace('\'', "''")
 }
@@ -912,14 +968,19 @@ mod tests {
             "-c".to_string(),
             "hooks.SessionStart=[{ hooks = [{ command = \"\\\"C:\\Program Files\\VibeAround\\vibearound-hook.exe\\\" --agent codex\" }] }]".to_string(),
         ];
-        let block = powershell_command_block("codex", &args);
+        let block = powershell_command_block("claude code --permission-mode acceptEdits", &args);
 
+        assert!(block.contains("$vaCommand = 'claude'"));
         assert!(block.contains("$vaArgs = @("));
+        assert!(block.contains("  'code'\n"));
+        assert!(block.contains("  '--permission-mode'\n"));
+        assert!(block.contains("  'acceptEdits'\n"));
         assert!(block.contains("  '-c'\n"));
         assert!(block
             .lines()
             .any(|line| line.contains("hooks.SessionStart=")));
         assert!(!block.lines().any(|line| line.trim() == "'--agent'"));
+        assert!(!block.contains("$vaCommand = 'claude code"));
     }
 
     #[test]
@@ -928,11 +989,20 @@ mod tests {
             "-c".to_string(),
             "hooks.SessionStart=[{ hooks = [{ command = \"hook --agent codex\" }] }]".to_string(),
         ];
-        let line = command_with_windows_args("codex", &args);
+        let line = command_with_windows_args("claude code --permission-mode acceptEdits", &args);
 
-        assert!(line.starts_with("\"codex\" \"-c\" \"hooks.SessionStart="));
+        assert!(line.starts_with("\"claude\" \"code\" \"--permission-mode\" \"acceptEdits\" \"-c\" \"hooks.SessionStart="));
         assert!(line.contains("\\\"hook --agent codex\\\""));
+        assert!(!line.contains("\"--agent\""));
         assert!(!line.contains("'hooks.SessionStart"));
+    }
+
+    #[test]
+    fn split_command_words_handles_quoted_segments() {
+        assert_eq!(
+            split_command_words("\"C:\\Program Files\\tool.exe\" run 'two words'"),
+            vec!["C:\\Program Files\\tool.exe", "run", "two words"]
+        );
     }
 
     #[test]
