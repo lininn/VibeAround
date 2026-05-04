@@ -1,9 +1,8 @@
 //! Provider catalog — third-party endpoint metadata baked into the binary.
 //!
-//! Each provider has a JSON file under `src/resources/profile-catalog/`
-//! describing its supported provider API kinds (Anthropic-compatible,
-//! OpenAI-compatible, Gemini) plus per-kind auth modes, default base URLs,
-//! model lists, and render templates for native CLI adapters.
+//! Built-in providers have JSON under `src/resources/profile-catalog/`.
+//! Provider plugins discovered from the plugin directories can add or override
+//! entries using the same catalog schema.
 //!
 //! v1 is a static built-in catalog (loaded once via `LazyLock`). The
 //! intent is to migrate to a separately-versioned npm package
@@ -25,7 +24,6 @@ use serde::{Deserialize, Serialize};
 // catalog-rebuild: 2026-04-27-reasoning-effort-capability
 
 static MOONSHOT_JSON: &str = include_str!("../../../resources/profile-catalog/moonshot.json");
-static DEEPSEEK_JSON: &str = include_str!("../../../resources/profile-catalog/deepseek.json");
 static OPENROUTER_JSON: &str = include_str!("../../../resources/profile-catalog/openrouter.json");
 static MINIMAX_JSON: &str = include_str!("../../../resources/profile-catalog/minimax.json");
 static MINIMAX_GLOBAL_JSON: &str =
@@ -133,7 +131,6 @@ pub struct SettingsFileTemplate {
 static CATALOG: LazyLock<Vec<ProviderCatalog>> = LazyLock::new(|| {
     let raw = [
         ("moonshot", MOONSHOT_JSON),
-        ("deepseek", DEEPSEEK_JSON),
         ("openrouter", OPENROUTER_JSON),
         ("minimax", MINIMAX_JSON),
         ("minimax-global", MINIMAX_GLOBAL_JSON),
@@ -150,6 +147,10 @@ static CATALOG: LazyLock<Vec<ProviderCatalog>> = LazyLock::new(|| {
             // dev rather than silently dropping a provider in release.
             Err(e) => panic!("profile-catalog: failed to parse {}: {}", id, e),
         }
+    }
+
+    for plugin_catalog in crate::plugins::provider::catalogs() {
+        upsert_provider_catalog(&mut out, plugin_catalog);
     }
     out
 });
@@ -300,6 +301,17 @@ fn btree_kv(pairs: &[(&str, &str)]) -> std::collections::BTreeMap<String, String
         .collect()
 }
 
+fn upsert_provider_catalog(catalogs: &mut Vec<ProviderCatalog>, catalog: ProviderCatalog) {
+    if let Some(existing) = catalogs
+        .iter_mut()
+        .find(|existing| existing.id == catalog.id)
+    {
+        *existing = catalog;
+    } else {
+        catalogs.push(catalog);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -316,7 +328,6 @@ mod tests {
         let entries = all();
         assert!(entries.len() >= 5);
         assert!(get("moonshot").is_some());
-        assert!(get("deepseek").is_some());
         assert!(get("openrouter").is_some());
         assert!(get("minimax").is_some());
         assert!(get("zai").is_some());

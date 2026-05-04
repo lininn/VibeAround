@@ -1,17 +1,17 @@
 //! Plugin discovery and manifest schema.
 //!
 //! Plugins are disk-resident directories under either
-//! - `~/.vibearound/plugins/<plugin-id>/` (user-installed), or
-//! - `<repo>/plugins/<plugin-id>/` (project, dev-only),
+//! - `~/.vibearound/plugins/<plugin-slug>/` (user-installed), or
+//! - `<repo>/plugins/<plugin-slug>/` (project, dev-only),
 //!
 //! each containing a `plugin.json` manifest describing the plugin.
-//! Today only **channel plugins** (`kind == "channel"`) exist — IM
-//! integrations like Telegram / Feishu / etc. Future kinds (`"agent"`
-//! for pluggable coding CLIs / model providers) would add a
-//! `plugins/<kind>.rs` sibling to [`channel`] without changing the
-//! discovery infrastructure here.
+//! Channel plugins (`kind == "channel"`) cover IM integrations like Telegram /
+//! Feishu / etc. Provider plugins (`kind == "provider"`) carry model-provider
+//! catalog metadata. Future kinds add another `plugins/<kind>.rs` sibling
+//! without changing the discovery infrastructure here.
 
 pub mod channel;
+pub mod provider;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::config;
+use crate::profiles::catalog::ProviderCatalog;
 
 pub(crate) const PLUGIN_MANIFEST_NAME: &str = "plugin.json";
 pub(crate) const PROJECT_PLUGINS_DIR: &str = "plugins";
@@ -70,7 +71,9 @@ pub struct PluginManifest {
     pub version: String,
     #[serde(default, alias = "type")]
     pub kind: String,
+    #[serde(default)]
     pub runtime: String,
+    #[serde(default)]
     pub entry: String,
     pub build: Option<String>,
     #[serde(rename = "minHostVersion")]
@@ -79,6 +82,8 @@ pub struct PluginManifest {
     pub config_schema: Option<serde_json::Value>,
     #[serde(default)]
     pub capabilities: PluginCapabilities,
+    #[serde(default, rename = "providerCatalog")]
+    pub provider_catalog: Option<ProviderCatalog>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -159,6 +164,11 @@ pub fn discover_plugins() -> HashMap<String, DiscoveredPlugin> {
     load_plugins_from_dir(&user_plugins_dir(), PluginSource::User, &mut discovered);
 
     discovered
+}
+
+/// Look up any plugin kind by manifest id.
+pub fn find(plugin_id: &str) -> Option<DiscoveredPlugin> {
+    discover_plugins().remove(plugin_id)
 }
 
 pub fn user_plugins_dir() -> PathBuf {

@@ -16,6 +16,8 @@ export interface TunnelSummary {
 
 export interface PluginRegistryEntry {
   id: string;
+  kind: string;
+  slug: string;
   name: string;
   description: string;
   github: string;

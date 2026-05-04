@@ -111,11 +111,29 @@ pub struct TunnelOverride {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginDef {
     pub id: String,
+    #[serde(default = "default_plugin_kind")]
+    pub kind: String,
+    #[serde(default)]
+    pub slug: Option<String>,
     pub name: String,
     pub description: String,
     pub github: String,
     #[serde(default)]
     pub install_steps: Vec<String>,
+}
+
+impl PluginDef {
+    pub fn is_kind(&self, kind: &str) -> bool {
+        self.kind == kind
+    }
+
+    pub fn install_dir_name(&self) -> &str {
+        self.slug.as_deref().unwrap_or(&self.id)
+    }
+}
+
+fn default_plugin_kind() -> String {
+    "channel".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -318,6 +336,17 @@ mod tests {
         assert!(agent_by_id("gemini").is_some());
         assert!(agent_by_alias("claude-code").is_some());
         assert!(agent_by_alias("nonexistent").is_none());
+    }
+
+    #[test]
+    fn plugin_registry_uses_kind_and_slug() {
+        let telegram = plugin_by_id("telegram").expect("telegram plugin must exist");
+        assert!(telegram.is_kind("channel"));
+        assert_eq!(telegram.install_dir_name(), "va-plugin-channel-telegram");
+
+        let deepseek = plugin_by_id("deepseek").expect("deepseek plugin must exist");
+        assert!(deepseek.is_kind("provider"));
+        assert_eq!(deepseek.install_dir_name(), "va-plugin-provider-deepseek");
     }
 
     #[test]
