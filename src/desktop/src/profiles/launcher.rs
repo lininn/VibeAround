@@ -6,9 +6,9 @@
 //!
 //! # Security
 //!
-//! - All env values + the cwd path are run through `shell_escape::unix::escape`
-//!   before being interpolated into the bash script. The script itself is
-//!   written 0600 and self-deletes on its first line so a `cat` between
+//! - Env values, cwd paths, and CLI args are escaped by the target shell's
+//!   rules before being interpolated into the launch script. The script itself
+//!   is written 0600 and self-deletes on its first line so a `cat` between
 //!   spawn and exec is a narrow race window.
 //! - The script path passed to AppleScript is escaped against AppleScript
 //!   string semantics (a separate ruleset from POSIX shell quoting); the
@@ -62,6 +62,7 @@ pub fn launch_direct(agent_id: &str) -> anyhow::Result<()> {
     spawn_terminal(
         &[],
         &agent.pty.command,
+        &[],
         &format!("{} (direct)", agent.display_name),
         &workspace,
     )
@@ -84,10 +85,15 @@ fn do_launch(
     let agent_id = profiles::runtime::agent_id_for(launch_target)?;
     let agent = resources::agent_by_id(agent_id)
         .ok_or_else(|| anyhow!("agent '{}' not found in agents.json", agent_id))?;
-    let pty_command = command_with_args(&agent.pty.command, &command_args);
     let workspace = terminal::resolve_workspace_preference()?;
 
-    spawn_terminal(&env, &pty_command, &profile.label, &workspace)?;
+    spawn_terminal(
+        &env,
+        &agent.pty.command,
+        &command_args,
+        &profile.label,
+        &workspace,
+    )?;
     Ok(())
 }
 
@@ -132,7 +138,7 @@ fn apply_codex_session_hooks(
     Ok(())
 }
 
-fn command_with_args(command: &str, args: &[String]) -> String {
+fn command_with_unix_args(command: &str, args: &[String]) -> String {
     if args.is_empty() {
         return command.to_string();
     }
@@ -484,12 +490,13 @@ fn toml_basic_string(s: &str) -> String {
 fn spawn_terminal(
     env: &[(String, String)],
     command: &str,
+    args: &[String],
     window_label: &str,
     workspace: &Path,
 ) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
-    let script = build_bash_script(env, command, window_label, workspace);
+    let script = build_bash_script(env, command, args, window_label, workspace);
     let script_path = std::env::temp_dir().join(format!(
         "vibearound-launch-{}.command",
         uuid::Uuid::new_v4()
@@ -531,6 +538,7 @@ fn spawn_terminal(
 fn spawn_terminal(
     _env: &[(String, String)],
     _command: &str,
+    _args: &[String],
     _window_label: &str,
     _workspace: &Path,
 ) -> anyhow::Result<()> {
@@ -545,11 +553,13 @@ fn spawn_terminal(
 fn spawn_terminal(
     env: &[(String, String)],
     command: &str,
+    args: &[String],
     window_label: &str,
     workspace: &Path,
 ) -> anyhow::Result<()> {
     let choice = terminal::read_preference();
-    let script_path = write_windows_launch_script(env, command, window_label, choice, workspace)?;
+    let script_path =
+        write_windows_launch_script(env, command, args, window_label, choice, workspace)?;
     let title = format!("VibeAround - {}", window_label);
 
     let params = match choice {
@@ -579,6 +589,7 @@ fn spawn_terminal(
 fn write_windows_launch_script(
     env: &[(String, String)],
     command: &str,
+    args: &[String],
     window_label: &str,
     choice: TerminalChoice,
     workspace: &Path,
@@ -595,9 +606,9 @@ fn write_windows_launch_script(
 
     let body = match choice {
         TerminalChoice::PowerShell => {
-            build_powershell_script(env, command, window_label, workspace)
+            build_powershell_script(env, command, args, window_label, workspace)
         }
-        TerminalChoice::Cmd => build_cmd_script(env, command, window_label, workspace),
+        TerminalChoice::Cmd => build_cmd_script(env, command, args, window_label, workspace),
         other => bail!("terminal '{}' is not supported on Windows", other.id()),
     };
 
@@ -611,6 +622,7 @@ fn write_windows_launch_script(
 fn build_powershell_script(
     env: &[(String, String)],
     command: &str,
+    args: &[String],
     window_label: &str,
     workspace: &Path,
 ) -> String {
@@ -627,8 +639,8 @@ fn build_powershell_script(
         "Set-Location -LiteralPath '{}'\n",
         escape_powershell_single_quoted(&workspace.to_string_lossy())
     ));
-    out.push_str(command);
-    out.push_str("\n");
+    out.push_str(&powershell_command_block(command, args));
+    out.push('\n');
     out.push_str("if ($LASTEXITCODE -ne $null -and $LASTEXITCODE -ne 0) {\n");
     out.push_str("  Write-Host \"`nCommand exited with code $LASTEXITCODE\"\n");
     out.push_str("}\n");
@@ -641,6 +653,7 @@ fn build_powershell_script(
 fn build_cmd_script(
     env: &[(String, String)],
     command: &str,
+    args: &[String],
     window_label: &str,
     workspace: &Path,
 ) -> String {
@@ -656,12 +669,87 @@ fn build_cmd_script(
         "cd /d \"{}\"\r\n",
         escape_cmd_quoted(&workspace.to_string_lossy())
     ));
-    out.push_str(command);
+    out.push_str(&command_with_windows_args(command, args));
     out.push_str("\r\n");
     out.push_str("set \"VA_EXIT=%ERRORLEVEL%\"\r\n");
     out.push_str("if not \"%VA_EXIT%\"==\"0\" echo.\r\n");
     out.push_str("if not \"%VA_EXIT%\"==\"0\" echo Command exited with code %VA_EXIT%\r\n");
     out.push_str("del \"%~f0\" >nul 2>nul\r\n");
+    out
+}
+
+fn powershell_command_block(command: &str, args: &[String]) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "$vaCommand = {}\n",
+        powershell_single_quoted(command)
+    ));
+    out.push_str("$vaArgs = @(\n");
+    for arg in args {
+        out.push_str("  ");
+        out.push_str(&powershell_single_quoted(arg));
+        out.push('\n');
+    }
+    out.push_str(")\n& $vaCommand @vaArgs");
+    out
+}
+
+fn powershell_single_quoted(value: &str) -> String {
+    format!("'{}'", escape_powershell_single_quoted(value))
+}
+
+fn command_with_windows_args(command: &str, args: &[String]) -> String {
+    let mut out = windows_batch_arg(command);
+    for arg in args {
+        out.push(' ');
+        out.push_str(&windows_batch_arg(arg));
+    }
+    out
+}
+
+fn windows_batch_arg(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+
+    let mut pending_backslashes = 0usize;
+    for ch in value.chars() {
+        match ch {
+            '\\' => pending_backslashes += 1,
+            '"' => {
+                for _ in 0..(pending_backslashes * 2 + 1) {
+                    out.push('\\');
+                }
+                out.push('"');
+                pending_backslashes = 0;
+            }
+            '%' => {
+                for _ in 0..pending_backslashes {
+                    out.push('\\');
+                }
+                pending_backslashes = 0;
+                out.push_str("%%");
+            }
+            '\r' | '\n' => {
+                for _ in 0..pending_backslashes {
+                    out.push('\\');
+                }
+                pending_backslashes = 0;
+                out.push(' ');
+            }
+            other => {
+                for _ in 0..pending_backslashes {
+                    out.push('\\');
+                }
+                pending_backslashes = 0;
+                out.push(other);
+            }
+        }
+    }
+
+    for _ in 0..(pending_backslashes * 2) {
+        out.push('\\');
+    }
+    out.push('"');
     out
 }
 
@@ -672,6 +760,7 @@ fn build_cmd_script(
 fn build_bash_script(
     env: &[(String, String)],
     command: &str,
+    args: &[String],
     window_label: &str,
     workspace: &Path,
 ) -> String {
@@ -708,7 +797,7 @@ fn build_bash_script(
     let workspace_string = workspace.to_string_lossy();
     let cwd = shell_escape::unix::escape(std::borrow::Cow::Borrowed(workspace_string.as_ref()));
     out.push_str(&format!("cd {}\n", cwd));
-    out.push_str(&format!("exec {}\n", command));
+    out.push_str(&format!("exec {}\n", command_with_unix_args(command, args)));
     out
 }
 
@@ -721,7 +810,6 @@ fn append_bash_color_env(out: &mut String) {
     out.push_str("export CLICOLOR=${CLICOLOR:-1}\n");
 }
 
-#[cfg(target_os = "windows")]
 fn escape_powershell_single_quoted(value: &str) -> String {
     value.replace('\'', "''")
 }
@@ -767,7 +855,7 @@ mod tests {
             "ANTHROPIC_API_KEY".to_string(),
             "hi$(touch /tmp/pwned)".to_string(),
         )];
-        let script = build_bash_script(&env, "claude", "Test", Path::new("/tmp/work dir"));
+        let script = build_bash_script(&env, "claude", &[], "Test", Path::new("/tmp/work dir"));
         // The export line must contain the payload as a *literal* — i.e.
         // single-quoted by shell_escape — not as an unquoted command
         // substitution that bash would actually evaluate.
@@ -781,7 +869,7 @@ mod tests {
 
     #[test]
     fn build_bash_script_includes_self_delete_first() {
-        let script = build_bash_script(&[], "claude", "x", Path::new("/tmp/work dir"));
+        let script = build_bash_script(&[], "claude", &[], "x", Path::new("/tmp/work dir"));
         let lines: Vec<&str> = script.lines().collect();
         assert_eq!(lines[0], "#!/bin/bash");
         assert_eq!(lines[1], "rm -- \"$0\"");
@@ -789,14 +877,14 @@ mod tests {
 
     #[test]
     fn build_bash_script_cd_selected_workspace() {
-        let script = build_bash_script(&[], "claude", "x", Path::new("/tmp/my project"));
+        let script = build_bash_script(&[], "claude", &[], "x", Path::new("/tmp/my project"));
         assert!(script.contains("cd '/tmp/my project'\n"));
     }
 
     #[test]
     fn build_bash_script_restores_color_capable_terminal_env() {
         let env = vec![("NO_COLOR".to_string(), "1".to_string())];
-        let script = build_bash_script(&env, "codex", "x", Path::new("/tmp/work dir"));
+        let script = build_bash_script(&env, "codex", &[], "x", Path::new("/tmp/work dir"));
 
         assert!(script.contains("export NO_COLOR=1\n"));
         assert!(script.contains("unset NO_COLOR\n"));
@@ -804,6 +892,47 @@ mod tests {
         assert!(script.contains("export COLORTERM=${COLORTERM:-truecolor}\n"));
         assert!(script.contains("export CLICOLOR=${CLICOLOR:-1}\n"));
         assert!(script.find("export NO_COLOR=1").unwrap() < script.find("unset NO_COLOR").unwrap());
+    }
+
+    #[test]
+    fn build_bash_script_appends_unix_escaped_args() {
+        let args = vec![
+            "-c".to_string(),
+            "hooks.SessionStart=[{ hooks = [{ command = \"hook --agent codex\" }] }]".to_string(),
+        ];
+        let script = build_bash_script(&[], "codex", &args, "x", Path::new("/tmp/work dir"));
+
+        assert!(script.contains("exec codex -c 'hooks.SessionStart="));
+        assert!(script.contains("--agent codex"));
+    }
+
+    #[test]
+    fn powershell_command_block_keeps_hook_config_as_one_arg() {
+        let args = vec![
+            "-c".to_string(),
+            "hooks.SessionStart=[{ hooks = [{ command = \"\\\"C:\\Program Files\\VibeAround\\vibearound-hook.exe\\\" --agent codex\" }] }]".to_string(),
+        ];
+        let block = powershell_command_block("codex", &args);
+
+        assert!(block.contains("$vaArgs = @("));
+        assert!(block.contains("  '-c'\n"));
+        assert!(block
+            .lines()
+            .any(|line| line.contains("hooks.SessionStart=")));
+        assert!(!block.lines().any(|line| line.trim() == "'--agent'"));
+    }
+
+    #[test]
+    fn windows_command_line_does_not_use_unix_quotes() {
+        let args = vec![
+            "-c".to_string(),
+            "hooks.SessionStart=[{ hooks = [{ command = \"hook --agent codex\" }] }]".to_string(),
+        ];
+        let line = command_with_windows_args("codex", &args);
+
+        assert!(line.starts_with("\"codex\" \"-c\" \"hooks.SessionStart="));
+        assert!(line.contains("\\\"hook --agent codex\\\""));
+        assert!(!line.contains("'hooks.SessionStart"));
     }
 
     #[test]
