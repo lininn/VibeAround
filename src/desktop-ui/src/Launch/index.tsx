@@ -268,6 +268,7 @@ export function Launch() {
               onSetDefault={(agentId) => handleSetDefault(agentId, null)}
               busy={directBusy}
               defaultAgent={prefs?.defaultAgent}
+              enabledAgents={prefs?.enabledAgents}
               defaultProfiles={prefs?.defaultProfiles}
             />
 

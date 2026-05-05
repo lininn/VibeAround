@@ -301,6 +301,8 @@ pub struct LauncherPreferences {
     pub workspace_options: Vec<WorkspaceOption>,
     /// Canonical agent id used by Quick Launch and IM defaults.
     pub default_agent: String,
+    /// Agent ids enabled by onboarding/settings.json.
+    pub enabled_agents: Vec<String>,
     /// Per-agent profile defaults from settings.json.
     pub default_profiles: std::collections::BTreeMap<String, String>,
     /// Global policy for wrapping OpenAI-compatible profile launches through
@@ -347,6 +349,7 @@ pub fn launcher_get_preferences() -> LauncherPreferences {
         workspace,
         workspace_options,
         default_agent: canonical_agent_id(&cfg.default_agent),
+        enabled_agents: cfg.enabled_agents.clone(),
         default_profiles: cfg.default_profiles.clone(),
         compatibility_proxy: terminal::read_compatibility_proxy_preference(),
         profile_connections: terminal::read_profile_connections(),

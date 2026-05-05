@@ -6,7 +6,7 @@ import { useI18n } from "@va/i18n";
 import { Button } from "@/components/ui/button";
 import { LanguageMenu } from "@/components/LanguageMenu";
 
-import { ONBOARDING_GOALS, STEPS } from "./constants";
+import { STEPS } from "./constants";
 import { StepAgents } from "./components/StepAgents";
 import { StepChannels } from "./components/StepChannels";
 import { StepConfirm } from "./components/StepConfirm";
@@ -58,7 +58,7 @@ export default function Onboarding() {
   const { t } = useI18n();
   const [step, setStep] = useState(0);
   const [selectedGoals, setSelectedGoals] = useState<Set<OnboardingGoal>>(
-    () => new Set(ONBOARDING_GOALS),
+    () => new Set<OnboardingGoal>(),
   );
   const [settings, setSettings] = useState<Settings>({});
   const [discoveredPlugins, setDiscoveredPlugins] = useState<DiscoveredChannelPlugin[]>([]);
@@ -307,9 +307,7 @@ export default function Onboarding() {
   }
 
   const isLast = step === visibleSteps.length - 1;
-  const canNext =
-    (currentStep !== "Goals" || selectedGoals.size > 0) &&
-    (currentStep !== "Quick Launch" || enabledAgents.size > 0);
+  const canNext = currentStep !== "Quick Launch" || enabledAgents.size > 0;
 
   return (
     <div className="flex flex-col h-full bg-background">

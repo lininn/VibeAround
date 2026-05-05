@@ -72,6 +72,7 @@ export interface LauncherPreferences {
   workspace: string;
   workspaceOptions: WorkspaceOption[];
   defaultAgent: string;
+  enabledAgents: string[];
   defaultProfiles: Record<string, string>;
   compatibilityProxy: CompatibilityProxyMode;
   profileConnections: ProfileConnections;

@@ -184,6 +184,23 @@ const zhCN: Record<string, string> = {
   "Default route": "默认路径",
   "Enable proxy": "启用代理",
   "Proxy target": "代理目标",
+  "Manual setting": "手动配置",
+  "{{agent}} manual setting": "{{agent}} 手动配置",
+  "Copy this snippet into the CLI config file yourself. VibeAround does not edit the file automatically.":
+    "把这段配置自行粘贴到 CLI 配置文件里。VibeAround 不会自动改写文件。",
+  "Configuration file": "配置文件",
+  "How to modify": "修改方法",
+  "Open the Codex config file, then add this snippet or update the existing VibeAround profile block.":
+    "打开 Codex 配置文件，添加这段配置，或更新已有的 VibeAround profile 配置块。",
+  "The top-level profile line makes plain codex use this VibeAround profile by default.":
+    "顶层 profile 行会让直接运行 codex 时默认使用这个 VibeAround profile。",
+  "Paste this property inside the root JSON object of Claude settings.":
+    "把这个属性粘贴到 Claude settings 的根 JSON 对象里。",
+  "If env already exists, merge these keys into the existing env object instead of creating another env block.":
+    "如果已经有 env，请把这些 key 合并到已有 env 对象里，不要再创建第二个 env。",
+  "Config snippet": "配置片段",
+  "Codex config snippet": "Codex 配置片段",
+  "Copy config": "复制配置",
   "via proxy": "通过代理",
   unsupported: "不支持",
   "{{agent}} routes through proxy to {{provider}} {{apiType}}":
