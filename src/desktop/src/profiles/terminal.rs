@@ -11,7 +11,7 @@
 //! No catalog changes; no schema migration.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,14 @@ pub enum TerminalChoice {
     Terminal,
     Iterm2,
     PowerShell,
+    SystemTerminal,
+    GnomeTerminal,
+    Konsole,
+    XfceTerminal,
+    Xterm,
+    Kitty,
+    Alacritty,
+    WezTerm,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -78,13 +86,30 @@ impl TerminalChoice {
     #[cfg(target_os = "windows")]
     pub const ALL: &'static [TerminalChoice] = &[Self::PowerShell];
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    pub const ALL: &'static [TerminalChoice] = &[];
+    pub const ALL: &'static [TerminalChoice] = &[
+        Self::SystemTerminal,
+        Self::GnomeTerminal,
+        Self::Konsole,
+        Self::XfceTerminal,
+        Self::Xterm,
+        Self::Kitty,
+        Self::Alacritty,
+        Self::WezTerm,
+    ];
 
     pub fn id(self) -> &'static str {
         match self {
             Self::Terminal => "terminal",
             Self::Iterm2 => "iterm2",
             Self::PowerShell => "powershell",
+            Self::SystemTerminal => "system-terminal",
+            Self::GnomeTerminal => "gnome-terminal",
+            Self::Konsole => "konsole",
+            Self::XfceTerminal => "xfce4-terminal",
+            Self::Xterm => "xterm",
+            Self::Kitty => "kitty",
+            Self::Alacritty => "alacritty",
+            Self::WezTerm => "wezterm",
         }
     }
 
@@ -93,6 +118,14 @@ impl TerminalChoice {
             Self::Terminal => "Terminal.app",
             Self::Iterm2 => "iTerm2",
             Self::PowerShell => "PowerShell",
+            Self::SystemTerminal => "System terminal",
+            Self::GnomeTerminal => "GNOME Terminal",
+            Self::Konsole => "Konsole",
+            Self::XfceTerminal => "XFCE Terminal",
+            Self::Xterm => "xterm",
+            Self::Kitty => "Kitty",
+            Self::Alacritty => "Alacritty",
+            Self::WezTerm => "WezTerm",
         }
     }
 
@@ -101,6 +134,14 @@ impl TerminalChoice {
             "terminal" => Some(Self::Terminal),
             "iterm2" => Some(Self::Iterm2),
             "powershell" => Some(Self::PowerShell),
+            "system-terminal" => Some(Self::SystemTerminal),
+            "gnome-terminal" => Some(Self::GnomeTerminal),
+            "konsole" => Some(Self::Konsole),
+            "xfce4-terminal" => Some(Self::XfceTerminal),
+            "xterm" => Some(Self::Xterm),
+            "kitty" => Some(Self::Kitty),
+            "alacritty" => Some(Self::Alacritty),
+            "wezterm" => Some(Self::WezTerm),
             _ => None,
         }
     }
@@ -116,7 +157,7 @@ impl TerminalChoice {
         }
         #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
-            Self::Terminal
+            Self::SystemTerminal
         }
     }
 }
@@ -145,6 +186,53 @@ fn is_installed(choice: TerminalChoice) -> bool {
         TerminalChoice::Iterm2 => std::path::Path::new("/Applications/iTerm.app").exists(),
         // PowerShell ships with supported Windows versions.
         TerminalChoice::PowerShell => cfg!(target_os = "windows"),
+        TerminalChoice::SystemTerminal => [
+            "xdg-terminal-exec",
+            "x-terminal-emulator",
+            "gnome-terminal",
+            "konsole",
+            "xfce4-terminal",
+            "kitty",
+            "alacritty",
+            "wezterm",
+            "xterm",
+        ]
+        .iter()
+        .any(|program| command_in_path(program)),
+        TerminalChoice::GnomeTerminal => command_in_path("gnome-terminal"),
+        TerminalChoice::Konsole => command_in_path("konsole"),
+        TerminalChoice::XfceTerminal => command_in_path("xfce4-terminal"),
+        TerminalChoice::Xterm => command_in_path("xterm"),
+        TerminalChoice::Kitty => command_in_path("kitty"),
+        TerminalChoice::Alacritty => command_in_path("alacritty"),
+        TerminalChoice::WezTerm => command_in_path("wezterm"),
+    }
+}
+
+fn command_in_path(program: &str) -> bool {
+    let Some(path_var) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path_var).any(|dir| is_executable_file(&dir.join(program)))
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+
+    #[cfg(not(unix))]
+    {
+        true
     }
 }
 

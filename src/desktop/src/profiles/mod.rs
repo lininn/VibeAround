@@ -419,6 +419,12 @@ pub fn launcher_set_default(
 pub fn launcher_set_terminal(terminal_id: String) -> Result<(), String> {
     let choice = terminal::TerminalChoice::from_id(&terminal_id)
         .ok_or_else(|| format!("unknown terminal: '{}'", terminal_id))?;
+    if !terminal::TerminalChoice::ALL.contains(&choice) {
+        return Err(format!(
+            "terminal '{}' is not supported on this platform",
+            terminal_id
+        ));
+    }
     terminal::write_preference(choice).map_err(|e| e.to_string())
 }
 

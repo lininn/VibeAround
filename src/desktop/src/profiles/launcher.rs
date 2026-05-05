@@ -18,6 +18,11 @@ mod platform;
 #[path = "launcher/linux.rs"]
 mod platform;
 
+#[cfg(all(test, target_os = "macos"))]
+#[allow(dead_code)]
+#[path = "launcher/linux.rs"]
+mod linux_for_tests;
+
 use self::common::LaunchPlan;
 use ::common::{profiles, resources};
 use anyhow::anyhow;
