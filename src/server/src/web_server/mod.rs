@@ -110,8 +110,35 @@ async fn spa_fallback(dist_path: PathBuf) -> Response {
 
 async fn spa_fallback_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
+    axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
 ) -> Response {
+    if is_dashboard_api_path(uri.path()) {
+        return (
+            StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({
+                "error": {
+                    "message": "API route not found",
+                    "type": "vibearound_proxy_error",
+                }
+            })),
+        )
+            .into_response();
+    }
+
     spa_fallback(state.dist_for_fallback.clone()).await
+}
+
+fn is_dashboard_api_path(path: &str) -> bool {
+    [
+        "/va/local-api/",
+        "/local-api/",
+        "/va/proxy/",
+        "/proxy/",
+        "/va/openai-proxy/",
+        "/openai-proxy/",
+    ]
+    .into_iter()
+    .any(|prefix| path.starts_with(prefix))
 }
 
 /// Runs the Axum server (static files + WebSocket + session API). Binds to 127.0.0.1 (localhost only).
@@ -362,4 +389,27 @@ fn build_cors_layer(port: u16) -> tower_http::cors::CorsLayer {
             // `bypass-tunnel-reminder` is set by the SPA for loca.lt tunnels.
             axum::http::HeaderName::from_static("bypass-tunnel-reminder"),
         ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_dashboard_api_path;
+
+    #[test]
+    fn recognizes_dashboard_api_fallback_paths() {
+        assert!(is_dashboard_api_path(
+            "/va/local-api/deepseek/scope/extra/openai-chat/v1/responses"
+        ));
+        assert!(is_dashboard_api_path(
+            "/local-api/deepseek/scope/extra/openai-chat/v1/responses"
+        ));
+        assert!(is_dashboard_api_path(
+            "/va/proxy/profile/openai-chat/v1/responses"
+        ));
+        assert!(is_dashboard_api_path(
+            "/va/openai-proxy/profile/v1/responses"
+        ));
+        assert!(!is_dashboard_api_path("/va/"));
+        assert!(!is_dashboard_api_path("/va/assets/index.css"));
+    }
 }
