@@ -31,6 +31,13 @@ import { useI18n } from "@va/i18n";
 import { BrandIcon } from "@/components/brand-icon";
 import { Button } from "@/components/ui/button";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -45,7 +52,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  CONNECTION_AGENTS,
   apiTypeRouteLabel,
+  apiTypeProtocolLabel,
   resolveProfileConnection,
   type ConnectionAgentDef,
 } from "./connections";
@@ -63,11 +72,16 @@ import {
   removeLauncherWorkspace,
   reorderLauncherWorkspaces,
   reorderProfiles,
+  setProfileConnection,
+  setLauncherAgentProfile,
   setLauncherDefault,
+  setLauncherSelectedAgent,
+  setLauncherTerminal,
   setLauncherWorkspace,
   type AgentSummary,
   type LaunchSessionSummary,
   type LauncherPreferences,
+  type TerminalOption,
   type WorkspaceOption,
 } from "./api";
 import type { ConnectionAgentId, ProfileSummary } from "./types";
@@ -81,7 +95,7 @@ const AGENT_ORDER = [
   "qwen-code",
   "opencode",
 ];
-const PROXY_AGENTS = new Set<string>(["claude", "codex"]);
+const PROXY_AGENTS = new Set<string>(["claude", "codex", "opencode"]);
 const SESSION_RESUME_AGENTS = new Set<string>([
   "claude",
   "codex",
@@ -104,7 +118,10 @@ interface Props {
   onProfilesChange: (profiles: ProfileSummary[]) => void;
   onNewProfile: () => void;
   onEditProfile: (profile: ProfileSummary) => void;
-  onConnectionSettings: (profile: ProfileSummary) => void;
+  onConnectionSettings: (
+    profile: ProfileSummary,
+    agentId: ConnectionAgentId,
+  ) => void;
   onError: (message: string | null) => void;
   onToast: (message: string | null) => void;
 }
@@ -146,9 +163,10 @@ export function AgentLaunchBuilder({
     if (!prefs) return null;
     return {
       ...prefs,
+      workspace: agentWorkspace(prefs, agentId),
       workspaceOptions: workspaceOptions ?? prefs.workspaceOptions,
     };
-  }, [prefs, workspaceOptions]);
+  }, [prefs, workspaceOptions, agentId]);
 
   useEffect(() => {
     void listAgents()
@@ -171,9 +189,11 @@ export function AgentLaunchBuilder({
     if (!prefs) return;
     if (agentId && agents.some((agent) => agent.id === agentId)) return;
     const preferredAgent = agents.some(
-      (agent) => agent.id === prefs.defaultAgent,
+      (agent) => agent.id === prefs.selectedAgent,
     )
-      ? prefs.defaultAgent
+      ? prefs.selectedAgent
+      : agents.some((agent) => agent.id === prefs.defaultAgent)
+        ? prefs.defaultAgent
       : (agents[0]?.id ?? "");
     setAgentId(preferredAgent);
   }, [agentId, agents, prefs]);
@@ -194,7 +214,7 @@ export function AgentLaunchBuilder({
         }
       }
 
-      const defaultProfileId = prefs.defaultProfiles[agentId];
+      const defaultProfileId = agentProfileId(prefs, agentId);
       if (
         defaultProfileId &&
         profileSupportsAgent(
@@ -214,7 +234,7 @@ export function AgentLaunchBuilder({
   }, [agentId, prefs, profileChoiceAgentId, profiles]);
 
   useEffect(() => {
-    if (!prefs) {
+    if (!prefs || !agentId) {
       setWorkspaceOptions(null);
       setWorkspacesLoading(false);
       return;
@@ -222,7 +242,7 @@ export function AgentLaunchBuilder({
 
     let cancelled = false;
     setWorkspacesLoading(true);
-    void listLauncherWorkspaces()
+    void listLauncherWorkspaces(agentId)
       .then((items) => {
         if (!cancelled) setWorkspaceOptions(items);
       })
@@ -238,10 +258,12 @@ export function AgentLaunchBuilder({
     return () => {
       cancelled = true;
     };
-  }, [prefs, onError]);
+  }, [prefs, agentId, onError]);
+
+  const currentAgentWorkspace = prefs ? agentWorkspace(prefs, agentId) : "";
 
   useEffect(() => {
-    if (!agentId || !prefs?.workspace) {
+    if (!agentId || !currentAgentWorkspace) {
       setSessions([]);
       setSessionsLoading(false);
       return;
@@ -254,7 +276,7 @@ export function AgentLaunchBuilder({
     }
     let cancelled = false;
     setSessionsLoading(true);
-    void listLaunchSessions(agentId, prefs.workspace, showArchivedSessions)
+    void listLaunchSessions(agentId, currentAgentWorkspace, showArchivedSessions)
       .then((items) => {
         if (cancelled) return;
         setSessions(items);
@@ -277,7 +299,7 @@ export function AgentLaunchBuilder({
     return () => {
       cancelled = true;
     };
-  }, [agentId, prefs?.workspace, showArchivedSessions, onError]);
+  }, [agentId, currentAgentWorkspace, showArchivedSessions, onError]);
 
   const selectedAgent = agents.find((agent) => agent.id === agentId);
   const selectedProfile =
@@ -293,6 +315,7 @@ export function AgentLaunchBuilder({
     [sessions, showArchivedSessions],
   );
   const selectedWorkspace = currentWorkspace(viewPrefs);
+  const selectedTerminal = currentTerminal(viewPrefs);
   const selectedSession = resolveSelectedSession(
     sessionChoice,
     visibleSessions,
@@ -334,14 +357,57 @@ export function AgentLaunchBuilder({
     onProfilesChange(await listProfiles());
   }
 
+  async function chooseAgent(nextAgentId: string) {
+    setAgentId(nextAgentId);
+    setExpanded("profile");
+    setSessionChoice(null);
+    onError(null);
+    try {
+      await setLauncherSelectedAgent(nextAgentId);
+      await refreshPrefs();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function chooseProfileChoice(choice: ProfileChoice) {
+    setProfileChoice(choice);
+    if (!agentId) return;
+    onError(null);
+    try {
+      await setLauncherAgentProfile(
+        agentId,
+        choice.kind === "profile" ? choice.profileId : null,
+      );
+      await refreshPrefs();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function chooseProfileApiType(profile: ProfileSummary, apiType: string) {
+    if (!viewPrefs || !isProxyAgent(agentId)) return;
+    const current = viewPrefs.profileConnections[profile.id]?.[agentId] ?? {};
+    onError(null);
+    try {
+      await setProfileConnection(profile.id, agentId, {
+        ...current,
+        selectedApiType: apiType,
+      });
+      await refreshPrefs();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function chooseWorkspace(path: string) {
-    if (!prefs || path === prefs.workspace) {
+    if (!prefs || !agentId || path === agentWorkspace(prefs, agentId)) {
       return;
     }
     setBusy(true);
     onError(null);
     try {
-      await setLauncherWorkspace(path);
+      await setLauncherWorkspace(path, agentId);
       await refreshPrefs();
       setSessionChoice(null);
     } catch (error) {
@@ -351,7 +417,22 @@ export function AgentLaunchBuilder({
     }
   }
 
+  async function chooseTerminal(terminalId: string) {
+    if (!viewPrefs || terminalId === viewPrefs.terminal) return;
+    setBusy(true);
+    onError(null);
+    try {
+      await setLauncherTerminal(terminalId);
+      await refreshPrefs();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function chooseFolder() {
+    if (!agentId) return;
     setBusy(true);
     onError(null);
     try {
@@ -362,7 +443,7 @@ export function AgentLaunchBuilder({
       });
       const path = Array.isArray(selected) ? selected[0] : selected;
       if (!path) return;
-      await setLauncherWorkspace(path);
+      await setLauncherWorkspace(path, agentId);
       await refreshPrefs();
       setSessionChoice(null);
     } catch (error) {
@@ -381,7 +462,7 @@ export function AgentLaunchBuilder({
         choice.kind === "profile" ? choice.profileId : null,
       );
       await refreshPrefs();
-      onToast(t("Quick Launch default updated"));
+      onToast(t("VibeAround default updated"));
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -527,11 +608,10 @@ export function AgentLaunchBuilder({
         proxy: false,
         route: t("Native CLI login"),
       };
-  const profileIsDefault =
+  const profileIsGlobalDefault =
     profileChoice.kind === "profile"
-      ? viewPrefs.defaultProfiles[agentId] === profileChoice.profileId
-      : !viewPrefs.defaultProfiles[agentId] &&
-        viewPrefs.defaultAgent === agentId;
+      ? isGlobalDefaultProfile(viewPrefs, agentId, profileChoice.profileId)
+      : isGlobalDefaultDirect(viewPrefs, agentId);
   const sessionTitle = selectedSession?.title ?? t("No session to resume");
   const sessionDetail = selectedSession
     ? `${selectedSession.shortId} · ${relativeTime(selectedSession.updatedAt)}`
@@ -549,14 +629,8 @@ export function AgentLaunchBuilder({
                 key={agent.id}
                 agent={agent}
                 active={agent.id === agentId}
-                isDefault={
-                  viewPrefs.defaultAgent === agent.id ||
-                  Boolean(viewPrefs.defaultProfiles[agent.id])
-                }
-                onClick={() => {
-                  setAgentId(agent.id);
-                  setExpanded("profile");
-                }}
+                isDefault={viewPrefs.defaultAgent === agent.id}
+                onClick={() => void chooseAgent(agent.id)}
               />
             ))}
           </div>
@@ -629,7 +703,7 @@ export function AgentLaunchBuilder({
                 badges={
                   <>
                     {selectedProfileSummary.proxy && <ProxyBadge />}
-                    {profileIsDefault && <DefaultBadge />}
+                    {profileIsGlobalDefault && <DefaultBadge />}
                   </>
                 }
               />
@@ -671,7 +745,10 @@ export function AgentLaunchBuilder({
                   prefs={viewPrefs}
                   selected={profileChoice}
                   profiles={profileOptions}
-                  onSelect={setProfileChoice}
+                  onSelect={(choice) => void chooseProfileChoice(choice)}
+                  onSelectApiType={(profile, apiType) =>
+                    void chooseProfileApiType(profile, apiType)
+                  }
                   onMakeDefault={makeDefault}
                   onEditProfile={onEditProfile}
                   onConnectionSettings={onConnectionSettings}
@@ -708,16 +785,41 @@ export function AgentLaunchBuilder({
               )}
             </section>
 
-            <footer className="flex justify-end gap-2 border-t border-border bg-card/30 px-4 py-3">
+            <footer className="flex items-center justify-end gap-2 border-t border-border bg-card/30 px-4 py-3">
+              <Select
+                value={viewPrefs.terminal}
+                disabled={busy}
+                onValueChange={(terminalId) => void chooseTerminal(terminalId)}
+              >
+                <SelectTrigger size="sm" className="!h-10 w-[190px] px-4 text-xs">
+                  <Terminal className="h-3.5 w-3.5" />
+                  <SelectValue placeholder={selectedTerminal?.label ?? t("Terminal")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {viewPrefs.options.map((option) => (
+                    <SelectItem
+                      key={option.id}
+                      value={option.id}
+                      disabled={!option.installed}
+                      className="text-xs"
+                    >
+                      {option.installed
+                        ? option.label
+                        : t("{{label}} (not installed)", { label: option.label })}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <TooltipButton
                 type="button"
                 disabled={busy || !canResume || !selectionLaunchable}
                 disabledReason={resumeDisabledReason}
                 onClick={() => void launchResume()}
+                size="lg"
                 variant="outline"
-                className="h-10 min-w-[160px] justify-center text-xs font-semibold"
+                className="min-w-[160px] justify-center text-xs font-semibold"
               >
-                <Terminal className="h-3.5 w-3.5" />
+                <History className="h-3.5 w-3.5" />
                 {t("Resume Session")}
               </TooltipButton>
               <TooltipButton
@@ -725,7 +827,8 @@ export function AgentLaunchBuilder({
                 disabled={busy || !selectionLaunchable}
                 disabledReason={quickLaunchDisabledReason}
                 onClick={() => void launchNew()}
-                className="h-10 min-w-[160px] justify-center text-xs font-semibold"
+                size="lg"
+                className="min-w-[160px] justify-center text-xs font-semibold"
               >
                 <Rocket className="h-3.5 w-3.5" />
                 {t("Quick Launch")}
@@ -816,6 +919,7 @@ function ProfilePanel({
   selected,
   profiles,
   onSelect,
+  onSelectApiType,
   onMakeDefault,
   onEditProfile,
   onConnectionSettings,
@@ -828,16 +932,19 @@ function ProfilePanel({
   selected: ProfileChoice;
   profiles: ProfileSummary[];
   onSelect: (choice: ProfileChoice) => void;
+  onSelectApiType: (profile: ProfileSummary, apiType: string) => void;
   onMakeDefault: (choice: ProfileChoice) => Promise<void>;
   onEditProfile: (profile: ProfileSummary) => void;
-  onConnectionSettings: (profile: ProfileSummary) => void;
+  onConnectionSettings: (
+    profile: ProfileSummary,
+    agentId: ConnectionAgentId,
+  ) => void;
   onDeleteProfile: (profile: ProfileSummary) => void;
   onReorderProfile: (fromId: string, toId: string) => void;
   busy: boolean;
 }) {
   const { t } = useI18n();
-  const directIsDefault =
-    !prefs.defaultProfiles[agentId] && prefs.defaultAgent === agentId;
+  const directIsGlobalDefault = isGlobalDefaultDirect(prefs, agentId);
   const directActive = selected.kind === "direct";
 
   function handleProfileDragEnd(event: DragEndEvent) {
@@ -853,6 +960,7 @@ function ProfilePanel({
     <section className="space-y-2">
       <SelectableItemCard
         active={directActive}
+        disabled={busy}
         onSelect={() => onSelect({ kind: "direct" })}
       >
         <DragHandle
@@ -868,7 +976,7 @@ function ProfilePanel({
             <span className="truncate text-[13px] font-semibold">
               {t("Direct")}
             </span>
-            {directIsDefault && <DefaultBadge />}
+            {directIsGlobalDefault && <DefaultBadge />}
           </div>
           <div className="truncate text-[11px] text-muted-foreground">
             {t("Use existing CLI login")}
@@ -878,7 +986,7 @@ function ProfilePanel({
           className="flex shrink-0 flex-wrap justify-end gap-2"
           onClick={(event) => event.stopPropagation()}
         >
-          {!directIsDefault && (
+          {!directIsGlobalDefault && (
             <TooltipButton
               type="button"
               size="xs"
@@ -889,7 +997,7 @@ function ProfilePanel({
               onClick={() => void onMakeDefault({ kind: "direct" })}
             >
               <Star className="h-3 w-3" />
-              {t("Set default")}
+              {t("Set app default")}
             </TooltipButton>
           )}
           <DisabledMoreButton
@@ -906,7 +1014,7 @@ function ProfilePanel({
               key={profile.id}
               id={profile.id}
               index={index}
-              disabled={busy || !availability.launchable}
+              disabled={busy}
             >
               {({ dragHandleRef, isDragging }) => {
                 const summary = profileSummary(profile, agentId, prefs);
@@ -914,12 +1022,30 @@ function ProfilePanel({
                   availability.launchable &&
                   selected.kind === "profile" &&
                   selected.profileId === profile.id;
-                const defaultForAgent =
-                  prefs.defaultProfiles[agentId] === profile.id;
+                const globalDefaultForProfile = isGlobalDefaultProfile(
+                  prefs,
+                  agentId,
+                  profile.id,
+                );
+                const connection =
+                  isProxyAgent(agentId)
+                    ? resolveProfileConnection(
+                        profile,
+                        prefs.profileConnections,
+                        agentConnectionDef(agentId),
+                      )
+                    : null;
+                const profileApiOptions =
+                  connection?.clientApiTypes.filter((client) => client.native) ?? [];
+                const profileApiSelectValue = profileApiOptions.some(
+                  (client) => client.apiType === connection?.selectedApiType,
+                )
+                  ? connection?.selectedApiType
+                  : profileApiOptions[0]?.apiType;
                 return (
                   <SelectableItemCard
                     active={active}
-                    disabled={!availability.launchable}
+                    disabled={busy || !availability.launchable}
                     isDragging={isDragging}
                     onSelect={() =>
                       onSelect({ kind: "profile", profileId: profile.id })
@@ -927,11 +1053,9 @@ function ProfilePanel({
                   >
                     <DragHandle
                       label={t("Reorder {{label}}", { label: profile.label })}
-                      disabled={busy || !availability.launchable}
+                      disabled={busy}
                       disabledReason={
-                        busy
-                          ? t("Reordering unavailable while launching")
-                          : availability.reason
+                        busy ? t("Reordering unavailable while launching") : undefined
                       }
                       dragHandleRef={dragHandleRef}
                     />
@@ -950,7 +1074,7 @@ function ProfilePanel({
                         <span className="truncate text-[13px] font-semibold">
                           {profile.label}
                         </span>
-                        {defaultForAgent && <DefaultBadge />}
+                        {globalDefaultForProfile && <DefaultBadge />}
                         {summary.proxy && <ProxyBadge />}
                       </div>
                       <div className="truncate text-[11px] text-muted-foreground">
@@ -963,7 +1087,32 @@ function ProfilePanel({
                       className="flex shrink-0 flex-wrap items-center justify-end gap-2"
                       onClick={(event) => event.stopPropagation()}
                     >
-                      {!defaultForAgent && (
+                      {connection &&
+                        connection.agent.supportedApiTypes.length > 1 &&
+                        profileApiOptions.length > 0 &&
+                        profileApiSelectValue && (
+                        <Select
+                          value={profileApiSelectValue}
+                          disabled={busy}
+                          onValueChange={(apiType) => onSelectApiType(profile, apiType)}
+                        >
+                          <SelectTrigger size="sm" className="h-7 w-[172px] text-[11px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {profileApiOptions.map((option) => (
+                              <SelectItem
+                                key={option.apiType}
+                                value={option.apiType}
+                                className="text-xs"
+                              >
+                                {apiTypeProtocolLabel(option.apiType)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {(!globalDefaultForProfile || !availability.launchable) && (
                         <TooltipButton
                           type="button"
                           size="xs"
@@ -973,7 +1122,7 @@ function ProfilePanel({
                           disabledReason={
                             busy
                               ? t("Launch is already in progress")
-                              : undefined
+                              : availability.reason
                           }
                           onClick={() =>
                             void onMakeDefault({
@@ -983,12 +1132,17 @@ function ProfilePanel({
                           }
                         >
                           <Star className="h-3 w-3" />
-                          {t("Set default")}
+                          {t("Set app default")}
                         </TooltipButton>
                       )}
                       <ProfileActionsMenu
                         profile={profile}
-                        onConnectionSettings={onConnectionSettings}
+                        proxyAvailable={isProxyAgent(agentId)}
+                        onConnectionSettings={(profile) => {
+                          if (isProxyAgent(agentId)) {
+                            onConnectionSettings(profile, agentId);
+                          }
+                        }}
                         onEditProfile={onEditProfile}
                         onDeleteProfile={onDeleteProfile}
                       />
@@ -1254,8 +1408,10 @@ function SelectableItemCard({
       className={`flex w-full items-center gap-3 rounded-md border px-3 py-3 text-left transition-colors ${
         active
           ? "border-primary bg-primary/10 text-primary shadow-[inset_3px_0_0_hsl(var(--primary))]"
-          : "border-border bg-card hover:border-primary/40 hover:bg-accent/35"
-      } ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${
+          : disabled
+            ? "border-border bg-card"
+            : "border-border bg-card hover:border-primary/40 hover:bg-accent/35"
+      } ${disabled ? "cursor-not-allowed" : "cursor-pointer"} ${
         isDragging ? "opacity-55" : ""
       }`}
     >
@@ -1406,11 +1562,13 @@ function TooltipButton({
 
 function ProfileActionsMenu({
   profile,
+  proxyAvailable,
   onConnectionSettings,
   onEditProfile,
   onDeleteProfile,
 }: {
   profile: ProfileSummary;
+  proxyAvailable: boolean;
   onConnectionSettings: (profile: ProfileSummary) => void;
   onEditProfile: (profile: ProfileSummary) => void;
   onDeleteProfile: (profile: ProfileSummary) => void;
@@ -1430,13 +1588,15 @@ function ProfileActionsMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-40">
-        <DropdownMenuItem
-          className="text-xs"
-          onSelect={() => onConnectionSettings(profile)}
-        >
-          <Plug className="h-3 w-3" />
-          {t("Proxy")}
-        </DropdownMenuItem>
+        {proxyAvailable && (
+          <DropdownMenuItem
+            className="text-xs"
+            onSelect={() => onConnectionSettings(profile)}
+          >
+            <Plug className="h-3 w-3" />
+            {t("Proxy")}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           className="text-xs"
           onSelect={() => onEditProfile(profile)}
@@ -1602,6 +1762,46 @@ function currentWorkspace(prefs: LauncherPreferences | null): WorkspaceOption {
   );
 }
 
+function currentTerminal(prefs: LauncherPreferences | null): TerminalOption | null {
+  if (!prefs) return null;
+  return (
+    prefs.options.find((option) => option.id === prefs.terminal) ??
+    prefs.options[0] ??
+    null
+  );
+}
+
+function agentWorkspace(prefs: LauncherPreferences, agentId: string): string {
+  if (!agentId) return prefs.workspace;
+  return prefs.agentPreferences[agentId]?.workspace || prefs.workspace;
+}
+
+function agentProfileId(
+  prefs: LauncherPreferences,
+  agentId: string,
+): string | undefined {
+  return (
+    prefs.agentPreferences[agentId]?.profileId ??
+    prefs.defaultProfiles[agentId] ??
+    undefined
+  );
+}
+
+function isGlobalDefaultDirect(
+  prefs: LauncherPreferences,
+  agentId: string,
+): boolean {
+  return prefs.defaultAgent === agentId && !prefs.defaultProfileId;
+}
+
+function isGlobalDefaultProfile(
+  prefs: LauncherPreferences,
+  agentId: string,
+  profileId: string,
+): boolean {
+  return prefs.defaultAgent === agentId && prefs.defaultProfileId === profileId;
+}
+
 function profileById(
   profiles: ProfileSummary[],
   profileId: string | undefined,
@@ -1616,9 +1816,10 @@ function profileSupportsAgent(
   prefs: LauncherPreferences | null,
 ): boolean {
   if (!profile || !agentId) return false;
-  if (profile.launchTargets.some((target) => target.id === agentId))
-    return true;
-  if (!prefs || !isProxyAgent(agentId)) return false;
+  if (!isProxyAgent(agentId)) {
+    return profile.launchTargets.some((target) => target.id === agentId);
+  }
+  if (!prefs) return false;
   const resolved = resolveProfileConnection(
     profile,
     prefs.profileConnections,
@@ -1649,9 +1850,10 @@ function profileAvailability(
     if (resolved.targetOptions.length > 0) {
       return {
         launchable: false,
-        reason: t('Enable Proxy for "{{profile}}" to launch {{agent}}', {
+        reason: t('Enable proxy for "{{profile}}" to launch {{agent}} with {{api}}', {
           profile: profile.label,
           agent: agentLabel(agentId),
+          api: apiTypeProtocolLabel(resolved.selectedApiType),
         }),
       };
     }
@@ -1692,12 +1894,12 @@ function profileSummary(
       prefs.profileConnections,
       agentConnectionDef(agentId),
     );
-    if (resolved.status === "via_proxy" && resolved.targetApiType) {
+    if (resolved.status === "via_proxy" && resolved.selected.targetApiType) {
       return {
         title: profile.label,
         detail: profile.providerLabel,
         proxy: true,
-        route: `${profile.providerLabel} -> ${agentLabel(agentId)} via ${apiTypeRouteLabel(resolved.targetApiType)}`,
+        route: `${apiTypeProtocolLabel(resolved.selectedApiType)} -> ${profile.providerLabel} ${apiTypeRouteLabel(resolved.selected.targetApiType)}`,
       };
     }
     if (resolved.status === "native") {
@@ -1705,15 +1907,15 @@ function profileSummary(
         title: profile.label,
         detail: profile.providerLabel,
         proxy: false,
-        route: `${profile.providerLabel} -> ${agentLabel(agentId)} native`,
+        route: `${profile.providerLabel} -> ${agentLabel(agentId)} ${apiTypeProtocolLabel(resolved.selectedApiType)}`,
       };
     }
-    if (resolved.targetApiType) {
+    if (resolved.selected.targetApiType) {
       return {
         title: profile.label,
         detail: profile.providerLabel,
         proxy: false,
-        route: `${profile.providerLabel} -> ${agentLabel(agentId)} via ${apiTypeRouteLabel(resolved.targetApiType)} (proxy off)`,
+        route: `${apiTypeProtocolLabel(resolved.selectedApiType)} -> ${apiTypeRouteLabel(resolved.selected.targetApiType)} (proxy off)`,
       };
     }
   }
@@ -1739,22 +1941,10 @@ function isSelectionLaunchable(
 }
 
 function agentConnectionDef(agentId: string): ConnectionAgentDef {
-  if (agentId === "claude") {
-    return {
-      id: "claude",
-      label: "Claude Code",
-      requiredApiType: "anthropic",
-      requiredProtocol: "Anthropic Messages",
-      clientProtocol: "Claude Messages",
-    };
-  }
-  return {
-    id: "codex",
-    label: "Codex CLI",
-    requiredApiType: "openai-responses",
-    requiredProtocol: "OpenAI Responses",
-    clientProtocol: "Codex Responses",
-  };
+  return (
+    CONNECTION_AGENTS.find((agent) => agent.id === agentId) ??
+    CONNECTION_AGENTS.find((agent) => agent.id === "codex")!
+  );
 }
 
 function isProxyAgent(agentId: string): agentId is ConnectionAgentId {

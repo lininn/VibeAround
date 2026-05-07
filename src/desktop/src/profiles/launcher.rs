@@ -27,7 +27,6 @@ use self::common::LaunchPlan;
 use ::common::{profiles, resources};
 use anyhow::anyhow;
 
-use super::terminal;
 use profiles::ProfileDef;
 
 // ---------------------------------------------------------------------------
@@ -57,7 +56,7 @@ pub fn launch_resume(
 pub fn launch_direct(agent_id: &str) -> anyhow::Result<()> {
     let agent = resources::agent_by_id(agent_id)
         .ok_or_else(|| anyhow!("agent '{}' not found in agents.json", agent_id))?;
-    let workspace = terminal::resolve_workspace_preference()?;
+    let workspace = crate::profiles::resolve_launch_workspace(agent_id)?;
     platform::spawn(LaunchPlan {
         env: Vec::new(),
         command: agent.pty.command.clone(),
@@ -70,7 +69,7 @@ pub fn launch_direct(agent_id: &str) -> anyhow::Result<()> {
 pub fn launch_direct_resume(agent_id: &str, session_id: &str) -> anyhow::Result<()> {
     let agent = resources::agent_by_id(agent_id)
         .ok_or_else(|| anyhow!("agent '{}' not found in agents.json", agent_id))?;
-    let workspace = terminal::resolve_workspace_preference()?;
+    let workspace = crate::profiles::resolve_launch_workspace(agent_id)?;
     let (command, args) = resume_command_for_agent(agent_id, session_id)?;
     platform::spawn(LaunchPlan {
         env: Vec::new(),
@@ -99,7 +98,7 @@ fn launch_rendered_profile(
     let agent_id = profiles::runtime::agent_id_for(launch_target)?;
     let agent = resources::agent_by_id(agent_id)
         .ok_or_else(|| anyhow!("agent '{}' not found in agents.json", agent_id))?;
-    let workspace = terminal::resolve_workspace_preference()?;
+    let workspace = crate::profiles::resolve_launch_workspace(agent_id)?;
 
     platform::spawn(LaunchPlan {
         env,
@@ -126,7 +125,7 @@ fn launch_rendered_profile_resume(
     ));
 
     let agent_id = profiles::runtime::agent_id_for(launch_target)?;
-    let workspace = terminal::resolve_workspace_preference()?;
+    let workspace = crate::profiles::resolve_launch_workspace(agent_id)?;
     let (command, mut args) = resume_command_for_agent(agent_id, session_id)?;
     if agent_id == "codex" {
         let mut codex_args = rendered.command_args.clone();

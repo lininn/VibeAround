@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   CatalogEntry,
   CompatibilityProxyMode,
+  AgentLaunchPreference,
   ConnectionAgentId,
   ProfileDef,
   ProfileDraft,
@@ -90,7 +91,10 @@ export interface LauncherPreferences {
   options: TerminalOption[];
   workspace: string;
   workspaceOptions: WorkspaceOption[];
+  selectedAgent: string;
+  agentPreferences: Record<string, AgentLaunchPreference>;
   defaultAgent: string;
+  defaultProfileId?: string | null;
   enabledAgents: string[];
   defaultProfiles: Record<string, string>;
   compatibilityProxy: CompatibilityProxyMode;
@@ -119,8 +123,10 @@ export function getLauncherPreferences(): Promise<LauncherPreferences> {
   return invoke<LauncherPreferences>("launcher_get_preferences");
 }
 
-export function listLauncherWorkspaces(): Promise<WorkspaceOption[]> {
-  return invoke<WorkspaceOption[]>("launcher_list_workspaces");
+export function listLauncherWorkspaces(agentId?: string): Promise<WorkspaceOption[]> {
+  return invoke<WorkspaceOption[]>("launcher_list_workspaces", {
+    agentId: agentId ?? null,
+  });
 }
 
 export function listLaunchSessions(
@@ -139,8 +145,14 @@ export function setLauncherTerminal(terminalId: string): Promise<void> {
   return invoke<void>("launcher_set_terminal", { terminalId });
 }
 
-export function setLauncherWorkspace(workspacePath: string): Promise<void> {
-  return invoke<void>("launcher_set_workspace", { workspacePath });
+export function setLauncherWorkspace(
+  workspacePath: string,
+  agentId?: string,
+): Promise<void> {
+  return invoke<void>("launcher_set_workspace", {
+    workspacePath,
+    agentId: agentId ?? null,
+  });
 }
 
 export function removeLauncherWorkspace(workspacePath: string): Promise<void> {
@@ -167,8 +179,7 @@ export function setProfileConnection(
   return invoke<void>("launcher_set_profile_connection", {
     profileId,
     agentId,
-    proxyEnabled: Boolean(preference.proxyEnabled),
-    targetApiType: preference.targetApiType ?? null,
+    preference,
   });
 }
 
@@ -177,6 +188,17 @@ export function setLauncherDefault(
   profileId: string | null,
 ): Promise<void> {
   return invoke<void>("launcher_set_default", { agentId, profileId });
+}
+
+export function setLauncherAgentProfile(
+  agentId: string,
+  profileId: string | null,
+): Promise<void> {
+  return invoke<void>("launcher_set_agent_profile", { agentId, profileId });
+}
+
+export function setLauncherSelectedAgent(agentId: string): Promise<void> {
+  return invoke<void>("launcher_set_selected_agent", { agentId });
 }
 
 export function listCatalog(): Promise<CatalogEntry[]> {

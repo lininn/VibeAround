@@ -10,6 +10,7 @@ mod terminal;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use common::agent_state;
 use common::profiles::schema::{ApiTypeOverrides, ProviderSettings};
 use common::profiles::{catalog, normalize_legacy_profile, runtime, schema};
 use common::{config, resources};
@@ -50,6 +51,8 @@ pub struct ProfileSummary {
     pub api_type_warnings: std::collections::BTreeMap<String, String>,
     /// `api_type -> model id`, sanitized for manual client setup.
     pub api_type_models: std::collections::BTreeMap<String, String>,
+    /// `api_type -> catalog model options`, used by proxy route model selection.
+    pub api_type_model_options: std::collections::BTreeMap<String, Vec<catalog::ModelDef>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -122,22 +125,81 @@ pub fn profiles_list() -> Vec<ProfileSummary> {
                 std::collections::BTreeMap::new();
             if let Some(c) = provider {
                 for api_type in &p.api_types {
-                    if let Some(ep) = c.endpoints.iter().find(|e| &e.api_type == api_type) {
+                    let endpoint_id = p
+                        .overrides
+                        .get(api_type)
+                        .and_then(|overrides| overrides.endpoint_id.as_deref());
+                    if let Some(ep) = catalog::find_endpoint(c, api_type, endpoint_id) {
                         if let Some(w) = &ep.compatibility_warning {
                             api_type_warnings.insert(api_type.clone(), w.clone());
                         }
                     }
                 }
             }
-            let api_type_models = p
+            let api_type_models: std::collections::BTreeMap<String, String> = p
                 .api_types
                 .iter()
                 .filter_map(|api_type| {
-                    p.overrides
+                    let endpoint = provider.and_then(|catalog| {
+                        let endpoint_id = p
+                            .overrides
+                            .get(api_type)
+                            .and_then(|overrides| overrides.endpoint_id.as_deref());
+                        catalog::find_endpoint(catalog, api_type, endpoint_id)
+                    });
+                    let model = p
+                        .overrides
                         .get(api_type)
                         .and_then(|overrides| overrides.model.as_ref())
                         .filter(|model| !model.trim().is_empty())
-                        .map(|model| (api_type.clone(), model.clone()))
+                        .cloned()
+                        .or_else(|| {
+                            endpoint
+                                .and_then(|endpoint| endpoint.models.first())
+                                .map(|model| model.id.clone())
+                        })?;
+                    Some((api_type.clone(), model))
+                })
+                .collect();
+            let api_type_model_options = p
+                .api_types
+                .iter()
+                .filter_map(|api_type| {
+                    let endpoint = provider.and_then(|catalog| {
+                        let endpoint_id = p
+                            .overrides
+                            .get(api_type)
+                            .and_then(|overrides| overrides.endpoint_id.as_deref());
+                        catalog::find_endpoint(catalog, api_type, endpoint_id)
+                    });
+                    let mut models = endpoint
+                        .map(|endpoint| endpoint.models.clone())
+                        .unwrap_or_default();
+                    if let Some(model) = p
+                        .overrides
+                        .get(api_type)
+                        .and_then(|overrides| overrides.model.as_ref())
+                        .filter(|model| !model.trim().is_empty())
+                    {
+                        if !models.iter().any(|item| item.id == *model) {
+                            models.insert(
+                                0,
+                                catalog::ModelDef {
+                                    id: model.clone(),
+                                    label: None,
+                                },
+                            );
+                        }
+                    }
+                    if models.is_empty() {
+                        if let Some(model) = api_type_models.get(api_type) {
+                            models.push(catalog::ModelDef {
+                                id: model.clone(),
+                                label: None,
+                            });
+                        }
+                    }
+                    (!models.is_empty()).then_some((api_type.clone(), models))
                 })
                 .collect();
             let api_type_warnings_for_targets = api_type_warnings.clone();
@@ -160,6 +222,7 @@ pub fn profiles_list() -> Vec<ProfileSummary> {
                 api_types: p.api_types,
                 api_type_warnings,
                 api_type_models,
+                api_type_model_options,
             }
         })
         .collect()
@@ -190,10 +253,17 @@ fn save_profile(app: &tauri::AppHandle, profile: &ProfileDef) -> Result<(), Stri
     let provider = catalog::get(&profile.provider)
         .ok_or_else(|| format!("unknown provider '{}'", profile.provider))?;
     for api_type in &profile.api_types {
-        if !provider.endpoints.iter().any(|e| &e.api_type == api_type) {
+        let endpoint_id = profile
+            .overrides
+            .get(api_type)
+            .and_then(|overrides| overrides.endpoint_id.as_deref());
+        if catalog::find_endpoint(provider, api_type, endpoint_id).is_none() {
+            let suffix = endpoint_id
+                .map(|id| format!(" endpoint_id '{id}'"))
+                .unwrap_or_default();
             return Err(format!(
-                "provider '{}' does not support api kind '{}'",
-                profile.provider, api_type
+                "provider '{}' does not support api kind '{}'{}",
+                profile.provider, api_type, suffix
             ));
         }
     }
@@ -207,6 +277,7 @@ fn save_profile(app: &tauri::AppHandle, profile: &ProfileDef) -> Result<(), Stri
 pub fn profiles_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
     schema::delete(&id).map_err(|e| e.to_string())?;
     clear_default_profile_references(&id)?;
+    agent_state::remove_profile_references(&id).map_err(|e| e.to_string())?;
     terminal::remove_profile_connections(&id).map_err(|e| e.to_string())?;
     emit_launch_config_changed(&app);
     Ok(())
@@ -299,18 +370,33 @@ pub struct LauncherPreferences {
     pub workspace: String,
     /// Suggested cwd choices surfaced in the Launch header.
     pub workspace_options: Vec<WorkspaceOption>,
-    /// Canonical agent id used by Quick Launch and IM defaults.
+    /// Canonical agent id selected in the Launch tab.
+    pub selected_agent: String,
+    /// Per-agent launch choices stored in `~/.vibearound/agents.json`.
+    pub agent_preferences: std::collections::BTreeMap<String, AgentLaunchPreferenceSummary>,
+    /// VibeAround-wide default agent for tray quick launch and IM startup.
     pub default_agent: String,
+    /// Optional profile paired with the VibeAround-wide default agent.
+    pub default_profile_id: Option<String>,
     /// Agent ids enabled by onboarding/settings.json.
     pub enabled_agents: Vec<String>,
-    /// Per-agent profile defaults from settings.json.
+    /// Back-compat alias for older UI code. New writes go to agents.json.
     pub default_profiles: std::collections::BTreeMap<String, String>,
     /// Global policy for wrapping OpenAI-compatible profile launches through
     /// VibeAround's local compatibility proxy.
     pub compatibility_proxy: terminal::CompatibilityProxyMode,
     /// Per-profile connection choices for launch targets that can run via
     /// the local API proxy.
-    pub profile_connections: terminal::ProfileConnectionPreferences,
+    pub profile_connections: agent_state::ProfileConnectionPreferences,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentLaunchPreferenceSummary {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -355,27 +441,47 @@ fn launcher_preferences() -> LauncherPreferences {
             installed: installed_ids.contains(c.id()),
         })
         .collect();
-    let workspace = terminal::resolve_workspace_preference()
+    let cfg = config::ensure_loaded();
+    let agent_prefs = agent_state::read_prefs();
+    let selected_agent = agent_state::resolve_selected_agent(&agent_prefs, &cfg);
+    let default_agent = agent_state::resolve_default_agent(&agent_prefs, &cfg);
+    let default_profile_id =
+        agent_state::resolve_default_profile(&agent_prefs, &cfg, &default_agent);
+    let workspace = resolve_agent_workspace_preference(&selected_agent, &agent_prefs)
         .unwrap_or_else(|_| terminal::launch_home_dir().unwrap_or_else(|_| config::data_dir()))
         .to_string_lossy()
         .to_string();
-    let cfg = config::ensure_loaded();
+    let agent_preferences = summarize_agent_preferences(&agent_prefs, &cfg);
+    let default_profiles = agent_preferences
+        .iter()
+        .filter_map(|(agent_id, preference)| {
+            preference
+                .profile_id
+                .as_ref()
+                .map(|profile_id| (agent_id.clone(), profile_id.clone()))
+        })
+        .collect();
     LauncherPreferences {
         terminal: terminal::read_preference().id().to_string(),
         options,
         workspace,
         workspace_options: Vec::new(),
-        default_agent: canonical_agent_id(&cfg.default_agent),
+        selected_agent: selected_agent.clone(),
+        agent_preferences,
+        default_agent,
+        default_profile_id,
         enabled_agents: cfg.enabled_agents.clone(),
-        default_profiles: cfg.default_profiles.clone(),
+        default_profiles,
         compatibility_proxy: terminal::read_compatibility_proxy_preference(),
-        profile_connections: terminal::read_profile_connections(),
+        profile_connections: merged_profile_connections(&agent_prefs),
     }
 }
 
 #[tauri::command]
-pub async fn launcher_list_workspaces() -> Result<Vec<WorkspaceOption>, String> {
-    tauri::async_runtime::spawn_blocking(launcher_workspace_options)
+pub async fn launcher_list_workspaces(
+    agent_id: Option<String>,
+) -> Result<Vec<WorkspaceOption>, String> {
+    tauri::async_runtime::spawn_blocking(move || launcher_workspace_options(agent_id.as_deref()))
         .await
         .map_err(|e| e.to_string())
 }
@@ -383,8 +489,10 @@ pub async fn launcher_list_workspaces() -> Result<Vec<WorkspaceOption>, String> 
 #[tauri::command]
 pub fn profiles_launch_default() -> Result<(), String> {
     let cfg = config::ensure_loaded();
-    let agent_id = canonical_agent_id(&cfg.default_agent);
-    if let Some(profile_id) = cfg.default_profile_for(&agent_id) {
+    let agent_prefs = agent_state::read_prefs();
+    let agent_id = agent_state::resolve_default_agent(&agent_prefs, &cfg);
+    let profile_id = agent_state::resolve_default_profile(&agent_prefs, &cfg, &agent_id);
+    if let Some(profile_id) = profile_id {
         if let Some(profile) = schema::load(&profile_id).map(normalize_legacy_profile) {
             if profile_can_launch_agent(&profile, &agent_id) {
                 return launcher::launch(&profile, &agent_id).map_err(|e| e.to_string());
@@ -451,7 +559,29 @@ pub fn launcher_set_default(
     agent_id: String,
     profile_id: Option<String>,
 ) -> Result<(), String> {
-    let agent_id = resources::agent_by_alias(&agent_id)
+    let (agent_id, profile_id) = validate_agent_profile_selection(&agent_id, profile_id)?;
+    agent_state::write_default_launch(&agent_id, profile_id).map_err(|e| e.to_string())?;
+    emit_launch_config_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn launcher_set_agent_profile(
+    app: tauri::AppHandle,
+    agent_id: String,
+    profile_id: Option<String>,
+) -> Result<(), String> {
+    let (agent_id, profile_id) = validate_agent_profile_selection(&agent_id, profile_id)?;
+    agent_state::write_agent_profile(&agent_id, profile_id).map_err(|e| e.to_string())?;
+    emit_launch_config_changed(&app);
+    Ok(())
+}
+
+fn validate_agent_profile_selection(
+    agent_id: &str,
+    profile_id: Option<String>,
+) -> Result<(String, Option<String>), String> {
+    let agent_id = resources::agent_by_alias(agent_id)
         .map(|def| def.id.clone())
         .ok_or_else(|| format!("unknown agent: '{agent_id}'"))?;
     let profile_id = profile_id
@@ -467,28 +597,15 @@ pub fn launcher_set_default(
         }
     }
 
-    config::update_settings_json(|root| {
-        if let Some(obj) = root.as_object_mut() {
-            obj.insert("default_agent".into(), serde_json::json!(agent_id.clone()));
-            let default_profiles = obj
-                .entry("default_profiles")
-                .or_insert_with(|| serde_json::json!({}));
-            if !default_profiles.is_object() {
-                *default_profiles = serde_json::json!({});
-            }
-            if let Some(map) = default_profiles.as_object_mut() {
-                match &profile_id {
-                    Some(profile_id) => {
-                        map.insert(agent_id.clone(), serde_json::json!(profile_id));
-                    }
-                    None => {
-                        map.remove(&agent_id);
-                    }
-                }
-            }
-        }
-    })
-    .map_err(|e| e.to_string())?;
+    Ok((agent_id, profile_id))
+}
+
+#[tauri::command]
+pub fn launcher_set_selected_agent(app: tauri::AppHandle, agent_id: String) -> Result<(), String> {
+    let agent_id = resources::agent_by_alias(&agent_id)
+        .map(|def| def.id.clone())
+        .ok_or_else(|| format!("unknown agent: '{agent_id}'"))?;
+    agent_state::write_selected_agent(&agent_id).map_err(|e| e.to_string())?;
     emit_launch_config_changed(&app);
     Ok(())
 }
@@ -507,11 +624,20 @@ pub fn launcher_set_terminal(terminal_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn launcher_set_workspace(app: tauri::AppHandle, workspace_path: String) -> Result<(), String> {
+pub fn launcher_set_workspace(
+    app: tauri::AppHandle,
+    workspace_path: String,
+    agent_id: Option<String>,
+) -> Result<(), String> {
     let path = terminal::canonical_workspace_path(Path::new(&workspace_path))
         .map_err(|e| e.to_string())?;
     register_launcher_workspace(&path)?;
-    terminal::write_workspace_preference(path).map_err(|e| e.to_string())?;
+    let cfg = config::ensure_loaded();
+    let agent_prefs = agent_state::read_prefs();
+    let agent_id = agent_id
+        .map(|id| canonical_agent_id(&id))
+        .unwrap_or_else(|| agent_state::resolve_selected_agent(&agent_prefs, &cfg));
+    agent_state::write_agent_workspace(&agent_id, path).map_err(|e| e.to_string())?;
     emit_launch_config_changed(&app);
     Ok(())
 }
@@ -558,6 +684,7 @@ pub fn launcher_remove_workspace(
         let fallback = config::ensure_loaded().resolve_workspace("codex");
         terminal::write_workspace_preference(fallback).map_err(|e| e.to_string())?;
     }
+    agent_state::remove_workspace_references(&path).map_err(|e| e.to_string())?;
 
     emit_launch_config_changed(&app);
     Ok(())
@@ -632,109 +759,269 @@ pub fn launcher_set_profile_connection(
     app: tauri::AppHandle,
     profile_id: String,
     agent_id: String,
-    proxy_enabled: bool,
-    target_api_type: Option<String>,
+    preference: agent_state::ProfileConnectionPreference,
 ) -> Result<(), String> {
     let agent_id = match agent_id.as_str() {
-        "claude" | "codex" => agent_id,
+        "claude" | "codex" | "opencode" => agent_id,
         other => return Err(format!("unsupported connection target: '{other}'")),
     };
     let profile = schema::load(&profile_id)
         .map(normalize_legacy_profile)
         .ok_or_else(|| format!("profile '{profile_id}' not found"))?;
-    let target_api_type = target_api_type
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    let target_api_type = if proxy_enabled {
-        let target_api_type =
-            target_api_type.or_else(|| recommended_proxy_target(&profile.api_types, &agent_id));
-        let target_api_type = target_api_type.ok_or_else(|| {
-            format!(
-                "profile '{}' has no API kind that can be used as a proxy target",
-                profile.id
-            )
-        })?;
-        if !profile
-            .api_types
-            .iter()
-            .any(|api_type| api_type == &target_api_type)
-        {
-            return Err(format!(
-                "profile '{}' does not expose api kind '{}'",
-                profile.id, target_api_type
-            ));
-        }
-        if !is_proxy_target_api_type(&target_api_type) {
-            return Err(format!(
-                "api kind '{}' cannot be used as a proxy target",
-                target_api_type
-            ));
-        }
-        Some(target_api_type)
-    } else {
-        target_api_type.filter(|api_type| profile.api_types.iter().any(|value| value == api_type))
-    };
+    let preference = sanitize_profile_connection_preference(&profile, &agent_id, preference)?;
 
-    terminal::write_profile_connection_preference(
-        &profile.id,
-        &agent_id,
-        terminal::ProfileConnectionPreference {
-            proxy_enabled,
-            target_api_type,
-        },
-    )
-    .map_err(|e| e.to_string())?;
+    agent_state::write_profile_connection_preference(&profile.id, &agent_id, preference)
+        .map_err(|e| e.to_string())?;
     emit_launch_config_changed(&app);
     Ok(())
 }
 
-fn is_proxy_target_api_type(api_type: &str) -> bool {
+pub(super) fn is_proxy_target_api_type(api_type: &str) -> bool {
     matches!(api_type, "anthropic" | "openai-responses" | "openai-chat")
 }
 
-fn recommended_proxy_target(api_types: &[String], agent_id: &str) -> Option<String> {
-    let order: &[&str] = match agent_id {
-        "claude" => &["openai-responses", "openai-chat", "anthropic"],
-        "codex" => &["anthropic", "openai-chat", "openai-responses"],
+pub(super) fn recommended_proxy_target(
+    api_types: &[String],
+    agent_id: &str,
+    client_api_type: &str,
+) -> Option<String> {
+    let order: &[&str] = match (agent_id, client_api_type) {
+        ("claude", "anthropic") | ("opencode", "anthropic") => {
+            &["openai-responses", "openai-chat", "anthropic"]
+        }
+        ("codex", "openai-responses")
+        | ("opencode", "openai-responses")
+        | ("opencode", "openai-chat") => &["anthropic", "openai-chat", "openai-responses"],
         _ => &[],
     };
     order
         .iter()
-        .find(|candidate| api_types.iter().any(|api_type| api_type == **candidate))
+        .find(|candidate| api_types.iter().any(|api_type| api_type == *candidate))
         .map(|candidate| (*candidate).to_string())
 }
 
-fn profile_can_launch_agent(profile: &ProfileDef, agent_id: &str) -> bool {
-    runtime::launch_targets_for_api_types(&profile.api_types)
-        .iter()
-        .any(|(target, _, _)| *target == agent_id)
-        || profile_proxy_target(profile, agent_id).is_some()
+fn sanitize_profile_connection_preference(
+    profile: &ProfileDef,
+    agent_id: &str,
+    preference: agent_state::ProfileConnectionPreference,
+) -> Result<agent_state::ProfileConnectionPreference, String> {
+    let supported = agent_client_api_types(agent_id);
+    let selected_api_type = preference
+        .selected_api_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| recommended_client_api_type(profile, agent_id).unwrap_or(supported[0]));
+    if !supported.contains(&selected_api_type) {
+        return Err(format!(
+            "{} does not support api kind '{}'",
+            agent_id, selected_api_type
+        ));
+    }
+
+    let mut proxy = BTreeMap::new();
+    for (client_api_type, proxy_preference) in preference.proxy {
+        let client_api_type = client_api_type.trim().to_string();
+        if client_api_type.is_empty() {
+            continue;
+        }
+        if !supported.contains(&client_api_type.as_str()) {
+            return Err(format!(
+                "{} does not support api kind '{}'",
+                agent_id, client_api_type
+            ));
+        }
+        let target_api_type = proxy_preference
+            .target_api_type
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let target_api_type = if proxy_preference.enabled {
+            let target_api_type = target_api_type.or_else(|| {
+                recommended_proxy_target(&profile.api_types, agent_id, &client_api_type)
+            });
+            let target_api_type = target_api_type.ok_or_else(|| {
+                format!(
+                    "profile '{}' has no API kind that can be used as a proxy target",
+                    profile.id
+                )
+            })?;
+            validate_proxy_target(profile, &target_api_type)?;
+            Some(target_api_type)
+        } else {
+            target_api_type.filter(|api_type| validate_proxy_target(profile, api_type).is_ok())
+        };
+        let upstream_model = proxy_preference
+            .upstream_model
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let fake_model_id = proxy_preference
+            .fake_model_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if proxy_preference.enabled
+            || target_api_type.is_some()
+            || upstream_model.is_some()
+            || fake_model_id.is_some()
+        {
+            proxy.insert(
+                client_api_type,
+                agent_state::ProfileProxyPreference {
+                    enabled: proxy_preference.enabled,
+                    target_api_type,
+                    upstream_model,
+                    fake_model_id,
+                },
+            );
+        }
+    }
+
+    Ok(agent_state::ProfileConnectionPreference {
+        selected_api_type: Some(selected_api_type.to_string()),
+        proxy,
+    })
 }
 
-fn profile_proxy_target(profile: &ProfileDef, agent_id: &str) -> Option<String> {
-    let connections = terminal::read_profile_connections();
-    let preference = connections.get(&profile.id)?.get(agent_id)?;
-    if !preference.proxy_enabled {
-        return None;
-    }
-    let target_api_type = preference
-        .target_api_type
-        .clone()
-        .or_else(|| recommended_proxy_target(&profile.api_types, agent_id))?;
+fn validate_proxy_target(profile: &ProfileDef, target_api_type: &str) -> Result<(), String> {
     if !profile
         .api_types
         .iter()
-        .any(|api_type| api_type == &target_api_type)
+        .any(|api_type| api_type == target_api_type)
     {
-        return None;
+        return Err(format!(
+            "profile '{}' does not expose api kind '{}'",
+            profile.id, target_api_type
+        ));
     }
-    is_proxy_target_api_type(&target_api_type).then_some(target_api_type)
+    if !is_proxy_target_api_type(target_api_type) {
+        return Err(format!(
+            "api kind '{}' cannot be used as a proxy target",
+            target_api_type
+        ));
+    }
+    Ok(())
 }
 
-fn launcher_workspace_options() -> Vec<WorkspaceOption> {
+fn profile_can_launch_agent(profile: &ProfileDef, agent_id: &str) -> bool {
+    resolve_profile_agent_route(profile, agent_id).is_some()
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct ProfileAgentRoute {
+    pub client_api_type: String,
+    pub proxy_target_api_type: Option<String>,
+    pub proxy_upstream_model: Option<String>,
+    pub proxy_fake_model_id: Option<String>,
+}
+
+pub(super) fn resolve_profile_agent_route(
+    profile: &ProfileDef,
+    agent_id: &str,
+) -> Option<ProfileAgentRoute> {
+    let supported = agent_client_api_types(agent_id);
+    if supported.is_empty() {
+        return None;
+    }
+
+    let connections = merged_profile_connections(&agent_state::read_prefs());
+    let preference = connections
+        .get(&profile.id)
+        .and_then(|items| items.get(agent_id));
+    let preferred_client_api_type = preference
+        .and_then(|preference| preference.selected_api_type.as_deref())
+        .filter(|api_type| supported.contains(api_type))
+        .filter(|api_type| client_route_available(profile, agent_id, preference, api_type))
+        .map(ToString::to_string);
+    let client_api_type = preferred_client_api_type
+        .or_else(|| recommended_client_api_type(profile, agent_id).map(ToString::to_string))?;
+
+    let proxy_preference = preference.and_then(|preference| preference.proxy.get(&client_api_type));
+    if let Some(proxy_preference) = proxy_preference.filter(|proxy| proxy.enabled) {
+        let target_api_type = proxy_preference
+            .target_api_type
+            .clone()
+            .or_else(|| recommended_proxy_target(&profile.api_types, agent_id, &client_api_type))?;
+        if validate_proxy_target(profile, &target_api_type).is_ok() {
+            return Some(ProfileAgentRoute {
+                client_api_type,
+                proxy_target_api_type: Some(target_api_type),
+                proxy_upstream_model: proxy_preference.upstream_model.clone(),
+                proxy_fake_model_id: proxy_preference.fake_model_id.clone(),
+            });
+        }
+    }
+
+    if profile
+        .api_types
+        .iter()
+        .any(|api_type| api_type == &client_api_type)
+    {
+        return Some(ProfileAgentRoute {
+            client_api_type,
+            proxy_target_api_type: None,
+            proxy_upstream_model: None,
+            proxy_fake_model_id: None,
+        });
+    }
+
+    None
+}
+
+fn client_route_available(
+    profile: &ProfileDef,
+    agent_id: &str,
+    preference: Option<&agent_state::ProfileConnectionPreference>,
+    client_api_type: &str,
+) -> bool {
+    if profile
+        .api_types
+        .iter()
+        .any(|api_type| api_type == client_api_type)
+    {
+        return true;
+    }
+    let Some(proxy_preference) =
+        preference.and_then(|preference| preference.proxy.get(client_api_type))
+    else {
+        return false;
+    };
+    if !proxy_preference.enabled {
+        return false;
+    }
+    let Some(target_api_type) = proxy_preference
+        .target_api_type
+        .clone()
+        .or_else(|| recommended_proxy_target(&profile.api_types, agent_id, client_api_type))
+    else {
+        return false;
+    };
+    validate_proxy_target(profile, &target_api_type).is_ok()
+}
+
+pub(super) fn agent_client_api_types(agent_id: &str) -> &'static [&'static str] {
+    match agent_id {
+        "claude" => &["anthropic"],
+        "codex" => &["openai-responses"],
+        "opencode" => &["openai-responses", "openai-chat", "anthropic"],
+        _ => &[],
+    }
+}
+
+fn recommended_client_api_type(profile: &ProfileDef, agent_id: &str) -> Option<&'static str> {
+    agent_client_api_types(agent_id)
+        .iter()
+        .find(|api_type| profile.api_types.iter().any(|value| value == *api_type))
+        .copied()
+        .or_else(|| agent_client_api_types(agent_id).first().copied())
+}
+
+fn launcher_workspace_options(agent_id: Option<&str>) -> Vec<WorkspaceOption> {
     let builtin = config::builtin_workspaces_dir();
     let home = terminal::launch_home_dir().unwrap_or_else(|_| config::data_dir());
-    let selected = terminal::resolve_workspace_preference().ok();
+    let agent_prefs = agent_state::read_prefs();
+    let selected = agent_id
+        .map(canonical_agent_id)
+        .and_then(|agent_id| resolve_agent_workspace_preference(&agent_id, &agent_prefs).ok())
+        .or_else(|| terminal::resolve_workspace_preference().ok());
     if let Some(path) = selected.as_ref() {
         let _ = register_launcher_workspace(path);
     }
@@ -772,6 +1059,114 @@ fn canonical_agent_id(agent_id: &str) -> String {
     resources::agent_by_alias(agent_id)
         .map(|def| def.id.clone())
         .unwrap_or_else(|| agent_id.to_string())
+}
+
+fn resolve_agent_workspace_preference(
+    agent_id: &str,
+    agent_prefs: &agent_state::AgentsPrefsFile,
+) -> anyhow::Result<PathBuf> {
+    if let Some(workspace) = agent_prefs
+        .agents
+        .get(agent_id)
+        .and_then(|preference| preference.workspace.as_ref())
+    {
+        return terminal::canonical_workspace_path(workspace);
+    }
+    terminal::resolve_workspace_preference()
+}
+
+pub(super) fn resolve_launch_workspace(agent_id: &str) -> anyhow::Result<PathBuf> {
+    let agent_prefs = agent_state::read_prefs();
+    resolve_agent_workspace_preference(agent_id, &agent_prefs)
+}
+
+fn summarize_agent_preferences(
+    agent_prefs: &agent_state::AgentsPrefsFile,
+    cfg: &config::Config,
+) -> BTreeMap<String, AgentLaunchPreferenceSummary> {
+    let mut agent_ids: HashSet<String> = cfg
+        .enabled_agents
+        .iter()
+        .map(|id| canonical_agent_id(id))
+        .collect();
+    agent_ids.extend(agent_prefs.agents.keys().map(|id| canonical_agent_id(id)));
+    agent_ids.extend(cfg.default_profiles.keys().map(|id| canonical_agent_id(id)));
+
+    let mut out = BTreeMap::new();
+    for agent_id in agent_ids {
+        let stored = agent_prefs.agents.get(&agent_id);
+        let profile_id = stored
+            .and_then(|preference| preference.profile_id.clone())
+            .or_else(|| cfg.default_profiles.get(&agent_id).cloned());
+        let workspace = stored
+            .and_then(|preference| preference.workspace.as_ref())
+            .map(|path| path.to_string_lossy().to_string());
+        if profile_id.is_some() || workspace.is_some() {
+            out.insert(
+                agent_id,
+                AgentLaunchPreferenceSummary {
+                    profile_id,
+                    workspace,
+                },
+            );
+        }
+    }
+    out
+}
+
+fn merged_profile_connections(
+    agent_prefs: &agent_state::AgentsPrefsFile,
+) -> agent_state::ProfileConnectionPreferences {
+    let mut out = legacy_profile_connections();
+    for (profile_id, by_agent) in &agent_prefs.profile_connections {
+        let entry = out.entry(profile_id.clone()).or_default();
+        for (agent_id, preference) in by_agent {
+            entry.insert(agent_id.clone(), preference.clone());
+        }
+    }
+    out
+}
+
+fn legacy_profile_connections() -> agent_state::ProfileConnectionPreferences {
+    let legacy = terminal::read_profile_connections();
+    let mut out = agent_state::ProfileConnectionPreferences::new();
+    for (profile_id, by_agent) in legacy {
+        let entry = out.entry(profile_id).or_default();
+        for (agent_id, preference) in by_agent {
+            let Some(selected_api_type) = default_client_api_type(&agent_id) else {
+                continue;
+            };
+            let mut proxy = BTreeMap::new();
+            if preference.proxy_enabled || preference.target_api_type.is_some() {
+                proxy.insert(
+                    selected_api_type.to_string(),
+                    agent_state::ProfileProxyPreference {
+                        enabled: preference.proxy_enabled,
+                        target_api_type: preference.target_api_type,
+                        upstream_model: None,
+                        fake_model_id: None,
+                    },
+                );
+            }
+            entry.insert(
+                agent_id,
+                agent_state::ProfileConnectionPreference {
+                    selected_api_type: Some(selected_api_type.to_string()),
+                    proxy,
+                },
+            );
+        }
+    }
+    out
+}
+
+fn default_client_api_type(agent_id: &str) -> Option<&'static str> {
+    match agent_id {
+        "claude" => Some("anthropic"),
+        "codex" => Some("openai-responses"),
+        "opencode" => Some("openai-responses"),
+        _ => None,
+    }
 }
 
 pub(crate) fn ordered_profiles() -> Vec<ProfileDef> {

@@ -14,6 +14,7 @@ use anyhow::{anyhow, Context};
 use agent_client_protocol as acp;
 
 use crate::agent::{Agent, AgentClientHandler};
+use crate::agent_state;
 use crate::config;
 use crate::profiles;
 
@@ -39,11 +40,14 @@ impl Conversation {
             .map(crate::resources::resolve_agent_id)
             .transpose()
             .map_err(anyhow::Error::msg)?;
+        let cfg = config::ensure_loaded();
+        let agent_prefs = agent_state::read_prefs();
+        let default_agent = agent_state::resolve_default_agent(&agent_prefs, &cfg);
         let stored_cli_kind = self.cli_kind.lock().await.clone();
         let resolved_cli_kind = stored_cli_kind
             .clone()
             .or(requested_cli_kind.clone())
-            .unwrap_or_else(|| config::ensure_loaded().default_agent.clone());
+            .unwrap_or_else(|| default_agent.clone());
 
         // If an Agent exists, check if caller requested a different kind (implicit switch).
         if let Some(existing) = self.agent.lock().await.clone() {
@@ -73,20 +77,14 @@ impl Conversation {
             }
         }
 
-        let cfg = config::ensure_loaded();
-        let cli_kind = self
-            .cli_kind
-            .lock()
-            .await
-            .clone()
-            .unwrap_or_else(|| cfg.default_agent.clone());
+        let cli_kind = self.cli_kind.lock().await.clone().unwrap_or(default_agent);
         let agent_id = crate::resources::resolve_agent_id(&cli_kind).map_err(anyhow::Error::msg)?;
         let cli_kind = agent_id.clone();
         tracing::info!(route = %self.route, cli_kind = %cli_kind, "spawning new agent");
         let explicit_profile = self.profile.lock().await.clone();
         let mut profile = explicit_profile
             .clone()
-            .or_else(|| cfg.default_profile_for(&cli_kind))
+            .or_else(|| agent_state::resolve_default_profile(&agent_prefs, &cfg, &cli_kind))
             .unwrap_or_else(|| "default".to_string());
 
         // Resolve workspace — handover must include cwd, normal prompt uses default.

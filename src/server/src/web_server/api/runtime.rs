@@ -5,18 +5,19 @@ use axum::{
     Json,
 };
 
-use common::config;
 use common::pty::SessionId;
 use common::state::StateSource;
+use common::{agent_state, config};
 
 use crate::web_server::AppState;
 
 /// GET /api/agents -- list enabled agents and default agent for frontend agent selector.
 pub async fn list_agents_handler() -> Json<crate::api_types::AgentsConfig> {
     let cfg = config::ensure_loaded();
+    let agent_prefs = agent_state::read_prefs();
     Json(crate::api_types::AgentsConfig {
         agents: crate::api_types::AgentInfo::for_ids(&cfg.enabled_agents),
-        default_agent: cfg.default_agent.clone(),
+        default_agent: agent_state::resolve_default_agent(&agent_prefs, &cfg),
     })
 }
 
