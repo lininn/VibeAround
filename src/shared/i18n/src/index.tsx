@@ -244,6 +244,8 @@ const zhCN: Record<string, string> = {
   unsupported: "不支持",
   "{{agent}} routes through proxy to {{provider}} {{apiType}}":
     "{{agent}} 通过代理连接到 {{provider}} {{apiType}}",
+  '"{{profile}}" does not support {{agent}} yet':
+    '"{{profile}}" 暂时不支持 {{agent}}',
   "{{agent}} is unsupported for this profile": "这个 profile 不支持 {{agent}}",
   'Delete profile "{{label}}"?': "删除 profile「{{label}}」？",
   "Reorder {{label}}": "重新排序 {{label}}",

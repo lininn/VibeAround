@@ -1659,7 +1659,7 @@ function profileAvailability(
 
   return {
     launchable: false,
-    reason: t('"{{profile}}" does not support {{agent}}', {
+    reason: t('"{{profile}}" does not support {{agent}} yet', {
       profile: profile.label,
       agent: agentLabel(agentId),
     }),
