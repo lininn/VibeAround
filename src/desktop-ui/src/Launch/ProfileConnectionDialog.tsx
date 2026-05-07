@@ -452,7 +452,7 @@ export function ProfileConnectionDialog({
                                         value={model.id}
                                         className="text-xs"
                                       >
-                                        {model.label ? `${model.label} · ${model.id}` : model.id}
+                                        {model.label || model.id}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
