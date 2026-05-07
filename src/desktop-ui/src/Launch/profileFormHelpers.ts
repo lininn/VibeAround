@@ -20,7 +20,7 @@ export function collectFields(
 ): FieldDef[] {
   const seen = new Map<string, FieldDef>();
   for (const apiType of apiTypes) {
-    const ep = provider.endpoints.find((e) => e.api_type === apiType);
+    const ep = endpointsForApiType(provider, apiType)[0];
     if (!ep) continue;
     const auth = ep.auth_modes.find((a: AuthModeDef) => a.mode === mode);
     if (!auth) continue;
@@ -47,6 +47,8 @@ export function providerSearchText(provider: CatalogEntry): string {
     ...provider.endpoints
       .filter((endpoint) => isProviderApiKind(endpoint.api_type))
       .flatMap((endpoint) => [
+        endpointId(endpoint),
+        endpoint.label ?? "",
         endpoint.api_type,
         apiTypeShort(endpoint.api_type),
         apiTypeLabel(endpoint.api_type),
@@ -65,6 +67,45 @@ export function stripEmpty(map: Record<string, string>): Record<string, string> 
 
 export function arraysEqual(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((item, index) => item === b[index]);
+}
+
+export function endpointId(endpoint: CatalogEntry["endpoints"][number]): string {
+  return endpoint.id || endpoint.api_type;
+}
+
+export function endpointLabel(endpoint: CatalogEntry["endpoints"][number]): string {
+  return endpoint.label || endpointId(endpoint);
+}
+
+export function providerApiKindEndpoints(provider: CatalogEntry): CatalogEntry["endpoints"] {
+  const seen = new Set<string>();
+  const out: CatalogEntry["endpoints"] = [];
+  for (const endpoint of provider.endpoints) {
+    if (!isProviderApiKind(endpoint.api_type) || seen.has(endpoint.api_type)) continue;
+    seen.add(endpoint.api_type);
+    out.push(endpoint);
+  }
+  return out;
+}
+
+export function endpointsForApiType(
+  provider: CatalogEntry,
+  apiType: string,
+): CatalogEntry["endpoints"] {
+  return provider.endpoints.filter((endpoint) => endpoint.api_type === apiType);
+}
+
+export function selectedEndpoint(
+  provider: CatalogEntry,
+  apiType: string,
+  overrides: Record<string, ApiTypeOverrides>,
+): CatalogEntry["endpoints"][number] | undefined {
+  const endpointIdOverride = overrides[apiType]?.endpoint_id;
+  const candidates = endpointsForApiType(provider, apiType);
+  return (
+    candidates.find((endpoint) => endpointId(endpoint) === endpointIdOverride) ??
+    candidates[0]
+  );
 }
 
 export function shouldShowBaseUrl(
@@ -105,9 +146,13 @@ export function pruneOverrides(
   for (const apiType of apiTypes) {
     const ov = overrides[apiType];
     if (!ov) continue;
-    const ep = provider.endpoints.find((e) => e.api_type === apiType);
+    const ep = selectedEndpoint(provider, apiType, overrides);
+    const endpointOptions = endpointsForApiType(provider, apiType);
     const defaultBaseUrl = ep?.default_base_url ?? "";
     const trimmed: ApiTypeOverrides = {};
+    if (ov.endpoint_id && endpointOptions.length > 1) {
+      trimmed.endpoint_id = ov.endpoint_id;
+    }
     if (ov.model && ov.model.length > 0) trimmed.model = ov.model;
     if (ep?.capabilities?.reasoning_effort && ov.reasoning_effort) {
       trimmed.reasoning_effort = ov.reasoning_effort;

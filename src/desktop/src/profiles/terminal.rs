@@ -301,27 +301,6 @@ pub fn read_profile_connections() -> ProfileConnectionPreferences {
     read_prefs_file().profile_connections
 }
 
-pub fn write_profile_connection_preference(
-    profile_id: &str,
-    agent_id: &str,
-    preference: ProfileConnectionPreference,
-) -> anyhow::Result<()> {
-    let mut prefs = read_prefs_file();
-    let profile_connections = prefs
-        .profile_connections
-        .entry(profile_id.to_string())
-        .or_default();
-    if preference.proxy_enabled || preference.target_api_type.is_some() {
-        profile_connections.insert(agent_id.to_string(), preference);
-    } else {
-        profile_connections.remove(agent_id);
-    }
-    if profile_connections.is_empty() {
-        prefs.profile_connections.remove(profile_id);
-    }
-    write_prefs_file(&prefs)
-}
-
 pub fn remove_profile_connections(profile_id: &str) -> anyhow::Result<()> {
     let mut prefs = read_prefs_file();
     prefs.profile_connections.remove(profile_id);

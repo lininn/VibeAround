@@ -1,9 +1,18 @@
 mod deepseek;
+mod kimi;
+mod minimax;
+mod qwen;
+mod zai;
 
 use common::profiles::schema::ProfileDef;
 use serde_json::Value;
+use va_ai_api_proxy::UniversalEvent;
 
 use self::deepseek::DeepSeekProxyAdapter;
+use self::kimi::KimiProxyAdapter;
+use self::minimax::MiniMaxProxyAdapter;
+use self::qwen::QwenProxyAdapter;
+use self::zai::ZaiProxyAdapter;
 
 #[derive(Debug, Clone, Default)]
 pub struct ProviderProxyContext {
@@ -16,6 +25,10 @@ pub struct ProviderProxyContext {
 pub enum ProviderProxyAdapter {
     None,
     DeepSeek(DeepSeekProxyAdapter),
+    Kimi(KimiProxyAdapter),
+    MiniMax(MiniMaxProxyAdapter),
+    Qwen(QwenProxyAdapter),
+    Zai(ZaiProxyAdapter),
 }
 
 impl ProviderProxyAdapter {
@@ -26,6 +39,10 @@ impl ProviderProxyAdapter {
                 profile.provider_settings.deepseek.clone(),
                 context,
             )),
+            "kimi" => Self::Kimi(KimiProxyAdapter::default()),
+            "minimax" => Self::MiniMax(MiniMaxProxyAdapter::default()),
+            "qwen" => Self::Qwen(QwenProxyAdapter::new(profile)),
+            "zai" => Self::Zai(ZaiProxyAdapter::new(profile)),
             _ => Self::None,
         }
     }
@@ -34,6 +51,21 @@ impl ProviderProxyAdapter {
         match self {
             Self::None => {}
             Self::DeepSeek(adapter) => adapter.prepare_chat_request(original_request, chat_request),
+            Self::Kimi(_) => {}
+            Self::MiniMax(adapter) => adapter.prepare_chat_request(chat_request),
+            Self::Qwen(adapter) => adapter.prepare_chat_request(original_request, chat_request),
+            Self::Zai(adapter) => adapter.prepare_chat_request(original_request, chat_request),
+        }
+    }
+
+    pub fn prepare_anthropic_request(&mut self, request: &mut Value) {
+        match self {
+            Self::None => {}
+            Self::DeepSeek(_) => {}
+            Self::Kimi(adapter) => adapter.prepare_anthropic_request(request),
+            Self::MiniMax(_) => {}
+            Self::Qwen(_) => {}
+            Self::Zai(_) => {}
         }
     }
 
@@ -41,6 +73,10 @@ impl ProviderProxyAdapter {
         match self {
             Self::None => {}
             Self::DeepSeek(adapter) => adapter.observe_chat_completion(completion),
+            Self::Kimi(_) => {}
+            Self::MiniMax(_) => {}
+            Self::Qwen(_) => {}
+            Self::Zai(_) => {}
         }
     }
 
@@ -48,6 +84,21 @@ impl ProviderProxyAdapter {
         match self {
             Self::None => {}
             Self::DeepSeek(adapter) => adapter.observe_chat_stream_chunk(chunk),
+            Self::Kimi(_) => {}
+            Self::MiniMax(_) => {}
+            Self::Qwen(_) => {}
+            Self::Zai(_) => {}
+        }
+    }
+
+    pub fn transform_upstream_events(&mut self, events: &mut Vec<UniversalEvent>) {
+        match self {
+            Self::None => {}
+            Self::DeepSeek(_) => {}
+            Self::Kimi(adapter) => adapter.transform_upstream_events(events),
+            Self::MiniMax(adapter) => adapter.transform_upstream_events(events),
+            Self::Qwen(_) => {}
+            Self::Zai(_) => {}
         }
     }
 }

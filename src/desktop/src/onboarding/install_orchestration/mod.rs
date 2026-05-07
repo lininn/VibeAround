@@ -56,7 +56,7 @@ fn default_true() -> bool {
 /// can pre-populate the progress list before install starts.
 pub fn get_install_manifest(settings: &Value, scope: InstallScope) -> Vec<InstallTaskInfo> {
     let all_agents = common::resources::agent_ids();
-    let enabled_agents = if scope.agents {
+    let integration_agents = if scope.agents {
         resolve_enabled_agents(settings, &all_agents)
     } else {
         Vec::new()
@@ -67,16 +67,21 @@ pub fn get_install_manifest(settings: &Value, scope: InstallScope) -> Vec<Instal
         Vec::new()
     };
     let needs_acp_agents = !enabled_channels.is_empty();
+    let acp_agents = if needs_acp_agents {
+        resolve_enabled_agents(settings, &all_agents)
+    } else {
+        Vec::new()
+    };
 
     let mut tasks = Vec::new();
 
-    for agent_id in &enabled_agents {
+    for agent_id in &integration_agents {
         let agent_def = match common::resources::agent_by_id(agent_id) {
             Some(def) => def,
             None => continue,
         };
 
-        // MCP config + skill are always installed
+        // MCP config + skill are installed only when agent setup is in scope.
         if agent_def.global_config.is_some() {
             tasks.push(InstallTaskInfo {
                 id: format!("agent:{}:mcp", agent_id),
@@ -94,10 +99,16 @@ pub fn get_install_manifest(settings: &Value, scope: InstallScope) -> Vec<Instal
                 });
             }
         }
+    }
 
+    for agent_id in &acp_agents {
+        let agent_def = match common::resources::agent_by_id(agent_id) {
+            Some(def) => def,
+            None => continue,
+        };
         // ACP agent install is only needed when at least one IM/channel is enabled.
         let install_type = agent_def.install.as_ref().map(|i| i.install_type.as_str());
-        if needs_acp_agents && matches!(install_type, Some("npm") | Some("script")) {
+        if matches!(install_type, Some("npm") | Some("script")) {
             tasks.push(InstallTaskInfo {
                 id: format!("agent:{}:acp", agent_id),
                 label: format!("{} — CLI install", agent_def.display_name),
@@ -181,7 +192,7 @@ async fn run_install<R: Runtime>(
     log_file: Arc<Mutex<Option<std::fs::File>>>,
 ) {
     let all_agents = common::resources::agent_ids();
-    let enabled_agents = if scope.agents {
+    let integration_agents = if scope.agents {
         resolve_enabled_agents(&settings, &all_agents)
     } else {
         Vec::new()
@@ -192,23 +203,28 @@ async fn run_install<R: Runtime>(
         Vec::new()
     };
     let needs_acp_agents = !enabled_channels.is_empty();
+    let acp_agents = if needs_acp_agents {
+        resolve_enabled_agents(&settings, &all_agents)
+    } else {
+        Vec::new()
+    };
     let mut had_error = false;
 
     // Install MCP config + skill files for all enabled agents in one global
     // sweep BEFORE the per-agent loop.
-    if !enabled_agents.is_empty() {
+    if !integration_agents.is_empty() {
         log_line(
             &log_file,
             &format!(
                 "[onboarding] Syncing MCP config and skills for {} enabled agent(s)",
-                enabled_agents.len()
+                integration_agents.len()
             ),
         );
         common::agent::sync_integrations(&settings);
     }
 
-    // --- Agent installs ---
-    for agent_id in &enabled_agents {
+    // --- Agent integration installs ---
+    for agent_id in &integration_agents {
         if cancelled.load(Ordering::Relaxed) {
             break;
         }
@@ -258,14 +274,22 @@ async fn run_install<R: Runtime>(
                 );
             }
         }
+    }
 
+    // --- ACP agent installs ---
+    for agent_id in &acp_agents {
         if cancelled.load(Ordering::Relaxed) {
             break;
         }
 
+        let agent_def = match common::resources::agent_by_id(agent_id) {
+            Some(def) => def,
+            None => continue,
+        };
+
         // ACP agent install (npm or script) is only needed for IM/channel use.
         let install_type = agent_def.install.as_ref().map(|i| i.install_type.as_str());
-        match if needs_acp_agents { install_type } else { None } {
+        match install_type {
             Some("npm") => {
                 install_npm_agent(
                     &app,
@@ -323,4 +347,60 @@ fn enabled_channel_ids(settings: &Value) -> Vec<String> {
         .and_then(|v| v.as_object())
         .map(|obj| obj.keys().cloned().collect::<Vec<_>>())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manifest_ids(settings: Value, scope: InstallScope) -> Vec<String> {
+        get_install_manifest(&settings, scope)
+            .into_iter()
+            .map(|task| task.id)
+            .collect()
+    }
+
+    #[test]
+    fn manifest_installs_configured_acp_agents_when_only_channels_are_in_scope() {
+        let settings = serde_json::json!({
+            "enabled_agents": ["claude", "codex"],
+            "channels": {
+                "telegram": {}
+            }
+        });
+
+        let ids = manifest_ids(
+            settings,
+            InstallScope {
+                agents: false,
+                channels: true,
+            },
+        );
+
+        assert!(ids.contains(&"agent:claude:acp".to_string()));
+        assert!(ids.contains(&"agent:codex:acp".to_string()));
+        assert!(ids.contains(&"plugin:telegram".to_string()));
+        assert!(!ids.contains(&"agent:claude:mcp".to_string()));
+        assert!(!ids.contains(&"agent:codex:mcp".to_string()));
+    }
+
+    #[test]
+    fn manifest_does_not_install_acp_agents_without_channels() {
+        let settings = serde_json::json!({
+            "enabled_agents": ["claude", "codex"]
+        });
+
+        let ids = manifest_ids(
+            settings,
+            InstallScope {
+                agents: true,
+                channels: false,
+            },
+        );
+
+        assert!(!ids.contains(&"agent:claude:acp".to_string()));
+        assert!(!ids.contains(&"agent:codex:acp".to_string()));
+        assert!(ids.contains(&"agent:claude:mcp".to_string()));
+        assert!(ids.contains(&"agent:codex:mcp".to_string()));
+    }
 }

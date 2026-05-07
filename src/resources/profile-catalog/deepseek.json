@@ -9,16 +9,16 @@
       "default_base_url": "https://api.deepseek.com/anthropic",
       "models": [
         {
-          "id": "deepseek-v4-flash",
-          "label": "DeepSeek V4 Flash (1M ctx)"
+          "id": "deepseek-v4-pro",
+          "label": "DeepSeek V4 Pro"
         },
         {
-          "id": "deepseek-v4-pro",
-          "label": "DeepSeek V4 Pro (200K Context)"
+          "id": "deepseek-v4-flash",
+          "label": "DeepSeek V4 Flash"
         },
         {
           "id": "deepseek-v4-pro[1m]",
-          "label": "DeepSeek V4 Pro (1M context)"
+          "label": "DeepSeek V4 Pro [1m] (Claude Code only)"
         }
       ],
       "auth_modes": [
@@ -37,8 +37,14 @@
           "render": {
             "env": {
               "ANTHROPIC_API_KEY": "{{api_key}}",
+              "ANTHROPIC_AUTH_TOKEN": "{{api_key}}",
               "ANTHROPIC_BASE_URL": "{{base_url}}",
-              "ANTHROPIC_MODEL": "{{model}}"
+              "ANTHROPIC_MODEL": "{{model}}",
+              "ANTHROPIC_DEFAULT_OPUS_MODEL": "{{model}}",
+              "ANTHROPIC_DEFAULT_SONNET_MODEL": "{{model}}",
+              "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",
+              "CLAUDE_CODE_SUBAGENT_MODEL": "deepseek-v4-flash",
+              "CLAUDE_CODE_EFFORT_LEVEL": "max"
             },
             "settings_files": []
           }
@@ -47,19 +53,19 @@
     },
     {
       "api_type": "openai-chat",
-      "default_base_url": "https://api.deepseek.com/v1",
+      "default_base_url": "https://api.deepseek.com",
       "models": [
         {
-          "id": "deepseek-v4-flash",
-          "label": "DeepSeek V4 Flash (1M ctx)"
+          "id": "deepseek-v4-pro",
+          "label": "DeepSeek V4 Pro"
         },
         {
-          "id": "deepseek-v4-pro",
-          "label": "DeepSeek V4 Pro (200K Context)"
+          "id": "deepseek-v4-flash",
+          "label": "DeepSeek V4 Flash"
         },
         {
           "id": "deepseek-v4-pro[1m]",
-          "label": "DeepSeek V4 Pro (1M context)"
+          "label": "DeepSeek V4 Pro [1m] (Claude Code only)"
         }
       ],
       "auth_modes": [

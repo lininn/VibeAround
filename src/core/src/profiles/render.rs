@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use anyhow::{anyhow, bail};
 
 use super::catalog::{
-    AuthModeDef, EndpointDef, ProviderCatalog, RenderRules, SettingsFileTemplate,
+    self, AuthModeDef, EndpointDef, ProviderCatalog, RenderRules, SettingsFileTemplate,
 };
 use super::schema::{ApiTypeOverrides, AuthMode, ProfileDef};
 
@@ -59,7 +59,7 @@ pub fn render(
     launch_target: &str,
     catalog: &ProviderCatalog,
 ) -> anyhow::Result<RenderedProfile> {
-    let endpoint = pick_endpoint(catalog, api_type)?;
+    let endpoint = pick_endpoint(profile, catalog, api_type)?;
     let auth = pick_auth_mode(endpoint, &profile.auth_mode)?;
     let opencode_rules;
     let render_rules = if launch_target == "opencode" {
@@ -121,20 +121,25 @@ pub fn render(
 // ---------------------------------------------------------------------------
 
 fn pick_endpoint<'a>(
+    profile: &ProfileDef,
     catalog: &'a ProviderCatalog,
     api_type: &str,
 ) -> anyhow::Result<&'a EndpointDef> {
-    catalog
-        .endpoints
-        .iter()
-        .find(|e| e.api_type == api_type)
-        .ok_or_else(|| {
-            anyhow!(
-                "provider '{}' has no endpoint for api_type '{}'",
-                catalog.id,
-                api_type
-            )
-        })
+    let endpoint_id = profile
+        .overrides
+        .get(api_type)
+        .and_then(|overrides| overrides.endpoint_id.as_deref());
+    catalog::find_endpoint(catalog, api_type, endpoint_id).ok_or_else(|| {
+        let suffix = endpoint_id
+            .map(|id| format!(" endpoint_id '{id}'"))
+            .unwrap_or_default();
+        anyhow!(
+            "provider '{}' has no endpoint for api_type '{}'{}",
+            catalog.id,
+            api_type,
+            suffix
+        )
+    })
 }
 
 fn pick_auth_mode<'a>(
@@ -192,6 +197,18 @@ fn opencode_render_rules(api_type: &str) -> anyhow::Result<RenderRules> {
             settings_files: vec![SettingsFileTemplate {
                 rel_path: "opencode.json".to_string(),
                 template: "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"model\": \"{{provider_id}}/{{model|json}}\",\n  \"provider\": {\n    \"{{provider_id}}\": {\n      \"npm\": \"@ai-sdk/openai-compatible\",\n      \"name\": \"{{provider_label|json}}\",\n      \"options\": {\n        \"baseURL\": \"{{base_url|json}}\",\n        \"apiKey\": \"{env:VIBEAROUND_OPENCODE_API_KEY}\",\n        \"setCacheKey\": true\n      },\n      \"models\": {\n        \"{{model|json}}\": { \"name\": \"{{model|json}}\" }\n      }\n    }\n  }\n}\n".to_string(),
+            }],
+        }),
+        "anthropic" => Ok(RenderRules {
+            env: [(
+                "VIBEAROUND_OPENCODE_API_KEY".to_string(),
+                "{{api_key}}".to_string(),
+            )]
+            .into_iter()
+            .collect(),
+            settings_files: vec![SettingsFileTemplate {
+                rel_path: "opencode.json".to_string(),
+                template: "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"model\": \"{{provider_id}}/{{model|json}}\",\n  \"provider\": {\n    \"{{provider_id}}\": {\n      \"npm\": \"@ai-sdk/anthropic\",\n      \"name\": \"{{provider_label|json}}\",\n      \"options\": {\n        \"baseURL\": \"{{base_url|json}}\",\n        \"apiKey\": \"{env:VIBEAROUND_OPENCODE_API_KEY}\"\n      },\n      \"models\": {\n        \"{{model|json}}\": { \"name\": \"{{model|json}}\" }\n      }\n    }\n  }\n}\n".to_string(),
             }],
         }),
         other => bail!("opencode launch is not wired for api kind '{}'", other),

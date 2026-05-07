@@ -4,105 +4,41 @@
 //! The schema/catalog/rendering engine lives in `common::profiles` so the
 //! headless core can launch IM agents with the same profile behavior.
 
+mod connections;
 mod launcher;
+mod preferences;
+mod sessions;
+mod store;
+mod summary;
 mod terminal;
+mod workspace;
 
-use std::collections::{BTreeMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use common::profiles::schema::{ApiTypeOverrides, ProviderSettings};
-use common::profiles::{catalog, normalize_legacy_profile, runtime, schema};
+use common::agent_state;
+use common::profiles::{normalize_legacy_profile, schema};
 use common::{config, resources};
-use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
-pub use common::profiles::{AuthMode, ProfileDef};
+use self::connections::{
+    profile_can_launch_agent, resolve_profile_agent_route, sanitize_profile_connection_preference,
+};
+use self::preferences::{launcher_preferences, validate_agent_profile_selection};
+use self::sessions::list_sessions;
+use self::store::{create_profile, delete_profile, get_profile, reorder_profiles, save_profile};
+use self::summary::{catalog_entries, profile_summaries};
+use self::workspace::{canonical_agent_id, launcher_workspace_options};
+pub use common::profiles::ProfileDef;
+pub use preferences::LauncherPreferences;
+pub use sessions::LaunchSessionSummary;
+pub(crate) use store::ordered_profiles;
+pub use store::ProfileDraft;
+pub use summary::{CatalogEntry, ProfileSummary};
+pub use workspace::WorkspaceOption;
 
 // ---------------------------------------------------------------------------
 // View types — sanitized for the frontend.
 // ---------------------------------------------------------------------------
-
-/// List item — does NOT include credentials. Used to render the Launch tab
-/// without ever shipping API keys to the webview after the initial save.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProfileSummary {
-    pub id: String,
-    pub label: String,
-    pub provider: String,
-    /// Provider's display label, resolved from the catalog. Falls back to
-    /// the raw provider id when the catalog entry is missing — this can
-    /// happen if a user keeps a profile after we ship a catalog removal.
-    pub provider_label: String,
-    pub provider_icon: Option<String>,
-    pub auth_mode: AuthMode,
-    /// API kinds this provider credential declares, e.g. `anthropic`,
-    /// `openai-chat`, `gemini`. Kept as `api_types` on the wire for
-    /// profile.json compatibility.
-    pub api_types: Vec<String>,
-    /// Concrete CLI buttons the Launch tab should render. Derived from the
-    /// profile's API kinds plus each CLI target's adapter support.
-    pub launch_targets: Vec<LaunchTargetSummary>,
-    /// `api_type → caveat string` (subset; only the api_types that have a
-    /// non-empty `compatibility_warning` in the catalog appear here). Lets
-    /// the UI render a ⚠ tooltip on the affected launch button without
-    /// needing the full catalog client-side.
-    pub api_type_warnings: std::collections::BTreeMap<String, String>,
-    /// `api_type -> model id`, sanitized for manual client setup.
-    pub api_type_models: std::collections::BTreeMap<String, String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LaunchTargetSummary {
-    pub id: String,
-    pub label: String,
-    pub api_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub warning: Option<String>,
-}
-
-/// Catalog entry sent to the UI. Nested `EndpointDef` / `AuthModeDef` /
-/// `FieldDef` types use snake_case keys (no rename annotation) so the
-/// frontend's mustache-lite knowledge of `{{api_key}}` / `{{base_url}}`
-/// stays consistent end-to-end.
-#[derive(Debug, Serialize)]
-pub struct CatalogEntry {
-    pub id: String,
-    pub label: String,
-    pub icon: Option<String>,
-    pub homepage: Option<String>,
-    pub endpoints: Vec<catalog::EndpointDef>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ProfileDraft {
-    pub label: String,
-    pub provider: String,
-    pub auth_mode: AuthMode,
-    pub api_types: Vec<String>,
-    #[serde(default)]
-    pub credentials: BTreeMap<String, String>,
-    #[serde(default)]
-    pub overrides: BTreeMap<String, ApiTypeOverrides>,
-    #[serde(default)]
-    pub provider_settings: ProviderSettings,
-}
-
-impl ProfileDraft {
-    fn into_profile(self, id: String) -> ProfileDef {
-        ProfileDef {
-            id,
-            label: self.label,
-            provider: self.provider,
-            auth_mode: self.auth_mode,
-            api_types: self.api_types,
-            credentials: self.credentials,
-            overrides: self.overrides,
-            provider_settings: self.provider_settings,
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Tauri commands
@@ -110,132 +46,38 @@ impl ProfileDraft {
 
 #[tauri::command]
 pub fn profiles_list() -> Vec<ProfileSummary> {
-    ordered_profiles()
-        .into_iter()
-        .map(|p| {
-            let provider = catalog::get(&p.provider);
-            let (label, icon) = match provider {
-                Some(c) => (c.label.clone(), c.icon.clone()),
-                None => (p.provider.clone(), None),
-            };
-            let mut api_type_warnings: std::collections::BTreeMap<String, String> =
-                std::collections::BTreeMap::new();
-            if let Some(c) = provider {
-                for api_type in &p.api_types {
-                    if let Some(ep) = c.endpoints.iter().find(|e| &e.api_type == api_type) {
-                        if let Some(w) = &ep.compatibility_warning {
-                            api_type_warnings.insert(api_type.clone(), w.clone());
-                        }
-                    }
-                }
-            }
-            let api_type_models = p
-                .api_types
-                .iter()
-                .filter_map(|api_type| {
-                    p.overrides
-                        .get(api_type)
-                        .and_then(|overrides| overrides.model.as_ref())
-                        .filter(|model| !model.trim().is_empty())
-                        .map(|model| (api_type.clone(), model.clone()))
-                })
-                .collect();
-            let api_type_warnings_for_targets = api_type_warnings.clone();
-            ProfileSummary {
-                id: p.id,
-                label: p.label,
-                provider: p.provider,
-                provider_label: label,
-                provider_icon: icon,
-                auth_mode: p.auth_mode,
-                launch_targets: runtime::launch_targets_for_api_types(&p.api_types)
-                    .into_iter()
-                    .map(|(id, label, api_type)| LaunchTargetSummary {
-                        id: id.to_string(),
-                        label: label.to_string(),
-                        api_type: api_type.to_string(),
-                        warning: api_type_warnings_for_targets.get(api_type).cloned(),
-                    })
-                    .collect(),
-                api_types: p.api_types,
-                api_type_warnings,
-                api_type_models,
-            }
-        })
-        .collect()
+    profile_summaries()
 }
 
 #[tauri::command]
 pub fn profiles_get(id: String) -> Result<ProfileDef, String> {
-    schema::load(&id)
-        .map(normalize_legacy_profile)
-        .ok_or_else(|| format!("profile '{id}' not found"))
+    get_profile(&id)
 }
 
 #[tauri::command]
 pub fn profiles_upsert(app: tauri::AppHandle, profile: ProfileDef) -> Result<(), String> {
-    save_profile(&app, &profile)
-}
-
-#[tauri::command]
-pub fn profiles_create(app: tauri::AppHandle, draft: ProfileDraft) -> Result<ProfileDef, String> {
-    let id = schema::generate_unique_id(&draft.provider).map_err(|e| e.to_string())?;
-    let profile = draft.into_profile(id);
-    save_profile(&app, &profile)?;
-    Ok(profile)
-}
-
-fn save_profile(app: &tauri::AppHandle, profile: &ProfileDef) -> Result<(), String> {
-    schema::validate(profile).map_err(|e| e.to_string())?;
-    let provider = catalog::get(&profile.provider)
-        .ok_or_else(|| format!("unknown provider '{}'", profile.provider))?;
-    for api_type in &profile.api_types {
-        if !provider.endpoints.iter().any(|e| &e.api_type == api_type) {
-            return Err(format!(
-                "provider '{}' does not support api kind '{}'",
-                profile.provider, api_type
-            ));
-        }
-    }
-    schema::save(profile).map_err(|e| e.to_string())?;
-    ensure_profile_order_contains(&profile.id)?;
-    emit_launch_config_changed(app);
+    save_profile(&profile)?;
+    emit_launch_config_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
+pub fn profiles_create(app: tauri::AppHandle, draft: ProfileDraft) -> Result<ProfileDef, String> {
+    let profile = create_profile(draft)?;
+    emit_launch_config_changed(&app);
+    Ok(profile)
+}
+
+#[tauri::command]
 pub fn profiles_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    schema::delete(&id).map_err(|e| e.to_string())?;
-    clear_default_profile_references(&id)?;
-    terminal::remove_profile_connections(&id).map_err(|e| e.to_string())?;
+    delete_profile(&id)?;
     emit_launch_config_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
 pub fn profiles_reorder(app: tauri::AppHandle, profile_ids: Vec<String>) -> Result<(), String> {
-    let profiles: Vec<_> = schema::list()
-        .into_iter()
-        .map(normalize_legacy_profile)
-        .collect();
-    let existing_ids: HashSet<_> = profiles.iter().map(|profile| profile.id.as_str()).collect();
-    let mut seen = HashSet::new();
-    let mut ordered_ids = Vec::new();
-
-    for id in profile_ids {
-        let id = id.trim();
-        if existing_ids.contains(id) && seen.insert(id.to_string()) {
-            ordered_ids.push(id.to_string());
-        }
-    }
-
-    for profile in profiles {
-        if seen.insert(profile.id.clone()) {
-            ordered_ids.push(profile.id);
-        }
-    }
-
-    write_profile_order(&ordered_ids)?;
+    reorder_profiles(profile_ids)?;
     emit_launch_config_changed(&app);
     Ok(())
 }
@@ -262,78 +104,12 @@ pub fn profiles_launch_direct(agent_id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn profiles_catalog() -> Vec<CatalogEntry> {
-    catalog::all()
-        .iter()
-        .map(|c| CatalogEntry {
-            id: c.id.clone(),
-            label: c.label.clone(),
-            icon: c.icon.clone(),
-            homepage: c.homepage.clone(),
-            endpoints: c.endpoints.clone(),
-        })
-        .collect()
+    catalog_entries()
 }
 
 // ---------------------------------------------------------------------------
 // Terminal preference commands
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TerminalOption {
-    pub id: String,
-    pub label: String,
-    pub installed: bool,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LauncherPreferences {
-    /// `id` of the currently-preferred terminal.
-    pub terminal: String,
-    /// Every supported terminal, with an `installed` flag the UI uses to
-    /// gray out unavailable choices instead of just hiding them — keeps
-    /// the dropdown stable and discoverable as users install more apps.
-    pub options: Vec<TerminalOption>,
-    /// Resolved cwd used for profile/direct launches.
-    pub workspace: String,
-    /// Suggested cwd choices surfaced in the Launch header.
-    pub workspace_options: Vec<WorkspaceOption>,
-    /// Canonical agent id used by Quick Launch and IM defaults.
-    pub default_agent: String,
-    /// Agent ids enabled by onboarding/settings.json.
-    pub enabled_agents: Vec<String>,
-    /// Per-agent profile defaults from settings.json.
-    pub default_profiles: std::collections::BTreeMap<String, String>,
-    /// Global policy for wrapping OpenAI-compatible profile launches through
-    /// VibeAround's local compatibility proxy.
-    pub compatibility_proxy: terminal::CompatibilityProxyMode,
-    /// Per-profile connection choices for launch targets that can run via
-    /// the local API proxy.
-    pub profile_connections: terminal::ProfileConnectionPreferences,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceOption {
-    pub path: String,
-    pub label: String,
-    pub detail: String,
-    pub kind: String,
-    pub is_default: bool,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LaunchSessionSummary {
-    pub agent_id: String,
-    pub session_id: String,
-    pub title: String,
-    pub workspace: String,
-    pub updated_at: u64,
-    pub short_id: String,
-    pub archived: bool,
-}
 
 #[tauri::command]
 pub async fn launcher_get_preferences() -> Result<LauncherPreferences, String> {
@@ -342,40 +118,11 @@ pub async fn launcher_get_preferences() -> Result<LauncherPreferences, String> {
         .map_err(|e| e.to_string())
 }
 
-fn launcher_preferences() -> LauncherPreferences {
-    let installed_ids: std::collections::HashSet<&'static str> = terminal::detect_installed()
-        .iter()
-        .map(|c| c.id())
-        .collect();
-    let options = terminal::TerminalChoice::ALL
-        .iter()
-        .map(|c| TerminalOption {
-            id: c.id().to_string(),
-            label: c.label().to_string(),
-            installed: installed_ids.contains(c.id()),
-        })
-        .collect();
-    let workspace = terminal::resolve_workspace_preference()
-        .unwrap_or_else(|_| terminal::launch_home_dir().unwrap_or_else(|_| config::data_dir()))
-        .to_string_lossy()
-        .to_string();
-    let cfg = config::ensure_loaded();
-    LauncherPreferences {
-        terminal: terminal::read_preference().id().to_string(),
-        options,
-        workspace,
-        workspace_options: Vec::new(),
-        default_agent: canonical_agent_id(&cfg.default_agent),
-        enabled_agents: cfg.enabled_agents.clone(),
-        default_profiles: cfg.default_profiles.clone(),
-        compatibility_proxy: terminal::read_compatibility_proxy_preference(),
-        profile_connections: terminal::read_profile_connections(),
-    }
-}
-
 #[tauri::command]
-pub async fn launcher_list_workspaces() -> Result<Vec<WorkspaceOption>, String> {
-    tauri::async_runtime::spawn_blocking(launcher_workspace_options)
+pub async fn launcher_list_workspaces(
+    agent_id: Option<String>,
+) -> Result<Vec<WorkspaceOption>, String> {
+    tauri::async_runtime::spawn_blocking(move || launcher_workspace_options(agent_id.as_deref()))
         .await
         .map_err(|e| e.to_string())
 }
@@ -383,8 +130,10 @@ pub async fn launcher_list_workspaces() -> Result<Vec<WorkspaceOption>, String> 
 #[tauri::command]
 pub fn profiles_launch_default() -> Result<(), String> {
     let cfg = config::ensure_loaded();
-    let agent_id = canonical_agent_id(&cfg.default_agent);
-    if let Some(profile_id) = cfg.default_profile_for(&agent_id) {
+    let agent_prefs = agent_state::read_prefs();
+    let agent_id = agent_state::resolve_default_agent(&agent_prefs, &cfg);
+    let profile_id = agent_state::resolve_default_profile(&agent_prefs, &cfg, &agent_id);
+    if let Some(profile_id) = profile_id {
         if let Some(profile) = schema::load(&profile_id).map(normalize_legacy_profile) {
             if profile_can_launch_agent(&profile, &agent_id) {
                 return launcher::launch(&profile, &agent_id).map_err(|e| e.to_string());
@@ -422,24 +171,7 @@ pub async fn launcher_list_sessions(
     include_archived: bool,
 ) -> Result<Vec<LaunchSessionSummary>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let agent_id = canonical_agent_id(&agent_id);
-        common::launch_sessions::list_for_agent_workspace_with_archived(
-            &agent_id,
-            Path::new(&workspace_path),
-            25,
-            include_archived,
-        )
-        .into_iter()
-        .map(|session| LaunchSessionSummary {
-            short_id: common::launch_sessions::short_id(&session.session_id),
-            agent_id: session.agent_id,
-            session_id: session.session_id,
-            title: session.title,
-            workspace: session.workspace,
-            updated_at: session.updated_at,
-            archived: session.archived,
-        })
-        .collect()
+        list_sessions(agent_id, workspace_path, include_archived)
     })
     .await
     .map_err(|e| e.to_string())
@@ -451,44 +183,30 @@ pub fn launcher_set_default(
     agent_id: String,
     profile_id: Option<String>,
 ) -> Result<(), String> {
+    let (agent_id, profile_id) = validate_agent_profile_selection(&agent_id, profile_id)?;
+    agent_state::write_default_launch(&agent_id, profile_id).map_err(|e| e.to_string())?;
+    emit_launch_config_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn launcher_set_agent_profile(
+    app: tauri::AppHandle,
+    agent_id: String,
+    profile_id: Option<String>,
+) -> Result<(), String> {
+    let (agent_id, profile_id) = validate_agent_profile_selection(&agent_id, profile_id)?;
+    agent_state::write_agent_profile(&agent_id, profile_id).map_err(|e| e.to_string())?;
+    emit_launch_config_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn launcher_set_selected_agent(app: tauri::AppHandle, agent_id: String) -> Result<(), String> {
     let agent_id = resources::agent_by_alias(&agent_id)
         .map(|def| def.id.clone())
         .ok_or_else(|| format!("unknown agent: '{agent_id}'"))?;
-    let profile_id = profile_id
-        .map(|id| id.trim().to_string())
-        .filter(|id| !id.is_empty());
-
-    if let Some(profile_id) = &profile_id {
-        let profile = schema::load(profile_id)
-            .map(normalize_legacy_profile)
-            .ok_or_else(|| format!("profile '{profile_id}' not found"))?;
-        if !profile_can_launch_agent(&profile, &agent_id) {
-            return Err(format!("profile '{profile_id}' cannot launch '{agent_id}'"));
-        }
-    }
-
-    config::update_settings_json(|root| {
-        if let Some(obj) = root.as_object_mut() {
-            obj.insert("default_agent".into(), serde_json::json!(agent_id.clone()));
-            let default_profiles = obj
-                .entry("default_profiles")
-                .or_insert_with(|| serde_json::json!({}));
-            if !default_profiles.is_object() {
-                *default_profiles = serde_json::json!({});
-            }
-            if let Some(map) = default_profiles.as_object_mut() {
-                match &profile_id {
-                    Some(profile_id) => {
-                        map.insert(agent_id.clone(), serde_json::json!(profile_id));
-                    }
-                    None => {
-                        map.remove(&agent_id);
-                    }
-                }
-            }
-        }
-    })
-    .map_err(|e| e.to_string())?;
+    agent_state::write_selected_agent(&agent_id).map_err(|e| e.to_string())?;
     emit_launch_config_changed(&app);
     Ok(())
 }
@@ -507,11 +225,12 @@ pub fn launcher_set_terminal(terminal_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn launcher_set_workspace(app: tauri::AppHandle, workspace_path: String) -> Result<(), String> {
-    let path = terminal::canonical_workspace_path(Path::new(&workspace_path))
-        .map_err(|e| e.to_string())?;
-    register_launcher_workspace(&path)?;
-    terminal::write_workspace_preference(path).map_err(|e| e.to_string())?;
+pub fn launcher_set_workspace(
+    app: tauri::AppHandle,
+    workspace_path: String,
+    agent_id: Option<String>,
+) -> Result<(), String> {
+    workspace::set_workspace(&workspace_path, agent_id)?;
     emit_launch_config_changed(&app);
     Ok(())
 }
@@ -521,44 +240,7 @@ pub fn launcher_remove_workspace(
     app: tauri::AppHandle,
     workspace_path: String,
 ) -> Result<(), String> {
-    let path = PathBuf::from(workspace_path);
-    let cfg = config::ensure_loaded();
-    let builtin = config::builtin_workspaces_dir();
-    if paths_equal(&path, &builtin) {
-        return Err("Cannot remove the built-in workspace".to_string());
-    }
-    if !cfg
-        .workspaces
-        .iter()
-        .any(|workspace| paths_equal(workspace, &path))
-    {
-        return Err(format!("workspace is not registered: {}", path.display()));
-    }
-
-    config::update_settings_json(|root| {
-        if let Some(arr) = root
-            .get_mut("workspaces")
-            .and_then(|value| value.as_array_mut())
-        {
-            arr.retain(|value| {
-                value
-                    .as_str()
-                    .map(|candidate| !paths_equal(Path::new(candidate), &path))
-                    .unwrap_or(true)
-            });
-        }
-    })
-    .map_err(|e| e.to_string())?;
-
-    if terminal::read_workspace_preference()
-        .as_ref()
-        .map(|selected| paths_equal(selected, &path))
-        .unwrap_or(false)
-    {
-        let fallback = config::ensure_loaded().resolve_workspace("codex");
-        terminal::write_workspace_preference(fallback).map_err(|e| e.to_string())?;
-    }
-
+    workspace::remove_workspace(workspace_path)?;
     emit_launch_config_changed(&app);
     Ok(())
 }
@@ -568,52 +250,7 @@ pub fn launcher_reorder_workspaces(
     app: tauri::AppHandle,
     workspace_paths: Vec<String>,
 ) -> Result<(), String> {
-    let cfg = config::ensure_loaded();
-    let builtin = config::builtin_workspaces_dir();
-    let mut seen = HashSet::new();
-    let mut ordered = Vec::new();
-
-    for path in workspace_paths {
-        let canonical = PathBuf::from(path);
-        if paths_equal(&canonical, &builtin) {
-            continue;
-        }
-        if cfg
-            .workspaces
-            .iter()
-            .any(|workspace| paths_equal(workspace, &canonical))
-            && seen.insert(canonical.clone())
-        {
-            ordered.push(canonical);
-        }
-    }
-
-    for workspace in &cfg.workspaces {
-        if paths_equal(workspace, &builtin) {
-            continue;
-        }
-        if seen.insert(workspace.clone()) {
-            ordered.push(workspace.clone());
-        }
-    }
-
-    let mut final_order = Vec::new();
-    final_order.extend(ordered);
-
-    config::update_settings_json(|root| {
-        if let Some(obj) = root.as_object_mut() {
-            obj.insert(
-                "workspaces".into(),
-                serde_json::Value::Array(
-                    final_order
-                        .iter()
-                        .map(|path| serde_json::Value::String(path.to_string_lossy().to_string()))
-                        .collect(),
-                ),
-            );
-        }
-    })
-    .map_err(|e| e.to_string())?;
+    workspace::reorder_workspaces(workspace_paths)?;
     emit_launch_config_changed(&app);
     Ok(())
 }
@@ -632,332 +269,27 @@ pub fn launcher_set_profile_connection(
     app: tauri::AppHandle,
     profile_id: String,
     agent_id: String,
-    proxy_enabled: bool,
-    target_api_type: Option<String>,
+    preference: agent_state::ProfileConnectionPreference,
 ) -> Result<(), String> {
     let agent_id = match agent_id.as_str() {
-        "claude" | "codex" => agent_id,
+        "claude" | "codex" | "opencode" => agent_id,
         other => return Err(format!("unsupported connection target: '{other}'")),
     };
     let profile = schema::load(&profile_id)
         .map(normalize_legacy_profile)
         .ok_or_else(|| format!("profile '{profile_id}' not found"))?;
-    let target_api_type = target_api_type
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
-    let target_api_type = if proxy_enabled {
-        let target_api_type =
-            target_api_type.or_else(|| recommended_proxy_target(&profile.api_types, &agent_id));
-        let target_api_type = target_api_type.ok_or_else(|| {
-            format!(
-                "profile '{}' has no API kind that can be used as a proxy target",
-                profile.id
-            )
-        })?;
-        if !profile
-            .api_types
-            .iter()
-            .any(|api_type| api_type == &target_api_type)
-        {
-            return Err(format!(
-                "profile '{}' does not expose api kind '{}'",
-                profile.id, target_api_type
-            ));
-        }
-        if !is_proxy_target_api_type(&target_api_type) {
-            return Err(format!(
-                "api kind '{}' cannot be used as a proxy target",
-                target_api_type
-            ));
-        }
-        Some(target_api_type)
-    } else {
-        target_api_type.filter(|api_type| profile.api_types.iter().any(|value| value == api_type))
-    };
+    let preference = sanitize_profile_connection_preference(&profile, &agent_id, preference)?;
 
-    terminal::write_profile_connection_preference(
-        &profile.id,
-        &agent_id,
-        terminal::ProfileConnectionPreference {
-            proxy_enabled,
-            target_api_type,
-        },
-    )
-    .map_err(|e| e.to_string())?;
+    agent_state::write_profile_connection_preference(&profile.id, &agent_id, preference)
+        .map_err(|e| e.to_string())?;
     emit_launch_config_changed(&app);
     Ok(())
 }
 
-fn is_proxy_target_api_type(api_type: &str) -> bool {
-    matches!(api_type, "anthropic" | "openai-responses" | "openai-chat")
-}
-
-fn recommended_proxy_target(api_types: &[String], agent_id: &str) -> Option<String> {
-    let order: &[&str] = match agent_id {
-        "claude" => &["openai-responses", "openai-chat", "anthropic"],
-        "codex" => &["anthropic", "openai-chat", "openai-responses"],
-        _ => &[],
-    };
-    order
-        .iter()
-        .find(|candidate| api_types.iter().any(|api_type| api_type == **candidate))
-        .map(|candidate| (*candidate).to_string())
-}
-
-fn profile_can_launch_agent(profile: &ProfileDef, agent_id: &str) -> bool {
-    runtime::launch_targets_for_api_types(&profile.api_types)
-        .iter()
-        .any(|(target, _, _)| *target == agent_id)
-        || profile_proxy_target(profile, agent_id).is_some()
-}
-
-fn profile_proxy_target(profile: &ProfileDef, agent_id: &str) -> Option<String> {
-    let connections = terminal::read_profile_connections();
-    let preference = connections.get(&profile.id)?.get(agent_id)?;
-    if !preference.proxy_enabled {
-        return None;
-    }
-    let target_api_type = preference
-        .target_api_type
-        .clone()
-        .or_else(|| recommended_proxy_target(&profile.api_types, agent_id))?;
-    if !profile
-        .api_types
-        .iter()
-        .any(|api_type| api_type == &target_api_type)
-    {
-        return None;
-    }
-    is_proxy_target_api_type(&target_api_type).then_some(target_api_type)
-}
-
-fn launcher_workspace_options() -> Vec<WorkspaceOption> {
-    let builtin = config::builtin_workspaces_dir();
-    let home = terminal::launch_home_dir().unwrap_or_else(|_| config::data_dir());
-    let selected = terminal::resolve_workspace_preference().ok();
-    if let Some(path) = selected.as_ref() {
-        let _ = register_launcher_workspace(path);
-    }
-    let cfg = config::ensure_loaded();
-
-    let mut out = Vec::new();
-    push_workspace_option(&mut out, &home, "Home", "home", false);
-    for workspace in cfg.all_workspaces() {
-        let is_default = paths_equal(&workspace, &builtin);
-        let kind = if paths_equal(&workspace, &builtin) {
-            "built-in"
-        } else {
-            "workspace"
-        };
-        let label = if is_default {
-            "Default workspace".to_string()
-        } else {
-            path_label(&workspace)
-        };
-        push_workspace_option(&mut out, &workspace, &label, kind, is_default);
-    }
-    if let Some(path) = selected {
-        if !out
-            .iter()
-            .any(|option| paths_equal(Path::new(&option.path), &path))
-        {
-            let label = path_label(&path);
-            push_workspace_option(&mut out, &path, &label, "selected", false);
-        }
-    }
-    out
-}
-
-fn canonical_agent_id(agent_id: &str) -> String {
-    resources::agent_by_alias(agent_id)
-        .map(|def| def.id.clone())
-        .unwrap_or_else(|| agent_id.to_string())
-}
-
-pub(crate) fn ordered_profiles() -> Vec<ProfileDef> {
-    let mut remaining: Vec<_> = schema::list()
-        .into_iter()
-        .map(normalize_legacy_profile)
-        .collect();
-    let mut out = Vec::new();
-
-    for id in read_profile_order() {
-        if let Some(index) = remaining.iter().position(|profile| profile.id == id) {
-            out.push(remaining.remove(index));
-        }
-    }
-
-    out.extend(remaining);
-    out
-}
-
-fn clear_default_profile_references(profile_id: &str) -> Result<(), String> {
-    config::update_settings_json(|root| {
-        if let Some(obj) = root.as_object_mut() {
-            let mut remove_default_profiles = false;
-            if let Some(map) = obj
-                .get_mut("default_profiles")
-                .and_then(|value| value.as_object_mut())
-            {
-                map.retain(|_, value| value.as_str() != Some(profile_id));
-                remove_default_profiles = map.is_empty();
-            }
-            if remove_default_profiles {
-                obj.remove("default_profiles");
-            }
-            if let Some(order) = obj
-                .get_mut("profile_order")
-                .and_then(|value| value.as_array_mut())
-            {
-                order.retain(|value| value.as_str() != Some(profile_id));
-                if order.is_empty() {
-                    obj.remove("profile_order");
-                }
-            }
-        }
-    })
-    .map_err(|e| e.to_string())
-}
-
-fn read_profile_order() -> Vec<String> {
-    let path = config::data_dir().join("settings.json");
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
-        .and_then(|root| {
-            root.get("profile_order")
-                .and_then(|value| value.as_array())
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|item| item.as_str())
-                        .map(str::trim)
-                        .filter(|id| !id.is_empty())
-                        .map(ToOwned::to_owned)
-                        .collect()
-                })
-        })
-        .unwrap_or_default()
-}
-
-fn write_profile_order(profile_ids: &[String]) -> Result<(), String> {
-    config::update_settings_json(|root| {
-        if let Some(obj) = root.as_object_mut() {
-            obj.insert(
-                "profile_order".to_string(),
-                serde_json::Value::Array(
-                    profile_ids
-                        .iter()
-                        .map(|id| serde_json::Value::String(id.clone()))
-                        .collect(),
-                ),
-            );
-        }
-    })
-    .map_err(|e| e.to_string())
-}
-
-fn ensure_profile_order_contains(profile_id: &str) -> Result<(), String> {
-    let mut order = read_profile_order();
-    if !order.iter().any(|id| id == profile_id) {
-        order.push(profile_id.to_string());
-        write_profile_order(&order)?;
-    }
-    Ok(())
+pub(super) fn resolve_launch_workspace(agent_id: &str) -> anyhow::Result<PathBuf> {
+    workspace::resolve_launch_workspace(agent_id)
 }
 
 fn emit_launch_config_changed(app: &tauri::AppHandle) {
     let _ = app.emit(crate::tray::LAUNCH_CONFIG_CHANGED_EVENT, ());
-}
-
-fn register_launcher_workspace(path: &Path) -> Result<(), String> {
-    let builtin = config::builtin_workspaces_dir();
-    if paths_equal(path, &builtin) {
-        return Ok(());
-    }
-    if terminal::launch_home_dir()
-        .as_ref()
-        .map(|home| paths_equal(path, home))
-        .unwrap_or(false)
-    {
-        return Ok(());
-    }
-
-    let cfg = config::ensure_loaded();
-    if cfg
-        .workspaces
-        .iter()
-        .any(|workspace| paths_equal(workspace, path))
-    {
-        return Ok(());
-    }
-
-    config::update_settings_json(|root| {
-        if !root.is_object() {
-            *root = serde_json::json!({});
-        }
-        if let Some(obj) = root.as_object_mut() {
-            let workspaces = obj
-                .entry("workspaces")
-                .or_insert_with(|| serde_json::json!([]));
-            if !workspaces.is_array() {
-                *workspaces = serde_json::json!([]);
-            }
-            if let Some(arr) = workspaces.as_array_mut() {
-                let already_registered = arr
-                    .iter()
-                    .filter_map(|value| value.as_str())
-                    .any(|candidate| paths_equal(Path::new(candidate), path));
-                if !already_registered {
-                    arr.push(serde_json::Value::String(
-                        path.to_string_lossy().to_string(),
-                    ));
-                }
-            }
-        }
-    })
-    .map_err(|e| e.to_string())
-}
-
-fn push_workspace_option(
-    out: &mut Vec<WorkspaceOption>,
-    path: &Path,
-    label: &str,
-    kind: &str,
-    is_default: bool,
-) {
-    if out
-        .iter()
-        .any(|option| paths_equal(Path::new(&option.path), path))
-    {
-        return;
-    }
-    out.push(WorkspaceOption {
-        path: path.to_string_lossy().to_string(),
-        label: label.to_string(),
-        detail: path.to_string_lossy().to_string(),
-        kind: kind.to_string(),
-        is_default,
-    });
-}
-
-fn path_label(path: &Path) -> String {
-    if let Some(name) = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty())
-    {
-        name.to_string()
-    } else {
-        path.to_string_lossy().to_string()
-    }
-}
-
-fn paths_equal(left: &Path, right: &Path) -> bool {
-    left == right
-        || std::fs::canonicalize(left)
-            .ok()
-            .zip(std::fs::canonicalize(right).ok())
-            .map(|(left, right)| left == right)
-            .unwrap_or(false)
 }

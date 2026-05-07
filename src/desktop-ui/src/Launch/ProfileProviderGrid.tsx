@@ -10,9 +10,9 @@ import {
   CUSTOM_PROVIDER,
   PROVIDER_TILE_GRID,
 } from "./ProfileFormDialog.constants";
-import { hostnameOf, providerSearchText } from "./profileFormHelpers";
+import { hostnameOf, providerApiKindEndpoints, providerSearchText } from "./profileFormHelpers";
 import type { CatalogEntry } from "./types";
-import { apiTypeShort, isProviderApiKind } from "./types";
+import { apiTypeShort } from "./types";
 
 export function ProviderGrid({
   catalog,
@@ -102,9 +102,7 @@ function ProviderTile({
   description?: string;
 }) {
   const { t } = useI18n();
-  const endpoints = provider.endpoints.filter((e) =>
-    isProviderApiKind(e.api_type),
-  );
+  const endpoints = providerApiKindEndpoints(provider);
   const subtitle =
     description ?? (provider.homepage ? hostnameOf(provider.homepage) : null);
 

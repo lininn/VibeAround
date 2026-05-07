@@ -27,6 +27,11 @@ import type {
   ProfileSummary,
 } from "./types";
 
+type ConnectionEditing = {
+  profile: ProfileSummary;
+  agentId: ConnectionAgentId;
+};
+
 export function Launch() {
   const { t } = useI18n();
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
@@ -38,7 +43,7 @@ export function Launch() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<ProfileDef | null>(null);
   const [connectionEditing, setConnectionEditing] =
-    useState<ProfileSummary | null>(null);
+    useState<ConnectionEditing | null>(null);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -97,7 +102,11 @@ export function Launch() {
     preference: ProfileConnectionPreference,
   ) {
     if (!connectionEditing) return;
-    await setProfileConnection(connectionEditing.id, agentId, preference);
+    await setProfileConnection(
+      connectionEditing.profile.id,
+      agentId,
+      preference,
+    );
     const nextPrefs = await getLauncherPreferences();
     setPrefs(nextPrefs);
   }
@@ -125,7 +134,9 @@ export function Launch() {
           onProfilesChange={setProfiles}
           onNewProfile={openNewEditor}
           onEditProfile={(profile) => void handleEdit(profile)}
-          onConnectionSettings={setConnectionEditing}
+          onConnectionSettings={(profile, agentId) =>
+            setConnectionEditing({ profile, agentId })
+          }
           onError={setError}
           onToast={setToast}
         />
@@ -144,7 +155,8 @@ export function Launch() {
       )}
       {connectionEditing && (
         <ProfileConnectionDialog
-          profile={connectionEditing}
+          profile={connectionEditing.profile}
+          agentId={connectionEditing.agentId}
           connections={prefs?.profileConnections}
           onClose={() => setConnectionEditing(null)}
           onSave={handleSaveConnection}
