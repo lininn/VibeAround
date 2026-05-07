@@ -19,6 +19,33 @@ pub fn render_for_launch(
     render(profile, api_type, launch_target, provider)
 }
 
+pub fn render_for_launch_api_type(
+    profile: &ProfileDef,
+    launch_target: &str,
+    api_type: &str,
+) -> anyhow::Result<RenderedProfile> {
+    let provider = catalog::get(&profile.provider)
+        .ok_or_else(|| anyhow!("unknown provider '{}'", profile.provider))?;
+    if !api_types_for_launch_target(launch_target).contains(&api_type) {
+        bail!(
+            "launch target '{}' does not support api kind '{}'",
+            launch_target,
+            api_type
+        );
+    }
+    if !profile.api_types.iter().any(|t| t == api_type)
+        || !provider.endpoints.iter().any(|e| e.api_type == api_type)
+    {
+        bail!(
+            "profile '{}' cannot launch '{}' with api kind '{}'",
+            profile.id,
+            launch_target,
+            api_type
+        );
+    }
+    render(profile, api_type, launch_target, provider)
+}
+
 pub fn env_for_launch(
     profile: &ProfileDef,
     launch_target: &str,
@@ -68,8 +95,6 @@ pub fn launch_targets_for_api_types(
     }
     if has("openai-responses") {
         out.push(("codex", "Codex", "openai-responses"));
-    } else if has("openai-chat") {
-        out.push(("codex", "Codex", "openai-chat"));
     }
     if has("gemini") {
         out.push(("gemini", "Gemini CLI", "gemini"));
@@ -78,6 +103,8 @@ pub fn launch_targets_for_api_types(
         out.push(("opencode", "OpenCode", "openai-responses"));
     } else if has("openai-chat") {
         out.push(("opencode", "OpenCode", "openai-chat"));
+    } else if has("anthropic") {
+        out.push(("opencode", "OpenCode", "anthropic"));
     }
     out
 }
@@ -97,13 +124,7 @@ pub fn api_type_for_launch_target<'a>(
     provider: &'a ProviderCatalog,
     launch_target: &str,
 ) -> anyhow::Result<&'a str> {
-    let candidates: &[&str] = match launch_target {
-        "claude" => &["anthropic"],
-        "codex" => &["openai-responses", "openai-chat"],
-        "gemini" => &["gemini"],
-        "opencode" => &["openai-responses", "openai-chat"],
-        other => bail!("unsupported launch target: '{}'", other),
-    };
+    let candidates = api_types_for_launch_target(launch_target);
 
     for candidate in candidates {
         if profile.api_types.iter().any(|t| t == candidate)
@@ -119,6 +140,34 @@ pub fn api_type_for_launch_target<'a>(
         launch_target,
         profile.provider
     )
+}
+
+fn api_types_for_launch_target(launch_target: &str) -> &'static [&'static str] {
+    match launch_target {
+        "claude" => &["anthropic"],
+        "codex" => &["openai-responses"],
+        "gemini" => &["gemini"],
+        "opencode" => &["openai-responses", "openai-chat", "anthropic"],
+        _ => &[],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_native_launch_requires_responses_api() {
+        let chat_only = vec!["openai-chat".to_string()];
+        assert!(!launch_targets_for_api_types(&chat_only)
+            .iter()
+            .any(|(id, _, _)| *id == "codex"));
+
+        let responses = vec!["openai-responses".to_string()];
+        assert!(launch_targets_for_api_types(&responses)
+            .iter()
+            .any(|(id, _, api_type)| *id == "codex" && *api_type == "openai-responses"));
+    }
 }
 
 pub fn profile_state_dir(id: &str) -> PathBuf {

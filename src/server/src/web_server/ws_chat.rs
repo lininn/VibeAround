@@ -17,8 +17,8 @@ use futures_util::{SinkExt, StreamExt};
 use uuid::Uuid;
 
 use common::channels::{ChannelEnvelope, ChannelInput, ChannelOutput};
-use common::config;
 use common::routing::RouteKey;
+use common::{agent_state, config};
 
 use crate::api_types::{AgentInfo, ChatEvent};
 
@@ -44,6 +44,7 @@ async fn handle_chat_socket(socket: WebSocket, state: AppState) {
     // thinking/tool_call frames on the server side when disabled rather
     // than forcing every client to filter.
     let cfg = config::ensure_loaded();
+    let agent_prefs = agent_state::read_prefs();
     let verbose = {
         let v = cfg.channel_verbose("ws");
         if !v.show_thinking && !v.show_tool_use {
@@ -57,7 +58,7 @@ async fn handle_chat_socket(socket: WebSocket, state: AppState) {
     let config_event = ChatEvent::Config {
         channel_id: channel_id.clone(),
         agents: AgentInfo::for_ids(&cfg.enabled_agents),
-        default_agent: cfg.default_agent.clone(),
+        default_agent: agent_state::resolve_default_agent(&agent_prefs, &cfg),
     };
     if send_event(&mut ws_tx, &config_event).await.is_err() {
         state.web_channel.unregister_connection(&chat_id);

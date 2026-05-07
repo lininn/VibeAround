@@ -24,8 +24,12 @@ import { ProviderGrid } from "./ProfileProviderGrid";
 import {
   arraysEqual,
   collectFields,
+  endpointId,
+  endpointsForApiType,
   pruneOverrides,
   pruneProviderSettings,
+  providerApiKindEndpoints,
+  selectedEndpoint,
   stripEmpty,
 } from "./profileFormHelpers";
 import type {
@@ -81,7 +85,7 @@ export function ProfileFormDialog({
   );
   const [label, setLabel] = useState(initial?.label ?? "");
   const [selectedApiTypes, setSelectedApiTypes] = useState<string[]>(
-    (initial?.api_types ?? []).filter(isProviderApiKind),
+    Array.from(new Set((initial?.api_types ?? []).filter(isProviderApiKind))),
   );
   const [credentials, setCredentials] = useState<Record<string, string>>(
     initial?.credentials ?? {},
@@ -98,13 +102,15 @@ export function ProfileFormDialog({
 
   useEffect(() => {
     if (!provider || editing) return;
-    const apiKindEndpoints = provider.endpoints.filter((e) =>
-      isProviderApiKind(e.api_type),
-    );
+    const apiKindEndpoints = providerApiKindEndpoints(provider);
     setSelectedApiTypes(apiKindEndpoints.map((e) => e.api_type));
     const next: Record<string, ApiTypeOverrides> = {};
     for (const ep of apiKindEndpoints) {
+      const endpointOptions = endpointsForApiType(provider, ep.api_type);
+      const defaultEndpoint = endpointOptions[0] ?? ep;
       next[ep.api_type] = {
+        endpoint_id:
+          endpointOptions.length > 1 ? endpointId(defaultEndpoint) : undefined,
         model: ep.models[0]?.id ?? "",
         base_url: ep.default_base_url || undefined,
       };
@@ -124,9 +130,7 @@ export function ProfileFormDialog({
 
   useEffect(() => {
     if (!provider || provider.id === "custom") return;
-    const apiKinds = provider.endpoints
-      .filter((e) => isProviderApiKind(e.api_type))
-      .map((e) => e.api_type);
+    const apiKinds = providerApiKindEndpoints(provider).map((e) => e.api_type);
     setSelectedApiTypes((current) =>
       arraysEqual(current, apiKinds) ? current : apiKinds,
     );
@@ -159,7 +163,7 @@ export function ProfileFormDialog({
     }
 
     for (const apiType of selectedApiTypes) {
-      const ep = provider.endpoints.find((e) => e.api_type === apiType);
+      const ep = selectedEndpoint(provider, apiType, overrides);
       if (!ep) continue;
       const ov = overrides[apiType];
       if (!ov?.model?.trim()) {

@@ -18,12 +18,17 @@ import {
 } from "./ProfileFormDialog.constants";
 import {
   apiKindHint,
+  endpointId,
+  endpointLabel,
+  endpointsForApiType,
+  providerApiKindEndpoints,
+  selectedEndpoint,
   collectFields,
   shouldShowBaseUrl,
 } from "./profileFormHelpers";
 import type { ApiTypeOverrides, CatalogEntry, FieldDef } from "./types";
 import type { ProviderSettings } from "./types";
-import { apiTypeLabel, apiTypeShort, isProviderApiKind } from "./types";
+import { apiTypeLabel, apiTypeShort } from "./types";
 
 interface FormBodyProps {
   provider: CatalogEntry;
@@ -58,9 +63,7 @@ export function FormBody({
 }: FormBodyProps) {
   const { t } = useI18n();
   const fieldDefs = collectFields(provider, selectedApiTypes, "api_key");
-  const apiKindEndpoints = provider.endpoints.filter((e) =>
-    isProviderApiKind(e.api_type),
-  );
+  const apiKindEndpoints = providerApiKindEndpoints(provider);
   const apiKindsEditable = provider.id === "custom";
 
   return (
@@ -105,9 +108,10 @@ export function FormBody({
         <FormSection title={t("Model settings")}>
           <div className="space-y-2">
             {selectedApiTypes.map((apiType) => {
-              const ep = provider.endpoints.find((e) => e.api_type === apiType);
+              const ep = selectedEndpoint(provider, apiType, overrides);
               if (!ep) return null;
               const ov = overrides[apiType] ?? {};
+              const endpointOptions = endpointsForApiType(provider, apiType);
               return (
                 <div
                   key={apiType}
@@ -119,6 +123,52 @@ export function FormBody({
                     </span>
                     <span className="text-muted-foreground">{apiType}</span>
                   </div>
+                  {endpointOptions.length > 1 && (
+                    <FieldRow label={t("Endpoint type")}>
+                      <Select
+                        value={endpointId(ep)}
+                        onValueChange={(value) => {
+                          const nextEndpoint =
+                            endpointOptions.find(
+                              (endpoint) => endpointId(endpoint) === value,
+                            ) ?? endpointOptions[0];
+                          if (!nextEndpoint) return;
+                          const modelStillValid = nextEndpoint.models.some(
+                            (model) => model.id === ov.model,
+                          );
+                          setOverrides({
+                            ...overrides,
+                            [apiType]: {
+                              ...ov,
+                              endpoint_id: endpointId(nextEndpoint),
+                              base_url: nextEndpoint.default_base_url || undefined,
+                              model: modelStillValid
+                                ? ov.model
+                                : (nextEndpoint.models[0]?.id ?? ov.model ?? ""),
+                            },
+                          });
+                        }}
+                      >
+                        <SelectTrigger
+                          size="sm"
+                          className="h-8 w-full text-[13px]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {endpointOptions.map((endpoint) => (
+                            <SelectItem
+                              key={endpointId(endpoint)}
+                              value={endpointId(endpoint)}
+                              className="text-xs"
+                            >
+                              {endpointLabel(endpoint)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FieldRow>
+                  )}
                   {shouldShowBaseUrl(provider, ep, ov) && (
                     <FieldRow
                       label={provider.id === "azure" ? "Endpoint" : "Base URL"}

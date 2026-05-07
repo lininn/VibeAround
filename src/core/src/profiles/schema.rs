@@ -30,6 +30,8 @@ pub enum AuthMode {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ApiTypeOverrides {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
@@ -301,10 +303,7 @@ mod tests {
     #[test]
     fn generated_id_prefix_preserves_valid_provider_id() {
         assert_eq!(generated_id_prefix("deepseek").unwrap(), "deepseek");
-        assert_eq!(
-            generated_id_prefix("minimax-global").unwrap(),
-            "minimax-global"
-        );
+        assert_eq!(generated_id_prefix("qwen-coding").unwrap(), "qwen-coding");
     }
 
     #[test]

@@ -7,7 +7,7 @@
 
 export type AuthMode = "api_key" | "oauth_via_cli";
 export type CompatibilityProxyMode = "auto" | "on" | "off";
-export type ConnectionAgentId = "claude" | "codex";
+export type ConnectionAgentId = "claude" | "codex" | "opencode";
 
 export interface ProfileSummary {
   id: string;
@@ -23,6 +23,7 @@ export interface ProfileSummary {
    * matching launch button. */
   apiTypeWarnings: Record<string, string>;
   apiTypeModels: Record<string, string>;
+  apiTypeModelOptions: Record<string, ModelDef[]>;
 }
 
 export interface LaunchTargetSummary {
@@ -33,8 +34,15 @@ export interface LaunchTargetSummary {
 }
 
 export interface ProfileConnectionPreference {
-  proxyEnabled?: boolean | null;
+  selectedApiType?: string | null;
+  proxy?: Record<string, ProfileProxyPreference | undefined> | null;
+}
+
+export interface ProfileProxyPreference {
+  enabled?: boolean | null;
   targetApiType?: string | null;
+  upstreamModel?: string | null;
+  fakeModelId?: string | null;
 }
 
 export type ProfileConnections = Record<
@@ -43,6 +51,7 @@ export type ProfileConnections = Record<
 >;
 
 export interface ApiTypeOverrides {
+  endpoint_id?: string | null;
   base_url?: string | null;
   model?: string | null;
   reasoning_effort?: string | null;
@@ -50,6 +59,11 @@ export interface ApiTypeOverrides {
 
 export interface ProviderSettings {
   deepseek?: DeepSeekProviderSettings | null;
+}
+
+export interface AgentLaunchPreference {
+  profileId?: string | null;
+  workspace?: string | null;
 }
 
 export interface DeepSeekProviderSettings {
@@ -94,8 +108,12 @@ export interface AuthModeDef {
 }
 
 export interface EndpointDef {
+  id?: string | null;
+  label?: string | null;
   api_type: string;
   default_base_url: string;
+  headers?: Record<string, string> | null;
+  auth_header?: boolean | null;
   models: ModelDef[];
   capabilities?: EndpointCapabilities | null;
   auth_modes: AuthModeDef[];

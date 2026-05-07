@@ -226,6 +226,8 @@ fn main() {
             profiles::launcher_list_workspaces,
             profiles::launcher_get_preferences,
             profiles::launcher_set_default,
+            profiles::launcher_set_agent_profile,
+            profiles::launcher_set_selected_agent,
             profiles::launcher_set_terminal,
             profiles::launcher_set_workspace,
             profiles::launcher_remove_workspace,
