@@ -10,19 +10,15 @@
       "models": [
         {
           "id": "deepseek-v4-flash",
-          "label": "DeepSeek V4 Flash (1M ctx, thinking + non-thinking)"
+          "label": "DeepSeek V4 Flash (1M ctx)"
         },
         {
           "id": "deepseek-v4-pro",
-          "label": "DeepSeek V4 Pro (1M ctx, premium)"
+          "label": "DeepSeek V4 Pro (200K Context)"
         },
         {
-          "id": "deepseek-chat",
-          "label": "DeepSeek Chat (legacy alias for v4-flash, deprecating 2026/07/24)"
-        },
-        {
-          "id": "deepseek-reasoner",
-          "label": "DeepSeek Reasoner (legacy thinking alias, deprecating 2026/07/24)"
+          "id": "deepseek-v4-pro[1m]",
+          "label": "DeepSeek V4 Pro (1M context)"
         }
       ],
       "auth_modes": [
@@ -55,19 +51,15 @@
       "models": [
         {
           "id": "deepseek-v4-flash",
-          "label": "DeepSeek V4 Flash"
+          "label": "DeepSeek V4 Flash (1M ctx)"
         },
         {
           "id": "deepseek-v4-pro",
-          "label": "DeepSeek V4 Pro"
+          "label": "DeepSeek V4 Pro (200K Context)"
         },
         {
-          "id": "deepseek-chat",
-          "label": "DeepSeek Chat (legacy)"
-        },
-        {
-          "id": "deepseek-reasoner",
-          "label": "DeepSeek Reasoner (legacy)"
+          "id": "deepseek-v4-pro[1m]",
+          "label": "DeepSeek V4 Pro (1M context)"
         }
       ],
       "auth_modes": [

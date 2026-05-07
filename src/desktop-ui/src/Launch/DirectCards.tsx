@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pin, Sparkles, Star } from "lucide-react";
 import { useI18n } from "@va/i18n";
 
@@ -13,6 +13,7 @@ interface Props {
   onSetDefault: (agentId: string) => Promise<void>;
   busy: boolean;
   defaultAgent?: string;
+  enabledAgents?: string[];
   defaultProfiles?: Record<string, string>;
 }
 
@@ -30,6 +31,7 @@ export function DirectCards({
   onSetDefault,
   busy,
   defaultAgent,
+  enabledAgents,
   defaultProfiles = {},
 }: Props) {
   const { t } = useI18n();
@@ -37,15 +39,23 @@ export function DirectCards({
   const [error, setError] = useState<string | null>(null);
   const [defaultBusy, setDefaultBusy] = useState<string | null>(null);
   const isDefaultDirect = Boolean(defaultAgent && !defaultProfiles[defaultAgent]);
+  const enabledAgentKey = enabledAgents?.join("|") ?? "";
+  const enabledAgentSet = useMemo(
+    () => (enabledAgents?.length ? new Set(enabledAgents) : null),
+    [enabledAgentKey],
+  );
 
   useEffect(() => {
     void listAgents()
       .then((items) => {
         const rank = new Map(AGENT_DISPLAY_ORDER.map((id, index) => [id, index]));
-        setAgents([...items].sort((a, b) => (rank.get(a.id) ?? 999) - (rank.get(b.id) ?? 999)));
+        const visible = enabledAgentSet
+          ? items.filter((agent) => enabledAgentSet.has(agent.id))
+          : items;
+        setAgents([...visible].sort((a, b) => (rank.get(a.id) ?? 999) - (rank.get(b.id) ?? 999)));
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, []);
+  }, [enabledAgentSet]);
 
   return (
     <div
