@@ -34,7 +34,7 @@
           ],
           "render": {
             "env": {
-              "ANTHROPIC_API_KEY": "{{api_key}}",
+              "ANTHROPIC_AUTH_TOKEN": "{{api_key}}",
               "ANTHROPIC_BASE_URL": "{{base_url}}",
               "ANTHROPIC_MODEL": "{{model}}"
             },
@@ -73,7 +73,7 @@
           ],
           "render": {
             "env": {
-              "ANTHROPIC_API_KEY": "{{api_key}}",
+              "ANTHROPIC_AUTH_TOKEN": "{{api_key}}",
               "ANTHROPIC_BASE_URL": "{{base_url}}",
               "ANTHROPIC_MODEL": "{{model}}"
             },

@@ -502,6 +502,17 @@ mod tests {
         assert_eq!(cn.default_base_url, "https://api.minimaxi.com/anthropic");
         assert!(global.auth_header);
         assert!(cn.auth_header);
+        let auth = global
+            .auth_modes
+            .iter()
+            .find(|auth| auth.mode == "api_key")
+            .expect("api key auth");
+        let render = auth.render.as_ref().expect("api key auth renders env");
+        assert_eq!(
+            render.env.get("ANTHROPIC_AUTH_TOKEN").map(String::as_str),
+            Some("{{api_key}}")
+        );
+        assert!(render.env.get("ANTHROPIC_API_KEY").is_none());
     }
 
     #[test]
