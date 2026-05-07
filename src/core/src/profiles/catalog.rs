@@ -9,6 +9,7 @@
 //! built-in profile catalog membership; adding fields requires only a serde
 //! `#[serde(default)]` to stay forward-compatible.
 
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
@@ -40,8 +41,16 @@ pub struct ProviderCatalog {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EndpointDef {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     pub api_type: String,
     pub default_base_url: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub auth_header: bool,
     #[serde(default)]
     pub models: Vec<ModelDef>,
     #[serde(default)]
@@ -58,6 +67,10 @@ pub struct EndpointDef {
 pub struct EndpointCapabilities {
     #[serde(default)]
     pub reasoning_effort: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -203,6 +216,35 @@ pub fn get(id: &str) -> Option<&'static ProviderCatalog> {
     CATALOG.iter().find(|c| c.id == id)
 }
 
+pub fn endpoint_id(endpoint: &EndpointDef) -> &str {
+    endpoint.id.as_deref().unwrap_or(endpoint.api_type.as_str())
+}
+
+pub fn find_endpoint<'a>(
+    provider: &'a ProviderCatalog,
+    api_type: &str,
+    selected_endpoint_id: Option<&str>,
+) -> Option<&'a EndpointDef> {
+    provider
+        .endpoints
+        .iter()
+        .find(|endpoint| {
+            endpoint.api_type == api_type
+                && selected_endpoint_id
+                    .map(|id| endpoint_id(endpoint) == id)
+                    .unwrap_or(true)
+        })
+        .or_else(|| {
+            if selected_endpoint_id.is_some() {
+                return None;
+            }
+            provider
+                .endpoints
+                .iter()
+                .find(|endpoint| endpoint.api_type == api_type)
+        })
+}
+
 // ---------------------------------------------------------------------------
 // Synthetic "custom" provider — escape hatch for endpoints not in the
 // baked-in catalog. Same render rules as baseline anthropic / openai-chat
@@ -227,8 +269,12 @@ pub fn custom() -> &'static ProviderCatalog {
         homepage: None,
         endpoints: vec![
             EndpointDef {
+                id: None,
+                label: None,
                 api_type: "anthropic".to_string(),
                 default_base_url: String::new(),
+                headers: BTreeMap::new(),
+                auth_header: false,
                 models: Vec::new(),
                 capabilities: EndpointCapabilities::default(),
                 compatibility_warning: None,
@@ -256,8 +302,12 @@ pub fn custom() -> &'static ProviderCatalog {
                 }],
             },
             EndpointDef {
+                id: None,
+                label: None,
                 api_type: "openai-responses".to_string(),
                 default_base_url: String::new(),
+                headers: BTreeMap::new(),
+                auth_header: false,
                 models: Vec::new(),
                 capabilities: EndpointCapabilities {
                     reasoning_effort: true,
@@ -292,8 +342,12 @@ pub fn custom() -> &'static ProviderCatalog {
                 }],
             },
             EndpointDef {
+                id: None,
+                label: None,
                 api_type: "openai-chat".to_string(),
                 default_base_url: String::new(),
+                headers: BTreeMap::new(),
+                auth_header: false,
                 models: Vec::new(),
                 capabilities: EndpointCapabilities::default(),
                 compatibility_warning: None,
@@ -354,6 +408,8 @@ mod tests {
         let entries = all();
         assert!(entries.len() >= 5);
         assert!(get("moonshot").is_some());
+        assert!(get("kimi").is_some());
+        assert!(get("qwen").is_some());
         assert!(get("openrouter").is_some());
         assert!(get("minimax").is_some());
         assert!(get("deepseek").is_some());
@@ -372,6 +428,80 @@ mod tests {
             .collect();
         assert!(api_types.contains(&"anthropic"));
         assert!(api_types.contains(&"openai-chat"));
+    }
+
+    #[test]
+    fn kimi_coding_sets_coding_endpoint_headers() {
+        let provider = get("kimi").expect("kimi must exist");
+        let endpoint = provider
+            .endpoints
+            .iter()
+            .find(|e| e.api_type == "anthropic")
+            .expect("kimi anthropic endpoint");
+        assert_eq!(endpoint.default_base_url, "https://api.kimi.com/coding/");
+        assert_eq!(
+            endpoint.headers.get("User-Agent").map(String::as_str),
+            Some("claude-code/0.1.0")
+        );
+    }
+
+    #[test]
+    fn qwen_exposes_endpoint_flavors_under_one_api_type() {
+        let provider = get("qwen").expect("qwen must exist");
+        let endpoints: Vec<_> = provider
+            .endpoints
+            .iter()
+            .filter(|e| e.api_type == "openai-chat")
+            .map(endpoint_id)
+            .collect();
+        assert_eq!(
+            endpoints,
+            vec![
+                "coding-global",
+                "coding-cn",
+                "standard-global",
+                "standard-cn"
+            ]
+        );
+        let standard = find_endpoint(provider, "openai-chat", Some("standard-global"))
+            .expect("standard global endpoint");
+        assert_eq!(
+            standard.default_base_url,
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        );
+
+        let coding = find_endpoint(provider, "openai-chat", Some("coding-global"))
+            .expect("coding global endpoint");
+        assert_eq!(
+            coding.default_base_url,
+            "https://coding-intl.dashscope.aliyuncs.com/v1"
+        );
+        assert_eq!(
+            coding
+                .headers
+                .get("X-DashScope-UserAgent")
+                .map(String::as_str),
+            Some("codex-cli/0.80.0 (external, cli)")
+        );
+        assert_eq!(
+            coding
+                .headers
+                .get("X-DashScope-AuthType")
+                .map(String::as_str),
+            Some("openai")
+        );
+        assert!(coding.models.iter().any(|model| model.id == "qwen3.6-plus"));
+    }
+
+    #[test]
+    fn minimax_anthropic_endpoint_uses_auth_header() {
+        let provider = get("minimax").expect("minimax must exist");
+        let global = find_endpoint(provider, "anthropic", Some("global")).expect("global endpoint");
+        let cn = find_endpoint(provider, "anthropic", Some("cn")).expect("cn endpoint");
+        assert_eq!(global.default_base_url, "https://api.minimax.io/anthropic");
+        assert_eq!(cn.default_base_url, "https://api.minimaxi.com/anthropic");
+        assert!(global.auth_header);
+        assert!(cn.auth_header);
     }
 
     #[test]

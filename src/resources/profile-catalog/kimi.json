@@ -1,0 +1,48 @@
+{
+  "id": "kimi",
+  "label": "Kimi Coding",
+  "icon": "K",
+  "homepage": "https://www.kimi.com/code",
+  "endpoints": [
+    {
+      "api_type": "anthropic",
+      "default_base_url": "https://api.kimi.com/coding/",
+      "headers": {
+        "User-Agent": "claude-code/0.1.0"
+      },
+      "models": [
+        {
+          "id": "kimi-code",
+          "label": "Kimi Code"
+        },
+        {
+          "id": "k2p5",
+          "label": "Kimi Code (legacy)"
+        }
+      ],
+      "auth_modes": [
+        {
+          "mode": "api_key",
+          "label": "Use API key",
+          "fields": [
+            {
+              "name": "api_key",
+              "label": "Kimi Coding API key",
+              "secret": true,
+              "required": true,
+              "placeholder": "sk-..."
+            }
+          ],
+          "render": {
+            "env": {
+              "ANTHROPIC_API_KEY": "{{api_key}}",
+              "ANTHROPIC_BASE_URL": "{{base_url}}",
+              "ANTHROPIC_MODEL": "{{model}}"
+            },
+            "settings_files": []
+          }
+        }
+      ]
+    }
+  ]
+}

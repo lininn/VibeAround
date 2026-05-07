@@ -5,16 +5,20 @@
       "file": "moonshot.json"
     },
     {
+      "id": "kimi",
+      "file": "kimi.json"
+    },
+    {
+      "id": "qwen",
+      "file": "qwen.json"
+    },
+    {
       "id": "openrouter",
       "file": "openrouter.json"
     },
     {
       "id": "minimax",
       "file": "minimax.json"
-    },
-    {
-      "id": "minimax-global",
-      "file": "minimax-global.json"
     },
     {
       "id": "deepseek",
