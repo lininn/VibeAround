@@ -106,6 +106,7 @@ const SESSION_RESUME_AGENTS = new Set<string>([
 ]);
 
 type ExpandedBlock = "profile" | "workspace" | "session";
+type TranslateFn = ReturnType<typeof useI18n>["t"];
 type ProfileChoice =
   | { kind: "direct" }
   | { kind: "profile"; profileId: string };
@@ -601,7 +602,7 @@ export function AgentLaunchBuilder({
   }
 
   const selectedProfileSummary = selectedProfile
-    ? profileSummary(selectedProfile, agentId, viewPrefs)
+    ? profileSummary(selectedProfile, agentId, viewPrefs, t)
     : {
         title: t("Direct"),
         detail: t("Use existing CLI login"),
@@ -614,7 +615,7 @@ export function AgentLaunchBuilder({
       : isGlobalDefaultDirect(viewPrefs, agentId);
   const sessionTitle = selectedSession?.title ?? t("No session to resume");
   const sessionDetail = selectedSession
-    ? `${selectedSession.shortId} · ${relativeTime(selectedSession.updatedAt)}`
+    ? `${selectedSession.shortId} · ${relativeTime(selectedSession.updatedAt, t)}`
     : sessionResumeSupported
       ? t("Quick Launch will start a new session")
       : sessionResumeUnsupportedReason;
@@ -791,7 +792,7 @@ export function AgentLaunchBuilder({
                 disabled={busy}
                 onValueChange={(terminalId) => void chooseTerminal(terminalId)}
               >
-                <SelectTrigger size="sm" className="!h-10 w-[190px] px-4 text-xs">
+                <SelectTrigger size="sm" className="!h-10 w-[140px] px-3 text-xs">
                   <Terminal className="h-3.5 w-3.5" />
                   <SelectValue placeholder={selectedTerminal?.label ?? t("Terminal")} />
                 </SelectTrigger>
@@ -1017,7 +1018,7 @@ function ProfilePanel({
               disabled={busy}
             >
               {({ dragHandleRef, isDragging }) => {
-                const summary = profileSummary(profile, agentId, prefs);
+                const summary = profileSummary(profile, agentId, prefs, t);
                 const active =
                   availability.launchable &&
                   selected.kind === "profile" &&
@@ -1106,7 +1107,7 @@ function ProfilePanel({
                                 value={option.apiType}
                                 className="text-xs"
                               >
-                                {apiTypeProtocolLabel(option.apiType)}
+                                {apiTypeProtocolDisplayLabel(option.apiType)}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -1367,7 +1368,7 @@ function SessionPanel({
                 )}
               </span>
               <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                {session.shortId} · {relativeTime(session.updatedAt)}
+                {session.shortId} · {relativeTime(session.updatedAt, t)}
               </span>
             </span>
           </SelectableItemCard>
@@ -1832,10 +1833,7 @@ function profileAvailability(
   profile: ProfileSummary,
   agentId: string,
   prefs: LauncherPreferences,
-  t: (
-    key: string,
-    vars?: Record<string, string | number | null | undefined>,
-  ) => string,
+  t: TranslateFn,
 ): { launchable: boolean; reason?: string } {
   if (profileSupportsAgent(profile, agentId, prefs)) {
     return { launchable: true };
@@ -1853,7 +1851,7 @@ function profileAvailability(
         reason: t('Enable proxy for "{{profile}}" to launch {{agent}} with {{api}}', {
           profile: profile.label,
           agent: agentLabel(agentId),
-          api: apiTypeProtocolLabel(resolved.selectedApiType),
+          api: apiTypeProtocolDisplayLabel(resolved.selectedApiType),
         }),
       };
     }
@@ -1873,10 +1871,7 @@ function selectionUnavailableReason(
   profile: ProfileSummary | null,
   agentId: string,
   prefs: LauncherPreferences,
-  t: (
-    key: string,
-    vars?: Record<string, string | number | null | undefined>,
-  ) => string,
+  t: TranslateFn,
 ): string | undefined {
   if (choice.kind === "direct") return undefined;
   if (!profile) return t("Selected profile is missing");
@@ -1887,6 +1882,7 @@ function profileSummary(
   profile: ProfileSummary,
   agentId: string,
   prefs: LauncherPreferences,
+  t: TranslateFn,
 ) {
   if (isProxyAgent(agentId)) {
     const resolved = resolveProfileConnection(
@@ -1899,7 +1895,7 @@ function profileSummary(
         title: profile.label,
         detail: profile.providerLabel,
         proxy: true,
-        route: `${apiTypeProtocolLabel(resolved.selectedApiType)} -> ${profile.providerLabel} ${apiTypeRouteLabel(resolved.selected.targetApiType)}`,
+        route: `${apiTypeProtocolDisplayLabel(resolved.selectedApiType)} -> ${profile.providerLabel} ${apiTypeRouteDisplayLabel(resolved.selected.targetApiType)}`,
       };
     }
     if (resolved.status === "native") {
@@ -1907,7 +1903,7 @@ function profileSummary(
         title: profile.label,
         detail: profile.providerLabel,
         proxy: false,
-        route: `${profile.providerLabel} -> ${agentLabel(agentId)} ${apiTypeProtocolLabel(resolved.selectedApiType)}`,
+        route: `${profile.providerLabel} -> ${agentLabel(agentId)} ${apiTypeProtocolDisplayLabel(resolved.selectedApiType)}`,
       };
     }
     if (resolved.selected.targetApiType) {
@@ -1915,7 +1911,10 @@ function profileSummary(
         title: profile.label,
         detail: profile.providerLabel,
         proxy: false,
-        route: `${apiTypeProtocolLabel(resolved.selectedApiType)} -> ${apiTypeRouteLabel(resolved.selected.targetApiType)} (proxy off)`,
+        route: t("{{clientApi}} -> {{targetApi}} (proxy off)", {
+          clientApi: apiTypeProtocolDisplayLabel(resolved.selectedApiType),
+          targetApi: apiTypeRouteDisplayLabel(resolved.selected.targetApiType),
+        }),
       };
     }
   }
@@ -1969,13 +1968,27 @@ function resolveSelectedSession(
   return sessions[0] ?? null;
 }
 
-function relativeTime(updatedAt: number): string {
+function apiTypeProtocolDisplayLabel(apiType: string): string {
+  return apiTypeProtocolLabel(apiType);
+}
+
+function apiTypeRouteDisplayLabel(apiType: string): string {
+  return apiTypeRouteLabel(apiType);
+}
+
+function relativeTime(updatedAt: number, t: TranslateFn): string {
   if (!updatedAt) return "-";
   const diff = Math.max(0, Math.floor(Date.now() / 1000) - updatedAt);
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} h ago`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)} d ago`;
+  if (diff < 60) return t("just now");
+  if (diff < 3600) {
+    return t("{{count}} min ago", { count: Math.floor(diff / 60) });
+  }
+  if (diff < 86400) {
+    return t("{{count}} h ago", { count: Math.floor(diff / 3600) });
+  }
+  if (diff < 604800) {
+    return t("{{count}} d ago", { count: Math.floor(diff / 86400) });
+  }
   return new Date(updatedAt * 1000).toLocaleDateString();
 }
 
