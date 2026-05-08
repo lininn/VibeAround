@@ -16,28 +16,7 @@ import {
   apiTypeProtocolLabel,
   apiTypeRouteLabel,
 } from "./connections";
-import type {
-  ConnectionAgentId,
-  ProfileConnectionPreference,
-  ProfileSummary,
-} from "./types";
-
-const HTTP_HEADER_NAME_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
-const RESERVED_CUSTOM_HEADER_NAMES = new Set([
-  "authorization",
-  "connection",
-  "content-length",
-  "content-type",
-  "host",
-  "keep-alive",
-  "proxy-authorization",
-  "te",
-  "trailer",
-  "transfer-encoding",
-  "upgrade",
-  "x-api-key",
-  "anthropic-version",
-]);
+import type { ConnectionAgentId } from "./types";
 
 export interface HeaderSetting {
   agentId: ConnectionAgentId;
@@ -48,10 +27,13 @@ export interface HeaderSetting {
   headers: Record<string, string>;
 }
 
-type HeaderValidationError = {
-  key: string;
-  params?: Record<string, string>;
+type HeaderRow = {
+  id: string;
+  name: string;
+  value: string;
 };
+
+let nextHeaderRowId = 0;
 
 export function HeaderSummaryButton({
   defaultHeaders,
@@ -97,20 +79,10 @@ export function HeaderSettingDialog({
   onClose: () => void;
 }) {
   const { t } = useI18n();
-  const [headers, setHeaders] = useState(setting.headers);
-  const [error, setError] = useState<string | null>(null);
+  const [rows, setRows] = useState(() => headerMapToRows(setting.headers));
 
   function handleSave() {
-    const validationError = validateHeaderMap(
-      setting.defaultHeaders,
-      headers,
-      setting.clientApiType,
-    );
-    if (validationError) {
-      setError(t(validationError.key, validationError.params));
-      return;
-    }
-    onSave(pruneHeaderMap(headers));
+    onSave(rowsToHeaderMap(rows));
   }
 
   return (
@@ -130,11 +102,10 @@ export function HeaderSettingDialog({
           </div>
           <ProxyHeadersField
             defaultHeaders={setting.defaultHeaders}
-            headers={headers}
-            onChange={setHeaders}
+            rows={rows}
+            onChange={setRows}
           />
         </div>
-        {error && <div className="px-4 text-[11px] text-destructive">{error}</div>}
         <DialogFooter>
           <Button type="button" variant="outline" size="sm" onClick={onClose}>
             {t("Cancel")}
@@ -150,38 +121,30 @@ export function HeaderSettingDialog({
 
 function ProxyHeadersField({
   defaultHeaders,
-  headers,
+  rows,
   onChange,
 }: {
   defaultHeaders: Record<string, string>;
-  headers: Record<string, string>;
-  onChange: (v: Record<string, string>) => void;
+  rows: HeaderRow[];
+  onChange: (v: HeaderRow[]) => void;
 }) {
   const { t } = useI18n();
   const defaultEntries = Object.entries(defaultHeaders);
-  const entries = Object.entries(headers);
 
-  function updateName(oldName: string, nextName: string) {
-    const next = { ...headers };
-    const value = next[oldName] ?? "";
-    delete next[oldName];
-    next[nextName] = value;
-    onChange(next);
+  function updateName(id: string, nextName: string) {
+    onChange(rows.map((row) => (row.id === id ? { ...row, name: nextName } : row)));
   }
 
-  function updateValue(name: string, value: string) {
-    onChange({ ...headers, [name]: value });
+  function updateValue(id: string, value: string) {
+    onChange(rows.map((row) => (row.id === id ? { ...row, value } : row)));
   }
 
-  function removeHeader(name: string) {
-    const next = { ...headers };
-    delete next[name];
-    onChange(next);
+  function removeHeader(id: string) {
+    onChange(rows.filter((row) => row.id !== id));
   }
 
   function addHeader() {
-    if (Object.prototype.hasOwnProperty.call(headers, "")) return;
-    onChange({ ...headers, "": "" });
+    onChange([...rows, newHeaderRow("", "")]);
   }
 
   return (
@@ -229,27 +192,27 @@ function ProxyHeadersField({
           ))}
         </div>
       )}
-      {entries.length > 0 && (
+      {rows.length > 0 && (
         <div className="space-y-1.5">
           <div className="text-[10px] font-medium text-muted-foreground">
             {t("Append headers")}
           </div>
-          {entries.map(([name, value], index) => (
+          {rows.map((row) => (
             <div
-              key={`${name}-${index}`}
+              key={row.id}
               className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2rem] gap-1.5"
             >
               <Input
                 type="text"
-                value={name}
-                onChange={(event) => updateName(name, event.currentTarget.value)}
+                value={row.name}
+                onChange={(event) => updateName(row.id, event.currentTarget.value)}
                 placeholder="HTTP-Referer"
                 className="h-7 w-full font-mono text-xs"
               />
               <Input
                 type="text"
-                value={value}
-                onChange={(event) => updateValue(name, event.currentTarget.value)}
+                value={row.value}
+                onChange={(event) => updateValue(row.id, event.currentTarget.value)}
                 placeholder="https://app.example"
                 className="h-7 w-full font-mono text-xs"
               />
@@ -257,7 +220,7 @@ function ProxyHeadersField({
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                onClick={() => removeHeader(name)}
+                onClick={() => removeHeader(row.id)}
                 aria-label={t("Remove header")}
                 className="h-7 w-8"
               >
@@ -271,99 +234,30 @@ function ProxyHeadersField({
   );
 }
 
-export function validateProxyHeaders(
-  profile: ProfileSummary,
-  preference: ProfileConnectionPreference,
-): HeaderValidationError | null {
-  for (const [clientApiType, proxy] of Object.entries(preference.proxy ?? {})) {
-    if (!proxy?.enabled) continue;
-    const targetApiType = proxy.targetApiType;
-    if (!targetApiType) continue;
-    const error = validateHeaderMap(
-      profile.apiTypeHeaders[targetApiType] ?? {},
-      proxy.headers ?? {},
-      clientApiType,
-    );
-    if (error) return error;
-  }
-  return null;
+function headerMapToRows(headers: Record<string, string>): HeaderRow[] {
+  return Object.entries(headers).map(([name, value]) => newHeaderRow(name, value));
 }
 
-function validateHeaderMap(
-  defaultHeaders: Record<string, string>,
-  headers: Record<string, string>,
-  context: string,
-): HeaderValidationError | null {
-  const defaultHeaderNames = new Set(
-    Object.keys(defaultHeaders).map((name) => name.toLowerCase()),
-  );
-  const customHeaderNames = new Set<string>();
-  for (const [rawName, rawValue] of Object.entries(headers)) {
-    const name = rawName.trim();
-    const value = rawValue.trim();
-    if (!name && !value) continue;
-    if (!name) {
-      return {
-        key: "Header name is required for {{context}}",
-        params: { context },
-      };
-    }
-    if (!value) {
-      return {
-        key: "Header value is required for {{context}} header {{name}}",
-        params: { context, name },
-      };
-    }
-    if (!HTTP_HEADER_NAME_RE.test(name)) {
-      return {
-        key: "Header {{name}} is not a valid HTTP header name",
-        params: { name },
-      };
-    }
-    if (/[\r\n]/.test(value)) {
-      return {
-        key: "Header {{name}} value cannot contain line breaks",
-        params: { name },
-      };
-    }
-    if (RESERVED_CUSTOM_HEADER_NAMES.has(name.toLowerCase())) {
-      return {
-        key: "Header {{name}} is managed by the proxy",
-        params: { name },
-      };
-    }
-    const lowerName = name.toLowerCase();
-    if (defaultHeaderNames.has(lowerName)) {
-      return {
-        key: "Header {{name}} is already provided by {{context}}",
-        params: { name, context },
-      };
-    }
-    if (customHeaderNames.has(lowerName)) {
-      return {
-        key: "Header {{name}} is duplicated for {{context}}",
-        params: { name, context },
-      };
-    }
-    customHeaderNames.add(lowerName);
-  }
-  return null;
-}
-
-function pruneHeaderMap(headers: Record<string, string>): Record<string, string> {
+function rowsToHeaderMap(rows: HeaderRow[]): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [rawName, rawValue] of Object.entries(headers)) {
-    const name = rawName.trim();
-    const value = rawValue.trim();
-    if (name && value) out[name] = value;
+  for (const row of rows) {
+    const name = row.name.trim();
+    if (name) out[name] = row.value;
   }
   return out;
 }
 
 function countHeaders(headers: Record<string, string>): number {
-  return Object.entries(headers).filter(
-    ([name, value]) => name.trim() && value.trim(),
-  ).length;
+  return Object.keys(headers).filter((name) => name.trim()).length;
+}
+
+function newHeaderRow(name: string, value: string): HeaderRow {
+  nextHeaderRowId += 1;
+  return {
+    id: `header-row-${nextHeaderRowId}`,
+    name,
+    value,
+  };
 }
 
 function apiTypeProtocolDisplayLabel(apiType: string): string {

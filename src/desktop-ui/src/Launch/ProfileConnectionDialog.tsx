@@ -33,7 +33,6 @@ import {
 import {
   HeaderSettingDialog,
   HeaderSummaryButton,
-  validateProxyHeaders,
   type HeaderSetting,
 } from "./ProfileConnectionHeaders";
 import {
@@ -103,12 +102,6 @@ export function ProfileConnectionDialog({
   async function handleSave() {
     setSaving(true);
     setError(null);
-    const headerError = validateProxyHeaders(profile, draft[agentId]);
-    if (headerError) {
-      setError(t(headerError.key, headerError.params));
-      setSaving(false);
-      return;
-    }
     try {
       await onSave(agentId, draft[agentId]);
       onClose();

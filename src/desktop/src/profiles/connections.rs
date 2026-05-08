@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use common::agent_state;
-use common::profiles::{catalog, headers, ProfileDef};
+use common::profiles::ProfileDef;
 
 use super::terminal;
 
@@ -70,12 +70,7 @@ pub(super) fn sanitize_profile_connection_preference(
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
         let headers = if proxy_preference.enabled {
-            match target_api_type.as_deref() {
-                Some(target_api_type) => {
-                    sanitize_proxy_headers(profile, target_api_type, &proxy_preference.headers)?
-                }
-                None => BTreeMap::new(),
-            }
+            prune_proxy_headers(proxy_preference.headers)
         } else {
             BTreeMap::new()
         };
@@ -257,28 +252,14 @@ fn validate_proxy_target(profile: &ProfileDef, target_api_type: &str) -> Result<
     Ok(())
 }
 
-fn sanitize_proxy_headers(
-    profile: &ProfileDef,
-    target_api_type: &str,
-    custom_headers: &BTreeMap<String, String>,
-) -> Result<BTreeMap<String, String>, String> {
-    let provider = catalog::get(&profile.provider)
-        .ok_or_else(|| format!("unknown provider '{}'", profile.provider))?;
-    let endpoint_id = profile
-        .overrides
-        .get(target_api_type)
-        .and_then(|overrides| overrides.endpoint_id.as_deref());
-    let endpoint =
-        catalog::find_endpoint(provider, target_api_type, endpoint_id).ok_or_else(|| {
-            let suffix = endpoint_id
-                .map(|id| format!(" endpoint_id '{id}'"))
-                .unwrap_or_default();
-            format!(
-                "provider '{}' does not support api kind '{}'{}",
-                profile.provider, target_api_type, suffix
-            )
-        })?;
-    headers::sanitize_custom_headers(custom_headers, &endpoint.headers).map_err(|e| e.to_string())
+fn prune_proxy_headers(headers: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    headers
+        .into_iter()
+        .filter_map(|(name, value)| {
+            let name = name.trim().to_string();
+            (!name.is_empty()).then_some((name, value))
+        })
+        .collect()
 }
 
 fn agent_client_api_types(agent_id: &str) -> &'static [&'static str] {
@@ -384,7 +365,12 @@ mod tests {
                 target_api_type: Some(" openai-chat ".to_string()),
                 upstream_model: Some(" qwen3-coder-next ".to_string()),
                 fake_model_id: Some(" ".to_string()),
-                headers: BTreeMap::new(),
+                headers: [
+                    (" Authorization ".to_string(), "Bearer custom".to_string()),
+                    (" ".to_string(), "ignored".to_string()),
+                ]
+                .into_iter()
+                .collect(),
             },
         );
         proxy.insert(
@@ -408,6 +394,11 @@ mod tests {
         assert_eq!(route.target_api_type.as_deref(), Some("openai-chat"));
         assert_eq!(route.upstream_model.as_deref(), Some("qwen3-coder-next"));
         assert!(route.fake_model_id.is_none());
+        assert_eq!(
+            route.headers.get("Authorization").map(String::as_str),
+            Some("Bearer custom")
+        );
+        assert!(!route.headers.contains_key(""));
         assert_eq!(sanitized.proxy.len(), 1);
     }
 }
