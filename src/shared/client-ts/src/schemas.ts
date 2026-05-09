@@ -63,6 +63,7 @@ export const ProfileLaunchTargetSchema = z.object({
   id: z.string(),
   label: z.string(),
   api_type: z.string(),
+  proxy_target_api_type: z.string().nullable().optional(),
 });
 export type ProfileLaunchTarget = z.infer<typeof ProfileLaunchTargetSchema>;
 

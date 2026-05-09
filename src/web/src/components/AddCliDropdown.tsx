@@ -10,6 +10,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TOOL_OPTIONS, type ToolType } from "@/lib/terminal-types";
@@ -48,6 +51,7 @@ export function AddCliDropdown({
   const [profiles, setProfiles] = useState<ProfileLaunchOption[]>([]);
   const align = variant === "top" ? "start" : "center";
   const inputFontClass = variant === "top" ? "text-[11px]" : "text-sm";
+  const profileAgentGroups = groupProfilesByAgent(profiles);
 
   const refreshProfiles = () => {
     getProfiles()
@@ -104,16 +108,29 @@ export function AddCliDropdown({
             <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
               {t("Profiles")}
             </DropdownMenuLabel>
-            {profiles.flatMap((profile) =>
-              profile.launch_targets.map((target) => (
-                <DropdownMenuItem
-                  key={`${profile.id}:${target.id}`}
-                  onSelect={() => onAddProfileCli(profile.id, target.id)}
-                >
-                  {target.label} · {profile.label}
-                </DropdownMenuItem>
-              )),
-            )}
+            {profileAgentGroups.map((group) => (
+              <DropdownMenuSub key={group.agentId}>
+                <DropdownMenuSubTrigger className="text-xs">
+                  {group.label}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[180px] font-mono text-xs">
+                  {group.items.map(({ profile, target }) => (
+                    <DropdownMenuItem
+                      key={`${profile.id}:${target.id}`}
+                      onSelect={() => onAddProfileCli(profile.id, target.id)}
+                      className="text-xs"
+                    >
+                      <span className="min-w-0 truncate">{profile.label}</span>
+                      {target.proxy_target_api_type && (
+                        <span className="ml-auto text-muted-foreground/70">
+                          ({t("Proxy")})
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ))}
           </>
         )}
         {tmuxAvailable && (
@@ -157,4 +174,34 @@ export function AddCliDropdown({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+type ProfileLaunchTarget = ProfileLaunchOption["launch_targets"][number];
+
+interface ProfileAgentGroup {
+  agentId: string;
+  label: string;
+  items: Array<{
+    profile: ProfileLaunchOption;
+    target: ProfileLaunchTarget;
+  }>;
+}
+
+function groupProfilesByAgent(profiles: ProfileLaunchOption[]): ProfileAgentGroup[] {
+  const groups: ProfileAgentGroup[] = [];
+  const byAgent = new Map<string, ProfileAgentGroup>();
+
+  for (const profile of profiles) {
+    for (const target of profile.launch_targets) {
+      let group = byAgent.get(target.id);
+      if (!group) {
+        group = { agentId: target.id, label: target.label, items: [] };
+        byAgent.set(target.id, group);
+        groups.push(group);
+      }
+      group.items.push({ profile, target });
+    }
+  }
+
+  return groups;
 }

@@ -42,13 +42,13 @@ Use `/handover` and `/pickup` to move a live session between laptop and phone, a
 
 ## Download VibeAround
 
-The latest release is [VibeAround v0.5.8](https://github.com/jazzenchen/VibeAround/releases/tag/v0.5.8).
+The latest release is [VibeAround v0.5.10](https://github.com/jazzenchen/VibeAround/releases/tag/v0.5.10).
 
 | Platform | Recommended download |
 |---|---|
-| macOS Apple Silicon | [VibeAround_0.5.8_arm64.dmg](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.8/VibeAround_0.5.8_arm64.dmg) |
-| Windows x64 | [Setup EXE](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.8/VibeAround_0.5.8_x64-setup.exe), [MSI](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.8/VibeAround_0.5.8_x64_en-US.msi), or [portable ZIP](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.8/VibeAround-win-0.5.8-portable.zip) |
-| Linux x64 | [AppImage](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.8/VibeAround_0.5.8_amd64.AppImage) or [deb](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.8/VibeAround_0.5.8_amd64.deb) |
+| macOS Apple Silicon | [VibeAround_0.5.10_arm64.dmg](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.10/VibeAround_0.5.10_arm64.dmg) |
+| Windows x64 | [Setup EXE](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.10/VibeAround_0.5.10_x64-setup.exe), [MSI](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.10/VibeAround_0.5.10_x64_en-US.msi), or [portable ZIP](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.10/VibeAround-win-0.5.10-portable.zip) |
+| Linux x64 | [AppImage](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.10/VibeAround_0.5.10_amd64.AppImage) or [deb](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.10/VibeAround_0.5.10_amd64.deb) |
 
 macOS is currently published for Apple Silicon. Windows and Linux desktop packages are produced by GitHub Actions; the macOS DMG is signed and notarized.
 
@@ -157,11 +157,9 @@ In Slack, the `/` prefix is reserved by the client, so use `/va` or `/vibearound
 
 ## Community
 
-Join our Discord or WeChat community to ask questions, share ideas, and talk about how you use VibeAround.
+Ask questions, share ideas, and talk about how you use VibeAround.
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20VibeAround-5865F2?logo=discord&logoColor=white)](https://discord.gg/KsJWkY64GN)
-
-<img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/wechat-group-compressed.webp" width="220" alt="VibeAround WeChat group QR code" />
 
 ## License
 

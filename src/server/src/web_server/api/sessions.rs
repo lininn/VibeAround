@@ -91,20 +91,31 @@ pub async fn create_session_handler(
                         format!("profile '{}' not found", profile_id),
                     )
                 })?;
-            if !common::profiles::runtime::launch_targets_for_api_types(&profile.api_types)
-                .iter()
-                .any(|(target, _, _)| *target == launch_target)
-            {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    format!("profile '{}' cannot launch '{}'", profile.id, launch_target),
-                ));
-            }
-            let rendered = common::profiles::runtime::render_for_launch(&profile, launch_target)
-                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            let route =
+                common::profiles::connections::resolve_profile_agent_route(&profile, launch_target)
+                    .ok_or_else(|| {
+                        (
+                            StatusCode::BAD_REQUEST,
+                            format!("profile '{}' cannot launch '{}'", profile.id, launch_target),
+                        )
+                    })?;
+            let launch_id = uuid::Uuid::new_v4().to_string();
+            let rendered = common::profiles::runtime::render_for_agent_route(
+                &profile,
+                launch_target,
+                &launch_id,
+                &route,
+            )
+            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
             let command_args = rendered.command_args.clone();
-            let env = common::profiles::runtime::materialize_env(&profile.id, rendered)
+            let mut env = common::profiles::runtime::materialize_env(&profile.id, rendered)
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            env.push(("VIBEAROUND_LAUNCH_ID".to_string(), launch_id));
+            env.push(("VIBEAROUND_PROFILE_ID".to_string(), profile.id.clone()));
+            env.push((
+                "VIBEAROUND_LAUNCH_TARGET".to_string(),
+                launch_target.to_string(),
+            ));
             let agent_id = common::profiles::runtime::agent_id_for(launch_target)
                 .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
             let agent = common::resources::agent_by_id(agent_id).ok_or_else(|| {

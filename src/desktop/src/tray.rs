@@ -293,9 +293,15 @@ fn build_profile_submenus<R: Runtime>(
     }
 
     let provider_counts = profile_provider_counts(&profiles);
+    let agent_prefs = common::agent_state::read_prefs();
+    let profile_connections =
+        common::profiles::connections::merged_profile_connections(&agent_prefs);
     let mut out = Vec::new();
     for profile in &profiles {
-        let targets = common::profiles::runtime::launch_targets_for_api_types(&profile.api_types);
+        let targets = common::profiles::connections::launch_targets_for_profile_with_connections(
+            profile,
+            &profile_connections,
+        );
         if targets.is_empty() {
             continue;
         }
@@ -308,10 +314,10 @@ fn build_profile_submenus<R: Runtime>(
         )
         .enabled(launch_enabled);
 
-        for (agent_id, label, _) in targets {
+        for target in targets {
             let item = MenuItemBuilder::with_id(
-                format!("{}{}:{}", MENU_LAUNCH_PROFILE_PREFIX, profile.id, agent_id),
-                menu_text(label),
+                format!("{}{}:{}", MENU_LAUNCH_PROFILE_PREFIX, profile.id, target.id),
+                menu_text(target.label),
             )
             .enabled(launch_enabled)
             .build(app)?;

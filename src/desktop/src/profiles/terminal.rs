@@ -297,10 +297,6 @@ pub fn write_compatibility_proxy_preference(mode: CompatibilityProxyMode) -> any
     write_prefs_file(&prefs)
 }
 
-pub fn read_profile_connections() -> ProfileConnectionPreferences {
-    read_prefs_file().profile_connections
-}
-
 pub fn remove_profile_connections(profile_id: &str) -> anyhow::Result<()> {
     let mut prefs = read_prefs_file();
     prefs.profile_connections.remove(profile_id);

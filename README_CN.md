@@ -6,7 +6,7 @@
 
 **让本地 Coding Agent 出现在你工作的每个入口。**
 
-[下载](https://github.com/jazzenchen/VibeAround/releases/latest) | [演示](https://youtu.be/6kxNKTMz-AM) | [Wiki](https://github.com/jazzenchen/VibeAround/wiki) | [Discord](https://discord.gg/KsJWkY64GN) | [English](README.md)
+[下载](https://github.com/jazzenchen/VibeAround/releases/latest) | [演示](https://youtu.be/6kxNKTMz-AM) | [Wiki](https://github.com/jazzenchen/VibeAround/wiki) | [English](README.md)
 
 <p align="center">
   <img src="https://img.shields.io/badge/Rust-1.82+-000?style=flat-square&logo=rust&logoColor=fff" alt="Rust" />
@@ -42,13 +42,13 @@ VibeAround 把你的电脑变成本地优先的 AI 编程控制中心。Claude C
 
 ## 下载 VibeAround
 
-最新版本是 [VibeAround v0.5.8](https://github.com/jazzenchen/VibeAround/releases/tag/v0.5.8)。
+最新版本是 [VibeAround v0.5.10](https://github.com/jazzenchen/VibeAround/releases/tag/v0.5.10)。
 
 | 平台 | 推荐下载 |
 |---|---|
-| macOS Apple Silicon | [VibeAround_0.5.8_arm64.dmg](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.8/VibeAround_0.5.8_arm64.dmg) |
-| Windows x64 | [Setup EXE](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.8/VibeAround_0.5.8_x64-setup.exe)、[MSI](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.8/VibeAround_0.5.8_x64_en-US.msi) 或 [免安装 ZIP](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.8/VibeAround-win-0.5.8-portable.zip) |
-| Linux x64 | [AppImage](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.8/VibeAround_0.5.8_amd64.AppImage) 或 [deb](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.8/VibeAround_0.5.8_amd64.deb) |
+| macOS Apple Silicon | [VibeAround_0.5.10_arm64.dmg](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.10/VibeAround_0.5.10_arm64.dmg) |
+| Windows x64 | [Setup EXE](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.10/VibeAround_0.5.10_x64-setup.exe)、[MSI](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.10/VibeAround_0.5.10_x64_en-US.msi) 或 [免安装 ZIP](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.10/VibeAround-win-0.5.10-portable.zip) |
+| Linux x64 | [AppImage](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.10/VibeAround_0.5.10_amd64.AppImage) 或 [deb](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.10/VibeAround_0.5.10_amd64.deb) |
 
 macOS 当前发布 Apple Silicon 版本。Windows 和 Linux 桌面包由 GitHub Actions 构建；macOS DMG 已签名并完成 notarization。
 
@@ -157,11 +157,9 @@ bun run dev
 
 ## 社区
 
-加入 Discord 或微信群，提问、交流想法，或者聊聊你如何使用 VibeAround。
+提问、交流想法，或者聊聊你如何使用 VibeAround。
 
-[![Discord](https://img.shields.io/badge/Discord-Join%20VibeAround-5865F2?logo=discord&logoColor=white)](https://discord.gg/KsJWkY64GN)
-
-<img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/wechat-group-compressed.webp" width="220" alt="VibeAround 微信群二维码" />
+<img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/wechat-group-compressed.webp" width="150" alt="VibeAround 微信群二维码" />
 
 ## 许可证
 
