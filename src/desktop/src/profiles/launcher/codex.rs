@@ -6,6 +6,8 @@ use ::common::{config, profiles};
 use anyhow::{anyhow, bail, Context};
 use profiles::ProfileDef;
 
+const CODEX_HOOKS_FEATURE_KEY: &str = "features.hooks";
+
 pub(super) fn apply_session_hooks(
     profile: &ProfileDef,
     launch_target: &str,
@@ -17,7 +19,7 @@ pub(super) fn apply_session_hooks(
     }
 
     let hook_helper = resolve_hook_helper_path()?;
-    push_config_arg(&mut rendered.command_args, "features.codex_hooks", "true");
+    push_config_arg(&mut rendered.command_args, CODEX_HOOKS_FEATURE_KEY, "true");
 
     let command_for = |event: &str| {
         build_hook_command(
@@ -199,6 +201,18 @@ mod tests {
                 "model_providers.deepseek.wire_api='responses'".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn uses_current_hooks_feature_flag() {
+        let mut args = Vec::new();
+        push_config_arg(&mut args, CODEX_HOOKS_FEATURE_KEY, "true");
+
+        assert_eq!(
+            args,
+            vec!["-c".to_string(), "features.hooks=true".to_string(),]
+        );
+        assert!(!args.iter().any(|arg| arg.contains("codex_hooks")));
     }
 
     #[test]
