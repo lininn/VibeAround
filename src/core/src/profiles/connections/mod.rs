@@ -27,6 +27,7 @@ pub struct ProfileLaunchTarget {
     pub id: &'static str,
     pub label: &'static str,
     pub api_type: String,
+    pub proxy_target_api_type: Option<String>,
 }
 
 pub fn sanitize_profile_connection_preference(
@@ -205,6 +206,7 @@ pub fn launch_targets_for_profile_with_connections(
                 id: agent_id,
                 label,
                 api_type: route.client_api_type,
+                proxy_target_api_type: route.proxy_target_api_type,
             })
         })
         .collect()

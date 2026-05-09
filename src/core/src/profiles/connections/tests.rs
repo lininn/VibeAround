@@ -67,6 +67,37 @@ fn proxy_route_enables_agent_for_other_profile_api_type() {
 }
 
 #[test]
+fn proxy_launch_target_carries_proxy_hint() {
+    let profile = profile(&["anthropic"]);
+    let prefs = connections(
+        &profile.id,
+        "codex",
+        agent_state::ProfileConnectionPreference {
+            selected_api_type: Some("openai-responses".to_string()),
+            proxy: [(
+                "openai-responses".to_string(),
+                agent_state::ProfileProxyPreference {
+                    enabled: true,
+                    target_api_type: Some("anthropic".to_string()),
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+        },
+    );
+
+    let targets = launch_targets_for_profile_with_connections(&profile, &prefs);
+    let target = targets
+        .iter()
+        .find(|target| target.id == "codex")
+        .expect("codex proxy target");
+
+    assert_eq!(target.api_type, "openai-responses");
+    assert_eq!(target.proxy_target_api_type.as_deref(), Some("anthropic"));
+}
+
+#[test]
 fn unsupported_without_native_or_proxy_route() {
     let profile = profile(&["anthropic"]);
 
@@ -83,4 +114,5 @@ fn gemini_profile_has_native_launch_target() {
     assert_eq!(targets.len(), 1);
     assert_eq!(targets[0].id, "gemini");
     assert_eq!(targets[0].api_type, "gemini");
+    assert_eq!(targets[0].proxy_target_api_type, None);
 }
