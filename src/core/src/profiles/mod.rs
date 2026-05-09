@@ -7,7 +7,9 @@
 //! profiles.
 
 pub mod catalog;
+pub mod connections;
 pub mod headers;
+mod proxy_launch;
 pub mod render;
 pub mod runtime;
 pub mod schema;

@@ -2,12 +2,12 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, bail, Context};
-
 use super::catalog::{self, ProviderCatalog};
+use super::connections::ProfileAgentRoute;
 use super::render::{render, ConfigEnvTarget, RenderedProfile};
 use super::schema::ProfileDef;
 use crate::{auth, config};
+use anyhow::{anyhow, bail, Context};
 
 pub fn render_for_launch(
     profile: &ProfileDef,
@@ -52,6 +52,26 @@ pub fn env_for_launch(
 ) -> anyhow::Result<Vec<(String, String)>> {
     let rendered = render_for_launch(profile, launch_target)?;
     materialize_env(&profile.id, rendered)
+}
+
+pub fn render_for_agent_route(
+    profile: &ProfileDef,
+    launch_target: &str,
+    launch_id: &str,
+    route: &ProfileAgentRoute,
+) -> anyhow::Result<RenderedProfile> {
+    match route.proxy_target_api_type.as_deref() {
+        Some(target_api_type) => super::proxy_launch::render_proxy_launch(
+            profile,
+            launch_target,
+            launch_id,
+            &route.client_api_type,
+            target_api_type,
+            route.proxy_upstream_model.as_deref(),
+            route.proxy_fake_model_id.as_deref(),
+        ),
+        None => render_for_launch_api_type(profile, launch_target, &route.client_api_type),
+    }
 }
 
 pub fn materialize_env(

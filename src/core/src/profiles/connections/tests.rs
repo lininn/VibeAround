@@ -1,0 +1,86 @@
+use std::collections::BTreeMap;
+
+use super::*;
+use crate::profiles::schema::{AuthMode, ProviderSettings};
+
+fn profile(api_types: &[&str]) -> ProfileDef {
+    ProfileDef {
+        id: "profile-test".to_string(),
+        label: "Profile Test".to_string(),
+        provider: "custom".to_string(),
+        auth_mode: AuthMode::ApiKey,
+        api_types: api_types.iter().map(|value| (*value).to_string()).collect(),
+        credentials: BTreeMap::new(),
+        overrides: BTreeMap::new(),
+        provider_settings: ProviderSettings::default(),
+    }
+}
+
+fn connections(
+    profile_id: &str,
+    agent_id: &str,
+    preference: agent_state::ProfileConnectionPreference,
+) -> agent_state::ProfileConnectionPreferences {
+    [(
+        profile_id.to_string(),
+        [(agent_id.to_string(), preference)].into_iter().collect(),
+    )]
+    .into_iter()
+    .collect()
+}
+
+#[test]
+fn native_route_uses_profile_api_type() {
+    let profile = profile(&["openai-responses"]);
+    let route = resolve_profile_agent_route_with_connections(&profile, "codex", &BTreeMap::new())
+        .expect("codex route");
+
+    assert_eq!(route.client_api_type, "openai-responses");
+    assert_eq!(route.proxy_target_api_type, None);
+}
+
+#[test]
+fn proxy_route_enables_agent_for_other_profile_api_type() {
+    let profile = profile(&["anthropic"]);
+    let prefs = connections(
+        &profile.id,
+        "codex",
+        agent_state::ProfileConnectionPreference {
+            selected_api_type: Some("openai-responses".to_string()),
+            proxy: [(
+                "openai-responses".to_string(),
+                agent_state::ProfileProxyPreference {
+                    enabled: true,
+                    target_api_type: Some("anthropic".to_string()),
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+        },
+    );
+    let route = resolve_profile_agent_route_with_connections(&profile, "codex", &prefs)
+        .expect("codex proxy route");
+
+    assert_eq!(route.client_api_type, "openai-responses");
+    assert_eq!(route.proxy_target_api_type.as_deref(), Some("anthropic"));
+}
+
+#[test]
+fn unsupported_without_native_or_proxy_route() {
+    let profile = profile(&["anthropic"]);
+
+    assert!(
+        resolve_profile_agent_route_with_connections(&profile, "codex", &BTreeMap::new()).is_none()
+    );
+}
+
+#[test]
+fn gemini_profile_has_native_launch_target() {
+    let profile = profile(&["gemini"]);
+    let targets = launch_targets_for_profile_with_connections(&profile, &BTreeMap::new());
+
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].id, "gemini");
+    assert_eq!(targets[0].api_type, "gemini");
+}

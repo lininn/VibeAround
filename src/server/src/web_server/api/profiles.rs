@@ -2,25 +2,31 @@ use axum::Json;
 
 /// GET /api/profiles -- list saved profiles and the CLI targets each can launch.
 pub async fn list_profiles_handler() -> Json<Vec<crate::api_types::ProfileLaunchOption>> {
+    let agent_prefs = common::agent_state::read_prefs();
+    let profile_connections =
+        common::profiles::connections::merged_profile_connections(&agent_prefs);
     let profiles = common::profiles::schema::list()
         .into_iter()
         .map(common::profiles::normalize_legacy_profile)
-        .map(|profile| crate::api_types::ProfileLaunchOption {
-            id: profile.id,
-            label: profile.label,
-            provider: profile.provider,
-            launch_targets: common::profiles::runtime::launch_targets_for_api_types(
-                &profile.api_types,
-            )
-            .into_iter()
-            .map(
-                |(id, label, api_type)| crate::api_types::ProfileLaunchTarget {
-                    id: id.to_string(),
-                    label: label.to_string(),
-                    api_type: api_type.to_string(),
-                },
-            )
-            .collect(),
+        .map(|profile| {
+            let launch_targets =
+                common::profiles::connections::launch_targets_for_profile_with_connections(
+                    &profile,
+                    &profile_connections,
+                )
+                .into_iter()
+                .map(|target| crate::api_types::ProfileLaunchTarget {
+                    id: target.id.to_string(),
+                    label: target.label.to_string(),
+                    api_type: target.api_type,
+                })
+                .collect();
+            crate::api_types::ProfileLaunchOption {
+                id: profile.id,
+                label: profile.label,
+                provider: profile.provider,
+                launch_targets,
+            }
         })
         .collect();
     Json(profiles)
