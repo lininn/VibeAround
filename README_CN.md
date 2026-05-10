@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.1/banner.webp" width="100%" alt="VibeAround - 你的本地 AI Agent，随时随地 vibe coding" />
-
 # VibeAround
 
 **让本地 Coding Agent 出现在你工作的每个入口。**
@@ -22,6 +20,12 @@ VibeAround 把你的电脑变成本地优先的 AI 编程控制中心。Claude C
 
 它面向的是日常 agentic coding 里那些真实而琐碎的循环：在正确 workspace 启动正确 Agent，不改全局配置就切换 provider，桥接不兼容的 AI API 格式，把正在运行的会话接力到手机，打开本地预览链接，然后继续往前推进。
 
+## 界面截图
+
+| 模型配置 | 频道插件 |
+|---|---|
+| <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.5.12/screenshots/cn-profiles.webp" alt="VibeAround 模型配置" width="100%" /> | <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.5.12/screenshots/cn-channels.webp" alt="VibeAround 频道插件" width="100%" /> |
+
 ## 你可以用它做什么
 
 ### 启动本地 Coding Agent
@@ -40,6 +44,12 @@ VibeAround 把你的电脑变成本地优先的 AI 编程控制中心。Claude C
 
 用 `/handover` 和 `/pickup` 在电脑和手机之间移动实时会话，也可以把本地开发服务、Markdown 或 HTML 预览生成带鉴权的短时链接。
 
+## 演示视频
+
+[![VibeAround 演示视频 - 会话接力、Agent 切换、多频道并发](https://img.youtube.com/vi/6kxNKTMz-AM/maxresdefault.jpg)](https://youtu.be/6kxNKTMz-AM)
+
+*在 IM 中直达本地 Agent，在终端与手机之间接力会话，并在对话中切换 Agent。*
+
 ## 下载 VibeAround
 
 最新版本是 [VibeAround v0.5.12](https://github.com/jazzenchen/VibeAround/releases/tag/v0.5.12)。
@@ -51,12 +61,6 @@ VibeAround 把你的电脑变成本地优先的 AI 编程控制中心。Claude C
 | Linux x64 | [AppImage](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.12/VibeAround_0.5.12_amd64.AppImage) 或 [deb](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.12/VibeAround_0.5.12_amd64.deb) |
 
 macOS 当前发布 Apple Silicon 版本。Windows 和 Linux 桌面包由 GitHub Actions 构建；macOS DMG 已签名并完成 notarization。
-
-## 演示视频
-
-[![VibeAround 演示视频 - 会话接力、Agent 切换、多频道并发](https://img.youtube.com/vi/6kxNKTMz-AM/maxresdefault.jpg)](https://youtu.be/6kxNKTMz-AM)
-
-*在 IM 中直达本地 Agent，在终端与手机之间接力会话，并在对话中切换 Agent。*
 
 ## 支持能力
 

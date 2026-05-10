@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.1/banner.webp" width="100%" alt="VibeAround - vibe coding with your local AI agent, from anywhere" />
-
 # VibeAround
 
 **Your local coding agents, everywhere you work.**
@@ -22,6 +20,12 @@ VibeAround turns your own machine into a local-first command center for AI codin
 
 It is built for the messy, everyday loop of agentic coding: start the right agent in the right workspace, switch providers without rewriting config files, bridge incompatible AI API formats, hand a live session to your phone, open a preview link, and keep moving.
 
+## Screenshots
+
+| Model profiles | Channel plugins |
+|---|---|
+| <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.5.12/screenshots/en-profiles.webp" alt="VibeAround model profiles" width="100%" /> | <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.5.12/screenshots/en-channels.webp" alt="VibeAround channel plugins" width="100%" /> |
+
 ## What You Get
 
 ### Launch local coding agents
@@ -40,6 +44,12 @@ Reach the same local agent from the desktop app, browser terminal, Telegram, Fei
 
 Use `/handover` and `/pickup` to move a live session between laptop and phone, and share local dev servers, Markdown, or HTML previews through short-lived authenticated links.
 
+## Demo
+
+[![VibeAround demo - session handover, agent switching, multi-channel concurrency](https://img.youtube.com/vi/6kxNKTMz-AM/maxresdefault.jpg)](https://youtu.be/6kxNKTMz-AM)
+
+*Reach your local agent from IM, move a session between terminal and phone, and switch agents mid-conversation.*
+
 ## Download VibeAround
 
 The latest release is [VibeAround v0.5.12](https://github.com/jazzenchen/VibeAround/releases/tag/v0.5.12).
@@ -51,12 +61,6 @@ The latest release is [VibeAround v0.5.12](https://github.com/jazzenchen/VibeAro
 | Linux x64 | [AppImage](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.12/VibeAround_0.5.12_amd64.AppImage) or [deb](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.12/VibeAround_0.5.12_amd64.deb) |
 
 macOS is currently published for Apple Silicon. Windows and Linux desktop packages are produced by GitHub Actions; the macOS DMG is signed and notarized.
-
-## Demo
-
-[![VibeAround demo - session handover, agent switching, multi-channel concurrency](https://img.youtube.com/vi/6kxNKTMz-AM/maxresdefault.jpg)](https://youtu.be/6kxNKTMz-AM)
-
-*Reach your local agent from IM, move a session between terminal and phone, and switch agents mid-conversation.*
 
 ## Works With
 
