@@ -89,6 +89,11 @@ function permissionButtonClass(kind?: string) {
   return "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15";
 }
 
+function switchedAgentId(text: string) {
+  const match = /^Switched to ([A-Za-z0-9_-]+)\.$/.exec(text.trim());
+  return match?.[1];
+}
+
 export function ChatView() {
   const { t } = useI18n();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -150,6 +155,17 @@ export function ChatView() {
         }
         case "system_text": {
           appendStandaloneAssistant(parsed.text);
+          const agentId = switchedAgentId(parsed.text);
+          if (agentId) {
+            setSelectedAgent(agentId);
+            setMeta((prev) => ({
+              ...prev,
+              agentName: undefined,
+              agentTitle: undefined,
+              agentVersion: undefined,
+              sessionId: undefined,
+            }));
+          }
           break;
         }
         case "error": {
