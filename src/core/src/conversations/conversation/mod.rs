@@ -113,6 +113,7 @@ impl Conversation {
         let cli_kind = crate::resources::resolve_agent_id(&cli_kind).map_err(anyhow::Error::msg)?;
         self.full_reset().await;
         *self.cli_kind.lock().await = Some(cli_kind);
+        *self.profile.lock().await = None;
         *self.handover_resume_session_id.lock().await = Some(resume_session_id);
         *self.handover_cwd.lock().await = cwd;
         Ok(())
@@ -154,12 +155,13 @@ impl Conversation {
                 .ensure_agent(cli_kind, resume_sid, resume_cwd, downstream_handler)
                 .await
                 .map_err(|error| {
+                    let message = format!("{:#}", error);
                     tracing::info!(
                         "[Conversation] ensure_agent failed route={}: {:#}",
                         self.route,
                         error
                     );
-                    acp::Error::new(-32603, error.to_string())
+                    acp::Error::new(-32603, message)
                 })?;
 
             let session_id = self.ensure_session(&agent).await?;
@@ -273,6 +275,7 @@ impl Conversation {
         );
         self.full_reset().await;
         *self.cli_kind.lock().await = Some(agent_kind.clone());
+        *self.profile.lock().await = None;
         let _ = self.change_tx.send(());
         tracing::info!(
             "[Conversation] switch_agent done route={} cli_kind={:?}",
