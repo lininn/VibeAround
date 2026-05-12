@@ -4,14 +4,10 @@ use axum::body::Body;
 use axum::http::{HeaderName, HeaderValue, Response, StatusCode};
 use bytes::Bytes;
 use futures_util::StreamExt;
-use serde_json::Value;
 
-use super::{json_error, session::ProxySessionLedger};
+use super::json_error;
 
-pub(super) async fn buffered_passthrough_response(
-    upstream: reqwest::Response,
-    session_ledger: &ProxySessionLedger,
-) -> Response<Body> {
+pub(super) async fn buffered_passthrough_response(upstream: reqwest::Response) -> Response<Body> {
     let status =
         StatusCode::from_u16(upstream.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let builder = response_builder(&upstream, status);
@@ -24,14 +20,6 @@ pub(super) async fn buffered_passthrough_response(
             );
         }
     };
-    if let Ok(raw) = serde_json::from_slice::<Value>(&bytes) {
-        if let Err(error) = session_ledger.append_upstream_response(status.as_u16(), &raw) {
-            tracing::warn!(error = %error, "failed to record passthrough upstream response");
-        }
-        if let Err(error) = session_ledger.append_agent_response(status.as_u16(), &raw) {
-            tracing::warn!(error = %error, "failed to record passthrough agent response");
-        }
-    }
     builder.body(Body::from(bytes)).unwrap_or_else(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,

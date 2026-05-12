@@ -10,7 +10,7 @@ use va_ai_api_proxy::{
 
 use crate::openai_proxy::providers::ProviderProxyAdapter;
 
-use super::{json_error, session::ProxySessionLedger, ProxyProtocol};
+use super::{json_error, ProxyProtocol};
 
 pub(super) async fn translated_completion_response(
     upstream: reqwest::Response,
@@ -18,10 +18,7 @@ pub(super) async fn translated_completion_response(
     agent_protocol: ProxyProtocol,
     provider_adapter: &mut ProviderProxyAdapter,
     agent_model: Option<String>,
-    session_ledger: Option<&ProxySessionLedger>,
-    agent_response_id: Option<String>,
 ) -> Response {
-    let upstream_status = upstream.status().as_u16();
     let bytes = match upstream.bytes().await {
         Ok(bytes) => bytes,
         Err(e) => {
@@ -40,31 +37,17 @@ pub(super) async fn translated_completion_response(
             );
         }
     };
-    if let Some(ledger) = session_ledger {
-        if let Err(error) = ledger.append_upstream_response(upstream_status, &raw) {
-            tracing::warn!(error = %error, "failed to record upstream completion response");
-        }
-    }
-    if upstream_protocol == ProxyProtocol::OpenAiChat {
-        provider_adapter.observe_chat_completion(&raw);
-    }
     let mut events = match upstream_protocol.decode_upstream_response(raw) {
         Ok(events) => events,
         Err(error) => return json_error(StatusCode::BAD_GATEWAY, &error.to_string()),
     };
     provider_adapter.transform_upstream_events(&mut events);
     apply_agent_model(&mut events, agent_model.as_deref());
-    apply_agent_response_id(&mut events, agent_response_id.as_deref());
     let body = match agent_protocol {
         ProxyProtocol::OpenAiResponses => events_to_openai_response(&events),
         ProxyProtocol::OpenAiChat => events_to_openai_chat_response(&events),
         ProxyProtocol::AnthropicMessages => events_to_anthropic_response(&events),
     };
-    if let Some(ledger) = session_ledger {
-        if let Err(error) = ledger.append_agent_response(200, &body) {
-            tracing::warn!(error = %error, "failed to record agent completion response");
-        }
-    }
     Json(body).into_response()
 }
 
@@ -75,17 +58,6 @@ fn apply_agent_model(events: &mut [UniversalEvent], agent_model: Option<&str>) {
     for event in events {
         if let UniversalEvent::ResponseStart { model, .. } = event {
             *model = Some(agent_model.to_string());
-        }
-    }
-}
-
-fn apply_agent_response_id(events: &mut [UniversalEvent], response_id: Option<&str>) {
-    let Some(response_id) = response_id else {
-        return;
-    };
-    for event in events {
-        if let UniversalEvent::ResponseStart { id, .. } = event {
-            *id = Some(response_id.to_string());
         }
     }
 }
@@ -181,12 +153,12 @@ fn stringify_json(value: &Value) -> String {
 
 fn events_to_openai_response(events: &[UniversalEvent]) -> Value {
     let parts = collect_response_parts(events);
-    let id = parts.id.unwrap_or_else(|| "resp_va_proxy".to_string());
+    let id = parts.id.unwrap_or_else(|| "resp_proxy".to_string());
     let mut output = Vec::new();
     if !parts.reasoning_content.is_empty() {
         output.push(json!({
             "type": "reasoning",
-            "id": "rs_va_proxy",
+            "id": "rs_proxy",
             "content": [{
                 "type": "reasoning_text",
                 "text": parts.reasoning_content,
@@ -196,7 +168,7 @@ fn events_to_openai_response(events: &[UniversalEvent]) -> Value {
     if !parts.text.is_empty() || parts.tool_calls.is_empty() {
         output.push(json!({
             "type": "message",
-            "id": parts.message_id.unwrap_or_else(|| "msg_va_proxy".to_string()),
+            "id": parts.message_id.unwrap_or_else(|| "msg_proxy".to_string()),
             "status": "completed",
             "role": "assistant",
             "content": [{
@@ -263,7 +235,7 @@ fn events_to_openai_chat_response(events: &[UniversalEvent]) -> Value {
         );
     }
     json!({
-        "id": parts.id.unwrap_or_else(|| "chatcmpl_va_proxy".to_string()),
+        "id": parts.id.unwrap_or_else(|| "chatcmpl_proxy".to_string()),
         "object": "chat.completion",
         "created": unix_timestamp(),
         "model": parts.model,
@@ -295,7 +267,7 @@ fn events_to_anthropic_response(events: &[UniversalEvent]) -> Value {
         }));
     }
     json!({
-        "id": parts.message_id.or(parts.id).unwrap_or_else(|| "msg_va_proxy".to_string()),
+        "id": parts.message_id.or(parts.id).unwrap_or_else(|| "msg_proxy".to_string()),
         "type": "message",
         "role": "assistant",
         "model": parts.model,
@@ -308,7 +280,7 @@ fn events_to_anthropic_response(events: &[UniversalEvent]) -> Value {
 
 fn tool_call_id(tool_call: &ToolCallParts) -> String {
     if tool_call.id.is_empty() {
-        "call_va_proxy".to_string()
+        "call_proxy".to_string()
     } else {
         tool_call.id.clone()
     }
