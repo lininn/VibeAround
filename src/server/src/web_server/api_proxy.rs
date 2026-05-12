@@ -19,10 +19,8 @@ use model_mapping::{proxy_model_mapping, proxy_route_preference};
 use passthrough::{buffered_passthrough_response, passthrough_response};
 pub(super) use protocol::ProxyProtocol;
 pub use routes::{
-    chat_completions_handler, legacy_chat_completions_handler, legacy_messages_handler,
-    legacy_responses_handler, local_chat_completions_handler, local_messages_handler,
-    local_responses_handler, messages_handler, responses_handler, scoped_chat_completions_handler,
-    scoped_messages_handler, scoped_responses_handler,
+    legacy_chat_completions_handler, legacy_messages_handler, legacy_responses_handler,
+    local_chat_completions_handler, local_messages_handler, local_responses_handler,
 };
 use stream::translated_stream_response;
 use upstream::{
@@ -35,7 +33,6 @@ use super::AppState;
 pub(super) async fn proxy_handler(
     state: AppState,
     profile_id: String,
-    launch_id: Option<String>,
     route_scope: Option<String>,
     manual_scope: Option<String>,
     target_api_type: String,
@@ -113,7 +110,6 @@ pub(super) async fn proxy_handler(
         tracing::info!(
             target: "server::web_server::api_proxy",
             profile_id = %profile_id,
-            launch_id = ?launch_id,
             route_scope = ?route_scope,
             manual_scope = ?manual_scope,
             target_api_type = %target_api_type,
@@ -205,7 +201,6 @@ pub(super) async fn proxy_handler(
     tracing::info!(
         target: "server::web_server::api_proxy",
         profile_id = %profile_id,
-        launch_id = ?launch_id,
         route_scope = ?route_scope,
         manual_scope = ?manual_scope,
         target_api_type = %target_api_type,
