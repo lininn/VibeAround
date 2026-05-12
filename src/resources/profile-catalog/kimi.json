@@ -12,8 +12,12 @@
       },
       "models": [
         {
-          "id": "kimi-code",
+          "id": "kimi-for-coding",
           "label": "Kimi Code"
+        },
+        {
+          "id": "kimi-code",
+          "label": "Kimi Code (legacy alias)"
         },
         {
           "id": "k2p5",

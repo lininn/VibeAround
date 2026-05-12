@@ -469,6 +469,10 @@ mod tests {
             endpoint.headers.get("User-Agent").map(String::as_str),
             Some("claude-code/0.1.0")
         );
+        assert_eq!(
+            endpoint.models.first().map(|model| model.id.as_str()),
+            Some("kimi-for-coding")
+        );
     }
 
     #[test]
@@ -496,6 +500,38 @@ mod tests {
             .map(endpoint_id)
             .collect();
         assert_eq!(anthropic_endpoints, vec!["coding-plan", "coding-plan-cn"]);
+
+        for &endpoint_id in &endpoints {
+            let endpoint = find_endpoint(provider, "openai-chat", Some(endpoint_id))
+                .unwrap_or_else(|| panic!("dashscope openai-chat endpoint {endpoint_id}"));
+            assert_eq!(
+                endpoint.headers.get("User-Agent").map(String::as_str),
+                Some("codex-cli/0.80.0 (external, cli)")
+            );
+            assert_eq!(
+                endpoint
+                    .headers
+                    .get("X-DashScope-UserAgent")
+                    .map(String::as_str),
+                Some("codex-cli/0.80.0 (external, cli)")
+            );
+            assert_eq!(
+                endpoint
+                    .headers
+                    .get("X-DashScope-AuthType")
+                    .map(String::as_str),
+                Some("openai")
+            );
+        }
+        for &endpoint_id in &anthropic_endpoints {
+            let endpoint = find_endpoint(provider, "anthropic", Some(endpoint_id))
+                .unwrap_or_else(|| panic!("dashscope anthropic endpoint {endpoint_id}"));
+            assert_eq!(
+                endpoint.headers.get("User-Agent").map(String::as_str),
+                Some("claude-code/0.1.0")
+            );
+            assert!(endpoint.auth_header);
+        }
 
         let token = find_endpoint(provider, "openai-chat", Some("token-plan"))
             .expect("token plan endpoint");
