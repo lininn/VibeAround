@@ -1,7 +1,7 @@
 use axum::body::Body;
 use axum::http::{header, HeaderMap as InboundHeaderMap, StatusCode};
 use axum::response::Response;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::BTreeMap;
 
 use common::profiles::schema::ProfileDef;
@@ -106,16 +106,6 @@ fn join_versioned_endpoint(base_url: &str, endpoint: &str) -> String {
         format!("{base_url}/{endpoint}")
     } else {
         format!("{base_url}/v1/{endpoint}")
-    }
-}
-
-pub(super) fn normalize_target_request(request: &mut Value, protocol: ProxyProtocol) {
-    if protocol == ProxyProtocol::AnthropicMessages {
-        if let Some(object) = request.as_object_mut() {
-            object
-                .entry("max_tokens")
-                .or_insert_with(|| Value::Number(4096_u64.into()));
-        }
     }
 }
 

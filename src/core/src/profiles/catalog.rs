@@ -67,10 +67,33 @@ pub struct EndpointDef {
 pub struct EndpointCapabilities {
     #[serde(default)]
     pub reasoning_effort: bool,
+    #[serde(default, skip_serializing_if = "ContentCapabilities::is_empty")]
+    pub content: ContentCapabilities,
 }
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ContentCapabilities {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub image_input: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub file_input: bool,
+}
+
+impl ContentCapabilities {
+    pub fn is_empty(&self) -> bool {
+        !self.image_input && !self.file_input
+    }
+
+    pub fn merge(&self, override_caps: &ContentCapabilities) -> ContentCapabilities {
+        ContentCapabilities {
+            image_input: self.image_input || override_caps.image_input,
+            file_input: self.file_input || override_caps.file_input,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -78,6 +101,10 @@ pub struct ModelDef {
     pub id: String,
     #[serde(default)]
     pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
+    #[serde(default, skip_serializing_if = "ContentCapabilities::is_empty")]
+    pub capabilities: ContentCapabilities,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -311,6 +338,7 @@ pub fn custom() -> &'static ProviderCatalog {
                 models: Vec::new(),
                 capabilities: EndpointCapabilities {
                     reasoning_effort: true,
+                    ..EndpointCapabilities::default()
                 },
                 compatibility_warning: None,
                 auth_modes: vec![AuthModeDef {
@@ -443,6 +471,10 @@ mod tests {
             endpoint.headers.get("User-Agent").map(String::as_str),
             Some("claude-code/0.1.0")
         );
+        assert_eq!(
+            endpoint.models.first().map(|model| model.id.as_str()),
+            Some("kimi-for-coding")
+        );
     }
 
     #[test]
@@ -470,6 +502,38 @@ mod tests {
             .map(endpoint_id)
             .collect();
         assert_eq!(anthropic_endpoints, vec!["coding-plan", "coding-plan-cn"]);
+
+        for &endpoint_id in &endpoints {
+            let endpoint = find_endpoint(provider, "openai-chat", Some(endpoint_id))
+                .unwrap_or_else(|| panic!("dashscope openai-chat endpoint {endpoint_id}"));
+            assert_eq!(
+                endpoint.headers.get("User-Agent").map(String::as_str),
+                Some("codex-cli/0.80.0 (external, cli)")
+            );
+            assert_eq!(
+                endpoint
+                    .headers
+                    .get("X-DashScope-UserAgent")
+                    .map(String::as_str),
+                Some("codex-cli/0.80.0 (external, cli)")
+            );
+            assert_eq!(
+                endpoint
+                    .headers
+                    .get("X-DashScope-AuthType")
+                    .map(String::as_str),
+                Some("openai")
+            );
+        }
+        for &endpoint_id in &anthropic_endpoints {
+            let endpoint = find_endpoint(provider, "anthropic", Some(endpoint_id))
+                .unwrap_or_else(|| panic!("dashscope anthropic endpoint {endpoint_id}"));
+            assert_eq!(
+                endpoint.headers.get("User-Agent").map(String::as_str),
+                Some("claude-code/0.1.0")
+            );
+            assert!(endpoint.auth_header);
+        }
 
         let token = find_endpoint(provider, "openai-chat", Some("token-plan"))
             .expect("token plan endpoint");

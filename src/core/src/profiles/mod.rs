@@ -7,6 +7,7 @@
 //! profiles.
 
 pub mod catalog;
+pub mod codex_metadata;
 pub mod connections;
 pub mod headers;
 mod proxy_launch;
@@ -115,6 +116,7 @@ mod tests {
                 base_url: None,
                 model: None,
                 reasoning_effort: None,
+                capabilities: None,
             },
         );
         let profile = ProfileDef {
