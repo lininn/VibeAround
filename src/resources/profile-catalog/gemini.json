@@ -37,7 +37,9 @@
           "render": {
             "env": {
               "GOOGLE_GEMINI_BASE_URL": "{{base_url}}",
+              "GOOGLE_API_KEY": "{{api_key}}",
               "GEMINI_API_KEY": "{{api_key}}",
+              "GEMINI_DEFAULT_AUTH_TYPE": "gemini-api-key",
               "GEMINI_MODEL": "{{model}}"
             },
             "settings_files": []

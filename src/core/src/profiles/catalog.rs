@@ -654,6 +654,17 @@ mod tests {
             Some("{{api_key}}")
         );
         assert_eq!(
+            render.env.get("GOOGLE_API_KEY").map(String::as_str),
+            Some("{{api_key}}")
+        );
+        assert_eq!(
+            render
+                .env
+                .get("GEMINI_DEFAULT_AUTH_TYPE")
+                .map(String::as_str),
+            Some("gemini-api-key")
+        );
+        assert_eq!(
             render.env.get("GEMINI_MODEL").map(String::as_str),
             Some("{{model}}")
         );
@@ -661,6 +672,7 @@ mod tests {
             render.env.get("GOOGLE_GEMINI_BASE_URL").map(String::as_str),
             Some("{{base_url}}")
         );
+        assert!(render.settings_files.is_empty());
         let openai_chat = find_endpoint(provider, "openai-chat", Some("openai-compatible"))
             .expect("gemini openai-compatible endpoint");
         assert!(!openai_chat.append_v1_path);

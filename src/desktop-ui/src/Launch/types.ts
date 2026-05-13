@@ -7,7 +7,7 @@
 
 export type AuthMode = "api_key" | "oauth_via_cli";
 export type CompatibilityProxyMode = "auto" | "on" | "off";
-export type ConnectionAgentId = "claude" | "codex" | "opencode";
+export type ConnectionAgentId = "claude" | "codex" | "gemini" | "opencode";
 
 export interface ProfileSummary {
   id: string;

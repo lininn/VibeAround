@@ -24,6 +24,7 @@ pub(super) fn render_proxy_launch(
     match launch_target {
         "claude" => Ok(render_claude_proxy_profile(profile, launch_id, settings)),
         "codex" => Ok(render_codex_proxy_profile(profile, launch_id, settings)),
+        "gemini" => Ok(render_gemini_proxy_profile(profile, settings)),
         "opencode" => Ok(render_opencode_proxy_profile(
             profile,
             launch_id,
@@ -327,6 +328,40 @@ fn render_opencode_proxy_profile(
     }
 }
 
+fn render_gemini_proxy_profile(
+    profile: &ProfileDef,
+    settings: ProxyLaunchSettings,
+) -> RenderedProfile {
+    let proxy_base_url = format!(
+        "http://127.0.0.1:{}/va/local-api/{}/{}/{}",
+        config::DEFAULT_PORT,
+        profile.id,
+        settings.scope,
+        settings.target_api_type
+    );
+    RenderedProfile {
+        env: vec![
+            (
+                "GEMINI_API_KEY".to_string(),
+                "vibearound-local-proxy".to_string(),
+            ),
+            (
+                "GOOGLE_API_KEY".to_string(),
+                "vibearound-local-proxy".to_string(),
+            ),
+            (
+                "GEMINI_DEFAULT_AUTH_TYPE".to_string(),
+                "gemini-api-key".to_string(),
+            ),
+            ("GOOGLE_GEMINI_BASE_URL".to_string(), proxy_base_url),
+            ("GEMINI_MODEL".to_string(), settings.model),
+        ],
+        settings_files: Vec::new(),
+        command_args: Vec::new(),
+        config_env: None,
+    }
+}
+
 fn opencode_proxy_base_url(
     profile: &ProfileDef,
     settings: &ProxyLaunchSettings,
@@ -412,6 +447,45 @@ mod tests {
             .command_args
             .iter()
             .any(|arg| arg == "model_context_window=1000000"));
+    }
+
+    #[test]
+    fn gemini_proxy_launch_points_cli_at_local_gemini_api() {
+        let profile = dashscope_profile();
+
+        let rendered = render_proxy_launch(
+            &profile,
+            "gemini",
+            "launch-test",
+            "gemini",
+            "openai-chat",
+            Some("qwen3.6-plus"),
+            Some("gemini-2.5-flash"),
+        )
+        .expect("gemini proxy launch renders");
+
+        assert!(rendered.env.contains(&(
+            "GOOGLE_GEMINI_BASE_URL".to_string(),
+            "http://127.0.0.1:12358/va/local-api/dashscope-test/gemini-gemini/openai-chat"
+                .to_string()
+        )));
+        assert!(rendered.env.contains(&(
+            "GEMINI_API_KEY".to_string(),
+            "vibearound-local-proxy".to_string()
+        )));
+        assert!(rendered.env.contains(&(
+            "GOOGLE_API_KEY".to_string(),
+            "vibearound-local-proxy".to_string()
+        )));
+        assert!(rendered.env.contains(&(
+            "GEMINI_DEFAULT_AUTH_TYPE".to_string(),
+            "gemini-api-key".to_string()
+        )));
+        assert!(rendered
+            .env
+            .contains(&("GEMINI_MODEL".to_string(), "gemini-2.5-flash".to_string())));
+        assert!(rendered.settings_files.is_empty());
+        assert!(rendered.config_env.is_none());
     }
 
     fn dashscope_profile() -> ProfileDef {
