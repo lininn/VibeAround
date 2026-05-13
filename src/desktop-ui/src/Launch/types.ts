@@ -7,7 +7,7 @@
 
 export type AuthMode = "api_key" | "oauth_via_cli";
 export type CompatibilityProxyMode = "auto" | "on" | "off";
-export type ConnectionAgentId = "claude" | "codex" | "opencode";
+export type ConnectionAgentId = "claude" | "codex" | "gemini" | "opencode";
 
 export interface ProfileSummary {
   id: string;
@@ -90,6 +90,7 @@ export type ProfileDraft = Omit<ProfileDef, "id">;
 export interface ModelDef {
   id: string;
   label?: string | null;
+  aliases?: string[] | null;
   context_window?: number | null;
   capabilities?: ContentCapabilities | null;
 }
@@ -117,6 +118,7 @@ export interface EndpointDef {
   label?: string | null;
   api_type: string;
   default_base_url: string;
+  append_v1_path?: boolean | null;
   headers?: Record<string, string> | null;
   auth_header?: boolean | null;
   models: ModelDef[];

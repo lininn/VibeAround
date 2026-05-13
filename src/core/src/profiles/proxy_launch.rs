@@ -24,6 +24,7 @@ pub(super) fn render_proxy_launch(
     match launch_target {
         "claude" => Ok(render_claude_proxy_profile(profile, launch_id, settings)),
         "codex" => Ok(render_codex_proxy_profile(profile, launch_id, settings)),
+        "gemini" => Ok(render_gemini_proxy_profile(profile, settings)),
         "opencode" => Ok(render_opencode_proxy_profile(
             profile,
             launch_id,
@@ -100,15 +101,12 @@ fn resolve_proxy_settings(
                 target_api_type
             )
         })?;
-    let upstream_model = upstream_model
+    let requested_upstream_model = upstream_model
         .map(str::trim)
         .filter(|model| !model.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or(profile_model);
-    let model_def = endpoint
-        .models
-        .iter()
-        .find(|model_def| model_def.id == upstream_model);
+    let model_def = catalog::find_model(endpoint, &requested_upstream_model);
     let model_context_window = model_def.and_then(|model_def| model_def.context_window);
     let model_capabilities = model_def
         .map(|model_def| endpoint.capabilities.content.merge(&model_def.capabilities))
@@ -117,7 +115,7 @@ fn resolve_proxy_settings(
         .map(str::trim)
         .filter(|model| !model.is_empty())
         .map(ToOwned::to_owned)
-        .unwrap_or_else(|| upstream_model.clone());
+        .unwrap_or_else(|| requested_upstream_model.clone());
     let reasoning_effort = profile
         .overrides
         .get(target_api_type)
@@ -327,6 +325,40 @@ fn render_opencode_proxy_profile(
     }
 }
 
+fn render_gemini_proxy_profile(
+    profile: &ProfileDef,
+    settings: ProxyLaunchSettings,
+) -> RenderedProfile {
+    let proxy_base_url = format!(
+        "http://127.0.0.1:{}/va/local-api/{}/{}/{}",
+        config::DEFAULT_PORT,
+        profile.id,
+        settings.scope,
+        settings.target_api_type
+    );
+    RenderedProfile {
+        env: vec![
+            (
+                "GEMINI_API_KEY".to_string(),
+                "vibearound-local-proxy".to_string(),
+            ),
+            (
+                "GOOGLE_API_KEY".to_string(),
+                "vibearound-local-proxy".to_string(),
+            ),
+            (
+                "GEMINI_DEFAULT_AUTH_TYPE".to_string(),
+                "gemini-api-key".to_string(),
+            ),
+            ("GOOGLE_GEMINI_BASE_URL".to_string(), proxy_base_url),
+            ("GEMINI_MODEL".to_string(), settings.model),
+        ],
+        settings_files: Vec::new(),
+        command_args: Vec::new(),
+        config_env: None,
+    }
+}
+
 fn opencode_proxy_base_url(
     profile: &ProfileDef,
     settings: &ProxyLaunchSettings,
@@ -414,6 +446,70 @@ mod tests {
             .any(|arg| arg == "model_context_window=1000000"));
     }
 
+    #[test]
+    fn gemini_proxy_launch_points_cli_at_local_gemini_api() {
+        let profile = dashscope_profile();
+
+        let rendered = render_proxy_launch(
+            &profile,
+            "gemini",
+            "launch-test",
+            "gemini",
+            "openai-chat",
+            Some("qwen3.6-plus"),
+            Some("gemini-2.5-flash"),
+        )
+        .expect("gemini proxy launch renders");
+
+        assert!(rendered.env.contains(&(
+            "GOOGLE_GEMINI_BASE_URL".to_string(),
+            "http://127.0.0.1:12358/va/local-api/dashscope-test/gemini-gemini/openai-chat"
+                .to_string()
+        )));
+        assert!(rendered.env.contains(&(
+            "GEMINI_API_KEY".to_string(),
+            "vibearound-local-proxy".to_string()
+        )));
+        assert!(rendered.env.contains(&(
+            "GOOGLE_API_KEY".to_string(),
+            "vibearound-local-proxy".to_string()
+        )));
+        assert!(rendered.env.contains(&(
+            "GEMINI_DEFAULT_AUTH_TYPE".to_string(),
+            "gemini-api-key".to_string()
+        )));
+        assert!(rendered
+            .env
+            .contains(&("GEMINI_MODEL".to_string(), "gemini-2.5-flash".to_string())));
+        assert!(rendered.settings_files.is_empty());
+        assert!(rendered.config_env.is_none());
+    }
+
+    #[test]
+    fn codex_proxy_launch_keeps_gemini_alias_and_metadata() {
+        let profile = gemini_profile();
+
+        let rendered = render_proxy_launch(
+            &profile,
+            "codex",
+            "launch-test",
+            "openai-responses",
+            "openai-chat",
+            None,
+            None,
+        )
+        .expect("codex proxy launch renders");
+
+        assert!(rendered
+            .command_args
+            .iter()
+            .any(|arg| arg == "model='gemini-3.1-pro'"));
+        assert!(rendered
+            .command_args
+            .iter()
+            .any(|arg| arg == "model_context_window=1048576"));
+    }
+
     fn dashscope_profile() -> ProfileDef {
         let mut credentials = BTreeMap::new();
         credentials.insert("api_key".to_string(), "test-key".to_string());
@@ -434,6 +530,34 @@ mod tests {
             id: "dashscope-test".to_string(),
             label: "DashScope Test".to_string(),
             provider: "dashscope".to_string(),
+            auth_mode: AuthMode::ApiKey,
+            api_types: vec!["openai-chat".to_string()],
+            credentials,
+            overrides,
+            provider_settings: Default::default(),
+        }
+    }
+
+    fn gemini_profile() -> ProfileDef {
+        let mut credentials = BTreeMap::new();
+        credentials.insert("api_key".to_string(), "test-key".to_string());
+
+        let mut overrides = BTreeMap::new();
+        overrides.insert(
+            "openai-chat".to_string(),
+            ApiTypeOverrides {
+                endpoint_id: Some("openai-compatible".to_string()),
+                base_url: None,
+                model: Some("gemini-3.1-pro".to_string()),
+                reasoning_effort: Some("medium".to_string()),
+                capabilities: None,
+            },
+        );
+
+        ProfileDef {
+            id: "gemini-test".to_string(),
+            label: "Gemini Test".to_string(),
+            provider: "gemini".to_string(),
             auth_mode: AuthMode::ApiKey,
             api_types: vec!["openai-chat".to_string()],
             credentials,

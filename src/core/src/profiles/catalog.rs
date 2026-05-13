@@ -36,6 +36,10 @@ pub struct ProviderCatalog {
     pub icon: Option<String>,
     #[serde(default)]
     pub homepage: Option<String>,
+    /// Hide legacy/alias providers from the "new profile" picker while
+    /// keeping them loadable for existing saved profiles.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden_from_picker: bool,
     pub endpoints: Vec<EndpointDef>,
 }
 
@@ -47,6 +51,11 @@ pub struct EndpointDef {
     pub label: Option<String>,
     pub api_type: String,
     pub default_base_url: String,
+    /// Most OpenAI-compatible providers expose an API root at either the host
+    /// root or `/v1`; when the root is provider-specific (for example
+    /// `/v1beta/openai`) the catalog can opt out of appending `/v1`.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub append_v1_path: bool,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -75,6 +84,14 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ContentCapabilities {
     #[serde(default, skip_serializing_if = "is_false")]
@@ -101,6 +118,8 @@ pub struct ModelDef {
     pub id: String,
     #[serde(default)]
     pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window: Option<u64>,
     #[serde(default, skip_serializing_if = "ContentCapabilities::is_empty")]
@@ -272,6 +291,25 @@ pub fn find_endpoint<'a>(
         })
 }
 
+pub fn find_model<'a>(endpoint: &'a EndpointDef, model_id: &str) -> Option<&'a ModelDef> {
+    let model_id = model_id.trim();
+    if model_id.is_empty() {
+        return None;
+    }
+    endpoint
+        .models
+        .iter()
+        .find(|model| model_matches(model, model_id))
+}
+
+pub fn model_matches(model: &ModelDef, model_id: &str) -> bool {
+    let model_id = model_id.trim();
+    if model_id.is_empty() {
+        return false;
+    }
+    model.id == model_id || model.aliases.iter().any(|alias| alias.trim() == model_id)
+}
+
 // ---------------------------------------------------------------------------
 // Synthetic "custom" provider — escape hatch for endpoints not in the
 // baked-in catalog. Same render rules as baseline anthropic / openai-chat
@@ -294,12 +332,14 @@ pub fn custom() -> &'static ProviderCatalog {
         label: "Custom".to_string(),
         icon: Some("✨".to_string()),
         homepage: None,
+        hidden_from_picker: false,
         endpoints: vec![
             EndpointDef {
                 id: None,
                 label: None,
                 api_type: "anthropic".to_string(),
                 default_base_url: String::new(),
+                append_v1_path: true,
                 headers: BTreeMap::new(),
                 auth_header: false,
                 models: Vec::new(),
@@ -333,6 +373,7 @@ pub fn custom() -> &'static ProviderCatalog {
                 label: None,
                 api_type: "openai-responses".to_string(),
                 default_base_url: String::new(),
+                append_v1_path: true,
                 headers: BTreeMap::new(),
                 auth_header: false,
                 models: Vec::new(),
@@ -374,6 +415,7 @@ pub fn custom() -> &'static ProviderCatalog {
                 label: None,
                 api_type: "openai-chat".to_string(),
                 default_base_url: String::new(),
+                append_v1_path: true,
                 headers: BTreeMap::new(),
                 auth_header: false,
                 models: Vec::new(),
@@ -456,11 +498,19 @@ mod tests {
             .collect();
         assert!(api_types.contains(&"anthropic"));
         assert!(api_types.contains(&"openai-chat"));
+        let kimi_coding =
+            find_endpoint(provider, "anthropic", Some("kimi-coding")).expect("kimi coding");
+        assert_eq!(kimi_coding.default_base_url, "https://api.kimi.com/coding/");
+        assert_eq!(
+            kimi_coding.headers.get("User-Agent").map(String::as_str),
+            Some("claude-code/0.1.0")
+        );
     }
 
     #[test]
     fn kimi_coding_sets_coding_endpoint_headers() {
         let provider = get("kimi").expect("kimi must exist");
+        assert!(provider.hidden_from_picker);
         let endpoint = provider
             .endpoints
             .iter()
@@ -625,12 +675,42 @@ mod tests {
             Some("{{api_key}}")
         );
         assert_eq!(
+            render.env.get("GOOGLE_API_KEY").map(String::as_str),
+            Some("{{api_key}}")
+        );
+        assert_eq!(
+            render
+                .env
+                .get("GEMINI_DEFAULT_AUTH_TYPE")
+                .map(String::as_str),
+            Some("gemini-api-key")
+        );
+        assert_eq!(
             render.env.get("GEMINI_MODEL").map(String::as_str),
             Some("{{model}}")
         );
         assert_eq!(
             render.env.get("GOOGLE_GEMINI_BASE_URL").map(String::as_str),
             Some("{{base_url}}")
+        );
+        assert!(render.settings_files.is_empty());
+        let openai_chat = find_endpoint(provider, "openai-chat", Some("openai-compatible"))
+            .expect("gemini openai-compatible endpoint");
+        assert!(!openai_chat.append_v1_path);
+        assert_eq!(
+            openai_chat.default_base_url,
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        );
+        let pro = find_model(openai_chat, "gemini-3.1-pro").expect("gemini pro alias");
+        assert_eq!(pro.id, "gemini-3.1-pro-preview");
+        assert_eq!(pro.context_window, Some(1_048_576));
+        let vertex_chat = find_endpoint(provider, "openai-chat", Some("vertex-openai-compatible"))
+            .expect("gemini vertex openai-compatible endpoint");
+        assert_eq!(vertex_chat.default_base_url, "");
+        assert!(!vertex_chat.append_v1_path);
+        assert_eq!(
+            vertex_chat.models.first().map(|model| model.id.as_str()),
+            Some("google/gemini-2.5-flash")
         );
     }
 }
