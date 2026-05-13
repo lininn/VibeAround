@@ -52,13 +52,13 @@ Use `/handover` and `/pickup` to move a live session between laptop and phone, a
 
 ## Download VibeAround
 
-The latest release is [VibeAround v0.5.15](https://github.com/jazzenchen/VibeAround/releases/tag/v0.5.15).
+The latest release is [VibeAround v0.5.16](https://github.com/jazzenchen/VibeAround/releases/tag/v0.5.16).
 
 | Platform | Recommended download |
 |---|---|
-| macOS Apple Silicon | [VibeAround_0.5.15_arm64.dmg](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.15/VibeAround_0.5.15_arm64.dmg) |
-| Windows x64 | [Setup EXE](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.15/VibeAround_0.5.15_x64-setup.exe), [MSI](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.15/VibeAround_0.5.15_x64_en-US.msi), or [portable ZIP](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.15/VibeAround-win-0.5.15-portable.zip) |
-| Linux x64 | [AppImage](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.15/VibeAround_0.5.15_amd64.AppImage) or [deb](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.15/VibeAround_0.5.15_amd64.deb) |
+| macOS Apple Silicon | [VibeAround_0.5.16_arm64.dmg](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.16/VibeAround_0.5.16_arm64.dmg) |
+| Windows x64 | [Setup EXE](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.16/VibeAround_0.5.16_x64-setup.exe), [MSI](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.16/VibeAround_0.5.16_x64_en-US.msi), or [portable ZIP](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.16/VibeAround-win-0.5.16-portable.zip) |
+| Linux x64 | [AppImage](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.16/VibeAround_0.5.16_amd64.AppImage) or [deb](https://github.com/jazzenchen/VibeAround/releases/download/v0.5.16/VibeAround_0.5.16_amd64.deb) |
 
 macOS is currently published for Apple Silicon. Windows and Linux desktop packages are produced by GitHub Actions; the macOS DMG is signed and notarized.
 
