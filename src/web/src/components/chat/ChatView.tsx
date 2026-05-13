@@ -106,6 +106,7 @@ export function ChatView() {
   const [selectedAgent, setSelectedAgent] = useState<string>("claude");
   const [pendingPermissions, setPendingPermissions] = useState<PendingPermission[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const promptInFlightRef = useRef(false);
 
   const toolType = agentIdToToolType(selectedAgent);
   const selectedAgentInfo = agents.find((agent) => agent.id === selectedAgent);
@@ -119,9 +120,14 @@ export function ChatView() {
     ws.onclose = () => {
       setConnected(false);
       setStreaming(false);
+      promptInFlightRef.current = false;
       setPendingPermissions([]);
     };
-    ws.onerror = () => setConnected(false);
+    ws.onerror = () => {
+      setConnected(false);
+      setStreaming(false);
+      promptInFlightRef.current = false;
+    };
 
     ws.onmessage = (event) => {
       if (typeof event.data !== "string") return;
@@ -171,6 +177,13 @@ export function ChatView() {
         case "error": {
           appendErrorToStream(parsed.error);
           setStreaming(false);
+          promptInFlightRef.current = false;
+          break;
+        }
+        case "prompt_done": {
+          clearStreamProgress();
+          setStreaming(false);
+          promptInFlightRef.current = false;
           break;
         }
         case "acp_notification": {
@@ -300,7 +313,14 @@ export function ChatView() {
   const sendMessage = useCallback(async () => {
     const text = input.trim();
     if (!text || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    if (promptInFlightRef.current) return;
 
+    const messageId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    promptInFlightRef.current = true;
     setInput("");
     setMessages((prev) => [
       ...prev,
@@ -309,11 +329,34 @@ export function ChatView() {
     ]);
     setStreaming(true);
 
-    wsRef.current.send(JSON.stringify({ type: "message", text, agent: selectedAgent }));
+    try {
+      wsRef.current.send(
+        JSON.stringify({ type: "message", messageId, text, agent: selectedAgent }),
+      );
+    } catch (error) {
+      console.warn("[ChatView] failed to send chat message:", error);
+      promptInFlightRef.current = false;
+      setStreaming(false);
+      setInput(text);
+      setMessages((prev) => prev.slice(0, -2));
+    }
   }, [input, selectedAgent]);
 
   const handleAgentChange = useCallback((agentId: string) => {
     setSelectedAgent(agentId);
+  }, []);
+
+  const stopStreaming = useCallback(() => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify({ type: "stop" }));
+      } catch (error) {
+        console.warn("[ChatView] failed to stop chat message:", error);
+      }
+    }
+    promptInFlightRef.current = false;
+    setStreaming(false);
   }, []);
 
   const sendPermissionResponse = useCallback(
@@ -446,7 +489,9 @@ export function ChatView() {
         onSubmit={() => {
           void sendMessage();
         }}
+        onStop={stopStreaming}
         disabled={!connected}
+        submitDisabled={streaming}
         isStreaming={streaming}
         placeholder={connected ? t("Message {{agent}}…", { agent: agentLabel }) : t("Connecting…")}
         targetLabel={agentLabel}
