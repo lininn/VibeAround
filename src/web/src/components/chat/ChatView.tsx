@@ -21,7 +21,17 @@ export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   progress?: string;
+  activities?: ChatActivity[];
   mode?: "standalone" | "stream";
+};
+
+type ChatActivity = {
+  id: string;
+  kind: "thinking" | "tool";
+  label: string;
+  detail?: string;
+  status?: string;
+  active?: boolean;
 };
 
 type ChatMeta = {
@@ -92,6 +102,46 @@ function permissionButtonClass(kind?: string) {
 function switchedAgentId(text: string) {
   const match = /^Switched to ([A-Za-z0-9_-]+)\.$/.exec(text.trim());
   return match?.[1];
+}
+
+function lastActivity(activities: ChatActivity[] | undefined) {
+  return activities?.[activities.length - 1];
+}
+
+function toolActivityId(update: unknown) {
+  const record = asRecord(update);
+  return (
+    stringField(record, "toolCallId") ??
+    stringField(record, "tool_call_id") ??
+    stringField(record, "id")
+  );
+}
+
+function toolActivityLabel(update: unknown) {
+  const record = asRecord(update);
+  const toolCall = asRecord(record?.toolCall);
+  return (
+    stringField(record, "title") ??
+    stringField(toolCall, "title") ??
+    stringField(record, "kind") ??
+    stringField(toolCall, "kind") ??
+    "tool"
+  );
+}
+
+function toolActivityStatus(update: unknown) {
+  const record = asRecord(update);
+  return stringField(record, "status");
+}
+
+function findLastMatchingActivity(
+  activities: ChatActivity[],
+  predicate: (activity: ChatActivity) => boolean,
+) {
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    if (predicate(activities[index])) return index;
+  }
+  return -1;
 }
 
 export function ChatView() {
@@ -213,18 +263,19 @@ export function ChatView() {
         }
         case "agent_thought_chunk": {
           if (update.content.type === "text") {
-            setStreamProgress(update.content.text);
+            appendThinkingActivity(update.content.text);
           }
           break;
         }
         case "tool_call":
         case "tool_call_update": {
-          const title = "title" in update ? update.title : undefined;
-          const status = "status" in update ? update.status : undefined;
+          const title = toolActivityLabel(update);
+          const status = toolActivityStatus(update);
+          appendToolActivity(update);
           if (status === "completed" || status === "failed") {
             clearStreamProgress();
           } else {
-            setStreamProgress(t("Using tool: {{tool}}…", { tool: title ?? "tool" }));
+            setStreamProgress(t("Using tool: {{tool}}…", { tool: title }));
           }
           break;
         }
@@ -241,7 +292,13 @@ export function ChatView() {
       setMessages((prev) => {
         const next = [...prev];
         const last = next[next.length - 1];
-        if (last?.role === "assistant" && last.mode === "stream" && last.content === "" && !last.progress) {
+        if (
+          last?.role === "assistant" &&
+          last.mode === "stream" &&
+          last.content === "" &&
+          !last.progress &&
+          !last.activities?.length
+        ) {
           next.pop();
         }
         next.push({ role: "assistant", content: text, mode: "standalone" });
@@ -261,6 +318,115 @@ export function ChatView() {
         next[next.length - 1] = { ...last, content: last.content + text, progress: undefined, mode: "stream" };
         return next;
       });
+    }
+
+    function updateStreamAssistant(
+      updater: (message: ChatMessage) => ChatMessage,
+      fallback: ChatMessage,
+    ) {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (!last || last.role !== "assistant" || last.mode !== "stream") {
+          return [...prev, fallback];
+        }
+        const next = [...prev];
+        next[next.length - 1] = updater(last);
+        return next;
+      });
+    }
+
+    function appendThinkingActivity(text: string) {
+      if (!text) return;
+      updateStreamAssistant(
+        (message) => {
+          const activities = [...(message.activities ?? [])];
+          const last = lastActivity(activities);
+          if (last?.kind === "thinking" && last.active !== false) {
+            activities[activities.length - 1] = {
+              ...last,
+              detail: `${last.detail ?? ""}${text}`,
+              active: true,
+            };
+          } else {
+            activities.push({
+              id: `thinking-${Date.now()}-${activities.length}`,
+              kind: "thinking",
+              label: t("Thinking"),
+              detail: text,
+              active: true,
+            });
+          }
+          return { ...message, activities, progress: text, mode: "stream" };
+        },
+        {
+          role: "assistant",
+          content: "",
+          progress: text,
+          activities: [
+            {
+              id: `thinking-${Date.now()}-0`,
+              kind: "thinking",
+              label: t("Thinking"),
+              detail: text,
+              active: true,
+            },
+          ],
+          mode: "stream",
+        },
+      );
+    }
+
+    function appendToolActivity(update: unknown) {
+      const label = toolActivityLabel(update);
+      const status = toolActivityStatus(update);
+      const id = toolActivityId(update);
+      const active = status !== "completed" && status !== "failed";
+      updateStreamAssistant(
+        (message) => {
+          const activities = [...(message.activities ?? [])];
+          const existingIndex =
+            id !== undefined
+              ? activities.findIndex((activity) => activity.id === id)
+              : findLastMatchingActivity(
+                  activities,
+                  (activity) =>
+                    activity.kind === "tool" &&
+                    activity.label === label &&
+                    activity.active !== false,
+                );
+          const activity: ChatActivity = {
+            id: id ?? `tool-${Date.now()}-${activities.length}`,
+            kind: "tool",
+            label,
+            status,
+            active,
+          };
+          if (existingIndex >= 0) {
+            activities[existingIndex] = {
+              ...activities[existingIndex],
+              ...activity,
+              id: activities[existingIndex].id,
+            };
+          } else {
+            activities.push(activity);
+          }
+          return { ...message, activities, mode: "stream" };
+        },
+        {
+          role: "assistant",
+          content: "",
+          activities: [
+            {
+              id: id ?? `tool-${Date.now()}-0`,
+              kind: "tool",
+              label,
+              status,
+              active,
+            },
+          ],
+          mode: "stream",
+        },
+      );
     }
 
     function setStreamProgress(progress: string) {
@@ -416,10 +582,40 @@ export function ChatView() {
                     <p className="whitespace-pre-wrap text-sm leading-7">{msg.content}</p>
                   ) : (
                     <>
-                      <MessageResponse
-                        content={msg.content}
-                        isStreaming={streaming && i === messages.length - 1}
-                      />
+                      {msg.activities?.length ? (
+                        <div
+                          className={`space-y-2 text-xs text-muted-foreground ${msg.content ? "mb-3 border-b border-border/50 pb-3" : ""}`}
+                        >
+                          {msg.activities.map((activity) => (
+                            <div key={activity.id} className="min-w-0">
+                              <div className="flex min-w-0 items-center gap-2 font-mono">
+                                <span className="shrink-0 uppercase text-muted-foreground/70">
+                                  {activity.kind === "thinking" ? t("Thinking") : t("Tool")}
+                                </span>
+                                <span className="truncate text-foreground/75">
+                                  {activity.label}
+                                </span>
+                                {activity.status && (
+                                  <span className="shrink-0 text-muted-foreground/60">
+                                    {activity.status}
+                                  </span>
+                                )}
+                              </div>
+                              {activity.detail && (
+                                <p className="mt-1 whitespace-pre-wrap break-words leading-5 text-muted-foreground/80">
+                                  {activity.detail}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      {msg.content && (
+                        <MessageResponse
+                          content={msg.content}
+                          isStreaming={streaming && i === messages.length - 1}
+                        />
+                      )}
                       {msg.progress && (
                         <span className="text-xs text-muted-foreground/60 font-mono animate-pulse">
                           {msg.progress}
