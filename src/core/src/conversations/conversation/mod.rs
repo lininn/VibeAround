@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use tokio::sync::{broadcast, Mutex};
 
-use agent_client_protocol as acp;
+use agent_client_protocol::schema as acp;
 
 use crate::agent::{Agent, AgentClientHandler};
 use crate::routing::RouteKey;
@@ -194,7 +194,7 @@ impl Conversation {
                 session_id
             );
             let request = acp::PromptRequest::new(session_id, content_blocks);
-            let response = acp::Agent::prompt(&*agent, request).await;
+            let response = agent.prompt(request).await;
             tracing::info!(
                 "[Conversation] prompt RETURNED route={} ok={}",
                 self.route,
@@ -227,7 +227,7 @@ impl Conversation {
             .await
             .clone()
             .ok_or_else(acp::Error::method_not_found)?;
-        acp::Agent::cancel(&*agent, acp::CancelNotification::new(session_id)).await
+        agent.cancel(acp::CancelNotification::new(session_id)).await
     }
 
     /// Switch the current session's permission mode. Requires an active
@@ -247,7 +247,7 @@ impl Conversation {
             .clone()
             .ok_or_else(acp::Error::method_not_found)?;
         let request = acp::SetSessionModeRequest::new(session_id, mode_id);
-        acp::Agent::set_session_mode(&*agent, request).await?;
+        agent.set_session_mode(request).await?;
         Ok(())
     }
 

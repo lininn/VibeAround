@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use agent_client_protocol as acp;
+use agent_client_protocol::schema as acp;
 
 use crate::agent::AgentClientHandler;
 use crate::conversations::ConversationManager;

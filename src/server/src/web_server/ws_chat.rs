@@ -16,7 +16,7 @@ use axum::response::Response;
 use futures_util::{SinkExt, StreamExt};
 use uuid::Uuid;
 
-use agent_client_protocol as acp;
+use agent_client_protocol::schema as acp;
 use common::channels::{ChannelEnvelope, ChannelInput, ChannelOutput};
 use common::routing::RouteKey;
 use common::{agent_state, config};

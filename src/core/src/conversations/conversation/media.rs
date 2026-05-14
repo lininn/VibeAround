@@ -6,7 +6,7 @@
 //! the agent we move each file into a session-scoped cache under the
 //! workspace so the agent sees a stable URI tied to the live session.
 
-use agent_client_protocol as acp;
+use agent_client_protocol::schema as acp;
 
 use crate::config;
 use crate::routing::RouteKey;
