@@ -1,4 +1,13 @@
-import { Activity, Bot, LayoutGrid, MessageSquare, Moon, Rows3, Sun } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  LayoutGrid,
+  MessageSquare,
+  Moon,
+  Rows3,
+  Sun,
+  Terminal,
+} from "lucide-react";
 import { useI18n } from "@va/i18n";
 
 import { Button } from "@/components/ui/button";
@@ -37,25 +46,25 @@ export function AppHeader({
   const { t } = useI18n();
   const chatStatusMeta = {
     connecting: {
-      label: t("Chat connecting"),
+      label: t("Connecting to local agent"),
       tone: "text-muted-foreground/60",
       dot: "bg-muted-foreground/50",
       pulse: true,
     },
     ready: {
-      label: t("Chat ready"),
+      label: t("Local agent ready"),
       tone: "text-muted-foreground/60",
       dot: "bg-emerald-400",
       pulse: false,
     },
     working: {
-      label: t("AI working"),
+      label: t("Agent working"),
       tone: "text-primary",
       dot: "bg-primary",
       pulse: true,
     },
     attention: {
-      label: t("Needs input"),
+      label: t("Agent needs input"),
       tone: "text-amber-400",
       dot: "bg-amber-400",
       pulse: true,
@@ -67,7 +76,7 @@ export function AppHeader({
   const chatMeta = chatStatusMeta[chatStatus];
 
   return (
-    <header className="flex items-center justify-between gap-3 px-3 py-1.5 shrink-0 bg-muted/50 dark:bg-background border-b border-border">
+    <header className="flex items-center justify-between gap-3 px-3 py-1.5 shrink-0 bg-background/95 border-b border-border">
       <div className="flex min-w-0 items-center gap-3">
         <div className="flex items-center gap-2">
           <span className="inline-block h-2 w-2 rounded-sm bg-primary" />
@@ -76,7 +85,7 @@ export function AppHeader({
               VibeAround
             </h1>
             <div className="hidden text-[9px] text-muted-foreground/40 font-mono sm:block">
-              {t("agent workspace")}
+              {t("local agent entry")}
             </div>
           </div>
         </div>
@@ -88,11 +97,11 @@ export function AppHeader({
         >
           <ToggleGroupItem
             value="chat"
-            aria-label={t("Chat")}
+            aria-label={t("Agent")}
             className="rounded px-2 py-1 gap-1.5 data-[state=on]:bg-primary/15 data-[state=on]:text-primary text-muted-foreground/50 hover:text-foreground"
           >
             <MessageSquare className="h-3 w-3" />
-            {t("Chat")}
+            {t("Agent")}
             {chatStatus !== "ready" && (
               <span
                 className={cn(
@@ -105,11 +114,11 @@ export function AppHeader({
           </ToggleGroupItem>
           <ToggleGroupItem
             value="terminal"
-            aria-label={t("Terminal")}
+            aria-label={t("CLI")}
             className="rounded px-2 py-1 gap-1.5 data-[state=on]:bg-primary/15 data-[state=on]:text-primary text-muted-foreground/50 hover:text-foreground"
           >
-            <Rows3 className="h-3 w-3" />
-            {t("Terminal")}
+            <Terminal className="h-3 w-3" />
+            {t("CLI")}
           </ToggleGroupItem>
         </ToggleGroup>
         <div className="hidden min-w-0 items-center gap-3 border-l border-border/20 pl-3 sm:flex">
@@ -124,21 +133,23 @@ export function AppHeader({
             <Bot className="h-3 w-3" />
             {chatMeta.label}
           </span>
-          <span className="text-[10px] text-muted-foreground/50 font-mono">
-            {t("{{running}}/{{total}} active", {
-              running: runningSessions,
-              total: totalSessions,
-            })}
-          </span>
           <span className="text-[10px] text-emerald-400/80 font-mono flex items-center gap-1.5">
             <Activity className="h-3 w-3" />
-            {t("connected")}
+            {t("local")}
             {pingMs !== null ? (
               <span className="text-muted-foreground/70">· {pingMs} ms</span>
             ) : (
               <span className="text-muted-foreground/50">· — ms</span>
             )}
           </span>
+          {totalSessions > 0 && (
+            <span className="text-[10px] text-muted-foreground/50 font-mono">
+              {t("{{running}}/{{total}} CLI", {
+                running: runningSessions,
+                total: totalSessions,
+              })}
+            </span>
+          )}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">

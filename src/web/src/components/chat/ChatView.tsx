@@ -174,16 +174,6 @@ export function ChatView({ onStatusChange }: ChatViewProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="border-b border-border/60 bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono">
-          <span>{t("channel: web")}</span>
-          <span>{t("chat: {{value}}", { value: meta.channelId ?? "-" })}</span>
-          <span>{t("agent: {{value}}", { value: meta.agentTitle ?? meta.agentName ?? agentLabel })}</span>
-          <span>{t("version: {{value}}", { value: meta.agentVersion ?? "-" })}</span>
-          <span>{t("sessionId: {{value}}", { value: meta.sessionId ?? "-" })}</span>
-        </div>
-      </div>
-
       <ChatMessageList messages={messages} streaming={streaming} agentLabel={agentLabel} />
 
       <PendingPermissions

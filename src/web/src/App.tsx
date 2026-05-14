@@ -1,6 +1,5 @@
 import { useState } from "react";
 
-import { AppFooter } from "@/components/AppFooter";
 import { AppHeader } from "@/components/AppHeader";
 import { ChatView } from "@/components/chat";
 import { TabBar } from "@/components/TabBar";
@@ -121,14 +120,6 @@ function App() {
           </section>
         </main>
 
-        <AppFooter
-          page={page}
-          viewMode={viewMode}
-          runningSessions={runningSessions}
-          maximizedSession={maximizedSession}
-          chatStatus={chatStatus}
-          onExitMaximized={clearMaximized}
-        />
       </div>
     </ThemeContext.Provider>
   );
