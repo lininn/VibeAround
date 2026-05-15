@@ -102,18 +102,15 @@ export function ChatSessionSidebar({
               <span className="block truncate text-foreground/90">
                 {t("New chat")}
               </span>
-              <span className="block truncate text-[11px] leading-4 text-muted-foreground">
-                {t("Use the next message as a fresh chat")}
-              </span>
             </span>
           </button>
         </div>
 
-        <div className="mt-4 border-t border-border/50 pt-3">
+        <div className="mt-4">
           {agents.length > 0 && (
             <div className="mb-3">
               <div className="mb-2 px-2 font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
-                {t("Agent")}
+                {t("Agents")}
               </div>
               <div className="flex flex-wrap gap-1.5 px-2">
                 {agents.map((agent) => {
