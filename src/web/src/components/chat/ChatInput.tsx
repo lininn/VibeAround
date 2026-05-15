@@ -1,19 +1,17 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { ChevronDown, Send, Square } from "lucide-react";
-import type { ToolType } from "@/lib/terminal-types";
-import { getToolTheme } from "@/lib/terminal-types";
-import { useTheme } from "@/lib/theme";
-import { Button } from "@/components/ui/button";
+import { useEffect, useRef, type KeyboardEvent } from "react";
+import { Send, Square } from "lucide-react";
+import type { AgentInfo, LaunchSessionInfo, ProfileLaunchOption } from "@va/client";
 import { useI18n } from "@va/i18n";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import type { AgentInfo } from "@va/client";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import type { ToolType } from "@/lib/terminal-types";
+import { ChatLaunchSelector } from "./ChatLaunchSelector";
+import { ChatSessionSelector } from "./ChatSessionSelector";
+import type { ChatSessionSelection } from "./chatTypes";
+
+export type { ChatSessionSelection } from "./chatTypes";
 
 const TEXTAREA_MAX_HEIGHT_PX = 128;
 
@@ -30,10 +28,20 @@ export interface ChatInputProps {
   targetLabel?: string;
   /** Tool type for accent color (claude/gemini/codex/generic). */
   targetTool?: ToolType;
+  selectedAgentId?: string;
   /** Available agents for the selector dropdown. */
   agents?: AgentInfo[];
+  profiles?: ProfileLaunchOption[];
+  selectedProfileId?: string;
   /** Called when user picks a different agent from the dropdown. */
   onAgentChange?: (agentId: string) => void;
+  onLaunchChange?: (agentId: string, profileId?: string) => void;
+  /** Resumable sessions discovered for the selected agent/workspace. */
+  sessions?: LaunchSessionInfo[];
+  sessionsLoading?: boolean;
+  sessionSelection?: ChatSessionSelection;
+  activeSessionId?: string;
+  onSessionChange?: (selection: ChatSessionSelection) => void;
   className?: string;
 }
 
@@ -48,8 +56,17 @@ export function ChatInput({
   placeholder = "Message Claude…",
   targetLabel = "Claude Code",
   targetTool = "claude",
-  agents,
+  selectedAgentId,
+  agents = [],
+  profiles = [],
+  selectedProfileId,
   onAgentChange,
+  onLaunchChange,
+  sessions = [],
+  sessionsLoading = false,
+  sessionSelection = { kind: "current" },
+  activeSessionId,
+  onSessionChange,
   className,
 }: ChatInputProps) {
   const { t } = useI18n();
@@ -63,7 +80,7 @@ export function ChatInput({
     el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`;
   }, [value]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     const isComposing =
       isComposingRef.current || e.nativeEvent.isComposing || e.keyCode === 229;
     if (e.key === "Enter" && !e.shiftKey) {
@@ -75,15 +92,11 @@ export function ChatInput({
 
   const canSend = !disabled && !submitDisabled && !!value.trim();
   const showStop = isStreaming && onStop;
-  const appTheme = useTheme();
-  const accentColor = getToolTheme(targetTool, appTheme).accent;
-
-  const hasMultipleAgents = agents && agents.length > 1 && onAgentChange;
 
   return (
     <div
       data-slot="chat-input"
-      className={`bg-background p-4 border-t border-border ${className ?? ""}`}
+      className={cn("bg-background p-4 border-t border-border", className)}
     >
       <div
         role="group"
@@ -106,41 +119,28 @@ export function ChatInput({
           className="min-h-[2.5rem] max-h-32 resize-none overflow-y-auto border-0 bg-transparent px-3 py-2 text-base sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-0 transition-[height] duration-200 ease-out"
           style={{ height: "2.5rem" }}
         />
-        <div className="flex shrink-0 items-center justify-between gap-2 px-2 py-1.5">
-          {hasMultipleAgents ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-1 truncate min-w-0 text-xs font-medium cursor-pointer rounded px-1 py-0.5 hover:bg-muted/60 transition-colors"
-                  title={t("Chat with {{agent}}", { agent: targetLabel })}
-                >
-                  <span className="text-muted-foreground shrink-0">{t("Chat with")}</span>
-                  <span className="truncate" style={{ color: accentColor }}>{targetLabel}</span>
-                  <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="min-w-[160px]">
-                {agents!.map((agent) => (
-                  <DropdownMenuItem
-                    key={agent.id}
-                    onClick={() => onAgentChange!(agent.id)}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <span>{agent.name}</span>
-                    {agent.id === targetTool && (
-                      <span className="text-xs text-muted-foreground">{t("current")}</span>
-                    )}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <span className="flex items-center gap-1 truncate min-w-0 text-xs font-medium" title={t("Chat with {{agent}}", { agent: targetLabel })}>
-              <span className="text-muted-foreground shrink-0">{t("Chat with")}</span>
-              <span className="truncate" style={{ color: accentColor }}>{targetLabel}</span>
-            </span>
-          )}
+        <div className="flex shrink-0 items-center justify-between gap-1.5 px-2 py-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <ChatLaunchSelector
+              targetLabel={targetLabel}
+              targetTool={targetTool}
+              selectedAgentId={selectedAgentId}
+              agents={agents}
+              profiles={profiles}
+              selectedProfileId={selectedProfileId}
+              onAgentChange={onAgentChange}
+              onLaunchChange={onLaunchChange}
+            />
+            {onSessionChange && (
+              <ChatSessionSelector
+                sessions={sessions}
+                sessionsLoading={sessionsLoading}
+                sessionSelection={sessionSelection}
+                activeSessionId={activeSessionId}
+                onSessionChange={onSessionChange}
+              />
+            )}
+          </div>
           <Button
             type="button"
             size="icon"

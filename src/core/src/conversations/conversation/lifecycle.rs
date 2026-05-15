@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context};
 
-use agent_client_protocol as acp;
+use agent_client_protocol::schema as acp;
 
 use crate::agent::{Agent, AgentClientHandler};
 use crate::agent_state;
@@ -240,8 +240,9 @@ impl Conversation {
             .clone()
             .unwrap_or_else(|| "claude".to_string());
         let workspace = config::ensure_loaded().resolve_workspace(&agent_kind);
-        let response =
-            acp::Agent::new_session(&**agent, acp::NewSessionRequest::new(workspace)).await?;
+        let response = agent
+            .new_session(acp::NewSessionRequest::new(workspace))
+            .await?;
         let session_id = response.session_id.to_string();
         *self.session_id.lock().await = Some(session_id.clone());
         self.log_im_session_started_once(&session_id, SessionStartSource::NewSession)
@@ -261,7 +262,7 @@ impl Conversation {
     /// identity clear the profile explicitly before the next spawn.
     ///
     /// Does not wait for any in-flight prompt — the agent shutdown signal
-    /// is sent immediately. Any concurrent `acp::Agent::prompt` future will
+    /// is sent immediately. Any concurrent `Agent::prompt` future will
     /// receive an ACP error. Subsequent prompts will re-spawn a fresh agent
     /// via `ensure_agent`.
     pub(super) async fn full_reset(&self) {
