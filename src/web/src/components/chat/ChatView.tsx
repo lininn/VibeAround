@@ -11,7 +11,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import { createWorkspace, getLaunchSessions, getProfiles, getWorkspaces } from "@/api/sessions";
-import { agentIdToToolType, getAgentDisplayName } from "@/lib/agents";
+import { getAgentDisplayName } from "@/lib/agents";
 import type { ChatRuntimeStatus } from "@/lib/dashboard-types";
 import type { LaunchSessionInfo, ProfileLaunchOption, WorkspaceItem } from "@va/client";
 import { useI18n } from "@va/i18n";
@@ -129,7 +129,6 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
     cancelPermissionRequest,
   } = useWebChatConnection({ onAgentSelected: handleSocketAgentSelected });
 
-  const toolType = agentIdToToolType(selectedAgent);
   const sidebarAgentId = sidebarAgentFilter ?? selectedAgent;
   const launchSessions = useMemo(
     () => launchSessionGroups.flatMap((group) => group.sessions),
@@ -594,13 +593,6 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
                   connected ? t("Ask {{agent}} anything…", { agent: agentLabel }) : t("Connecting…")
                 }
                 targetLabel={agentLabel}
-                targetTool={toolType}
-                selectedAgentId={selectedAgent}
-                agents={agents}
-                profiles={profiles}
-                selectedProfileId={selectedProfileId}
-                onLaunchChange={handleLaunchChange}
-                showLaunchSelector={false}
                 variant="hero"
               />
               <div className="grid gap-4 lg:grid-cols-2">
@@ -649,12 +641,6 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
                 connected ? t("Message {{agent}}…", { agent: agentLabel }) : t("Connecting…")
               }
               targetLabel={agentLabel}
-              targetTool={toolType}
-              selectedAgentId={selectedAgent}
-              agents={agents}
-              profiles={profiles}
-              selectedProfileId={selectedProfileId}
-              onLaunchChange={handleLaunchChange}
             />
           </>
         )}

@@ -2,12 +2,9 @@
 
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { Send, Square } from "lucide-react";
-import type { AgentInfo, ProfileLaunchOption } from "@va/client";
 import { useI18n } from "@va/i18n";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ToolType } from "@/lib/terminal-types";
-import { ChatLaunchSelector } from "./ChatLaunchSelector";
 
 export type { ChatSessionSelection } from "./chatTypes";
 
@@ -24,19 +21,8 @@ export interface ChatInputProps {
   isStreaming?: boolean;
   onStop?: () => void;
   placeholder?: string;
-  /** Shown at bottom-left as "Chat with {targetLabel}", colored by targetTool. */
+  /** Shown at bottom-left as the current chat target. */
   targetLabel?: string;
-  /** Tool type for accent color (claude/gemini/codex/generic). */
-  targetTool?: ToolType;
-  selectedAgentId?: string;
-  /** Available agents for the selector dropdown. */
-  agents?: AgentInfo[];
-  profiles?: ProfileLaunchOption[];
-  selectedProfileId?: string;
-  /** Called when user picks a different agent from the dropdown. */
-  onAgentChange?: (agentId: string) => void;
-  onLaunchChange?: (agentId: string, profileId?: string) => void;
-  showLaunchSelector?: boolean;
   variant?: "dock" | "hero";
   className?: string;
 }
@@ -51,14 +37,6 @@ export function ChatInput({
   onStop,
   placeholder = "Message Claude…",
   targetLabel = "Claude Code",
-  targetTool = "claude",
-  selectedAgentId,
-  agents = [],
-  profiles = [],
-  selectedProfileId,
-  onAgentChange,
-  onLaunchChange,
-  showLaunchSelector = true,
   variant = "dock",
   className,
 }: ChatInputProps) {
@@ -137,22 +115,9 @@ export function ChatInput({
           )}
         >
           <div className="flex min-w-0 items-center gap-1.5">
-            {showLaunchSelector ? (
-              <ChatLaunchSelector
-                targetLabel={targetLabel}
-                targetTool={targetTool}
-                selectedAgentId={selectedAgentId}
-                agents={agents}
-                profiles={profiles}
-                selectedProfileId={selectedProfileId}
-                onAgentChange={onAgentChange}
-                onLaunchChange={onLaunchChange}
-              />
-            ) : (
-              <span className="min-w-0 truncate px-1 text-xs font-medium text-muted-foreground">
-                {targetLabel}
-              </span>
-            )}
+            <span className="min-w-0 truncate px-1 text-xs font-medium text-muted-foreground">
+              {targetLabel}
+            </span>
           </div>
           <Button
             type="button"
