@@ -230,7 +230,9 @@ export function useWebChatConnection({
       const update = notif.update;
       switch (update.sessionUpdate) {
         case "user_message_chunk": {
-          appendUserMessage(update.content, update.messageId);
+          appendUserMessage(update.content, update.messageId, {
+            forceNewMessage: replaying && !update.messageId,
+          });
           if (replaying) scheduleResumeReplayDone(notif.sessionId);
           break;
         }
@@ -278,8 +280,12 @@ export function useWebChatConnection({
       setMessages((prev) => appendStandaloneAssistantMessage(prev, text));
     }
 
-    function appendUserMessage(content: ContentBlock, messageId?: string | null) {
-      setMessages((prev) => appendUserMessageChunk(prev, content, messageId));
+    function appendUserMessage(
+      content: ContentBlock,
+      messageId?: string | null,
+      options?: { forceNewMessage?: boolean },
+    ) {
+      setMessages((prev) => appendUserMessageChunk(prev, content, messageId, options));
     }
 
     function appendToStreamAssistant(

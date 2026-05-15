@@ -115,6 +115,7 @@ export function appendUserMessageChunk(
   prev: ChatMessage[],
   block: ContentBlock,
   messageId?: string | null,
+  options: AppendMessageOptions = {},
 ): ChatMessage[] {
   const text = contentBlockText(block);
   if (!text && block.type === "text") return prev;
@@ -129,7 +130,11 @@ export function appendUserMessageChunk(
     ];
   }
   const last = prev[prev.length - 1];
-  if (last.role !== "user" || !messageIdMatches(last, messageId)) {
+  if (
+    options.forceNewMessage ||
+    last.role !== "user" ||
+    !messageIdMatches(last, messageId)
+  ) {
     return [
       ...prev,
       {
