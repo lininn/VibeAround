@@ -2,14 +2,12 @@
 
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { Send, Square } from "lucide-react";
-import type { AgentInfo, LaunchSessionInfo, ProfileLaunchOption } from "@va/client";
+import type { AgentInfo, ProfileLaunchOption } from "@va/client";
 import { useI18n } from "@va/i18n";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ToolType } from "@/lib/terminal-types";
 import { ChatLaunchSelector } from "./ChatLaunchSelector";
-import { ChatSessionSelector } from "./ChatSessionSelector";
-import type { ChatSessionSelection } from "./chatTypes";
 
 export type { ChatSessionSelection } from "./chatTypes";
 
@@ -36,12 +34,6 @@ export interface ChatInputProps {
   /** Called when user picks a different agent from the dropdown. */
   onAgentChange?: (agentId: string) => void;
   onLaunchChange?: (agentId: string, profileId?: string) => void;
-  /** Resumable sessions discovered for the selected agent/workspace. */
-  sessions?: LaunchSessionInfo[];
-  sessionsLoading?: boolean;
-  sessionSelection?: ChatSessionSelection;
-  activeSessionId?: string;
-  onSessionChange?: (selection: ChatSessionSelection) => void;
   className?: string;
 }
 
@@ -62,11 +54,6 @@ export function ChatInput({
   selectedProfileId,
   onAgentChange,
   onLaunchChange,
-  sessions = [],
-  sessionsLoading = false,
-  sessionSelection = { kind: "current" },
-  activeSessionId,
-  onSessionChange,
   className,
 }: ChatInputProps) {
   const { t } = useI18n();
@@ -131,15 +118,6 @@ export function ChatInput({
               onAgentChange={onAgentChange}
               onLaunchChange={onLaunchChange}
             />
-            {onSessionChange && (
-              <ChatSessionSelector
-                sessions={sessions}
-                sessionsLoading={sessionsLoading}
-                sessionSelection={sessionSelection}
-                activeSessionId={activeSessionId}
-                onSessionChange={onSessionChange}
-              />
-            )}
           </div>
           <Button
             type="button"

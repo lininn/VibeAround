@@ -296,11 +296,6 @@ export function ChatView({ onStatusChange }: ChatViewProps) {
           profiles={profiles}
           selectedProfileId={selectedProfileId}
           onLaunchChange={handleLaunchChange}
-          sessions={launchSessions}
-          sessionsLoading={sessionsLoading}
-          sessionSelection={sessionSelection}
-          activeSessionId={meta.sessionId}
-          onSessionChange={handleSessionChange}
         />
       </div>
     </div>

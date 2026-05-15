@@ -79,9 +79,8 @@ export function ChatLaunchSelector({
     return (
       <span
         className="flex min-w-0 items-center gap-1 truncate text-xs font-medium"
-        title={t("Chat with {{agent}}", { agent: targetLabel })}
+        title={targetLabel}
       >
-        <span className="shrink-0 text-muted-foreground">{t("Chat with")}</span>
         <span className="truncate" style={{ color: accentColor }}>
           {targetLabel}
         </span>
@@ -97,9 +96,8 @@ export function ChatLaunchSelector({
           variant="ghost"
           size="xs"
           className="h-6 min-w-0 max-w-[18rem] justify-start gap-1 px-1 text-xs font-medium"
-          title={t("Chat with {{agent}}", { agent: selectedRouteLabel })}
+          title={selectedRouteLabel}
         >
-          <span className="shrink-0 text-muted-foreground">{t("Chat with")}</span>
           <span className="truncate" style={{ color: accentColor }}>
             {selectedRouteLabel}
           </span>
