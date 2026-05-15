@@ -28,6 +28,7 @@ interface ChatSessionSidebarProps {
   selectedAgentFilter: string;
   variant?: "desktop" | "mobile";
   sessionsLoading?: boolean;
+  loadingSessionId?: string;
   sessionSelection: ChatSessionSelection;
   onAgentFilterChange: (agentId: string) => void;
   onSessionChange: (selection: ChatSessionSelection, session?: LaunchSessionInfo) => void;
@@ -67,6 +68,7 @@ export function ChatSessionSidebar({
   selectedAgentFilter,
   variant = "desktop",
   sessionsLoading = false,
+  loadingSessionId,
   sessionSelection,
   onAgentFilterChange,
   onSessionChange,
@@ -216,11 +218,13 @@ export function ChatSessionSidebar({
                               const active =
                                 sessionSelection.kind === "resume" &&
                                 sessionSelection.sessionId === session.session_id;
+                              const loading = loadingSessionId === session.session_id;
                               return (
                                 <button
                                   key={session.session_id}
                                   type="button"
                                   className={sessionButtonClass(active)}
+                                  aria-busy={loading}
                                   onClick={() =>
                                     onSessionChange(
                                       {
@@ -240,6 +244,9 @@ export function ChatSessionSidebar({
                                       {formatSessionUpdatedAt(session.updated_at)}
                                     </span>
                                   </span>
+                                  {loading && (
+                                    <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+                                  )}
                                 </button>
                               );
                             })}

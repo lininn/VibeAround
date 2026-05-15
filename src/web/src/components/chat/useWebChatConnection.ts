@@ -27,6 +27,7 @@ import {
   appendStreamAssistantMessage,
   appendThinkingActivityMessage,
   appendToolActivityMessage,
+  appendUserMessageChunk,
   clearStreamProgressMessage,
   setStreamProgressMessage,
 } from "./chatMessageUpdates";
@@ -50,6 +51,20 @@ interface ResumeChatSessionRequest {
   launchSession: LaunchSessionInfo;
 }
 
+export interface ResumeReplayState {
+  sessionId: string;
+  title?: string;
+}
+
+function contentText(update: SessionNotification["update"]) {
+  if (!("content" in update)) return "";
+  const content = update.content;
+  if (!content || Array.isArray(content) || typeof content !== "object") return "";
+  if (!("type" in content) || content.type !== "text") return "";
+  const text = "text" in content ? content.text : undefined;
+  return typeof text === "string" ? text : "";
+}
+
 export function useWebChatConnection({
   onAgentSelected,
 }: UseWebChatConnectionOptions = {}) {
@@ -60,8 +75,16 @@ export function useWebChatConnection({
   const [meta, setMeta] = useState<ChatMeta>({});
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [pendingPermissions, setPendingPermissions] = useState<PendingPermission[]>([]);
+  const [resumeReplay, setResumeReplay] = useState<ResumeReplayState | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const promptInFlightRef = useRef(false);
+  const resumeReplayRef = useRef<ResumeReplayState | null>(null);
+  const ignoredReplaySessionsRef = useRef<Set<string>>(new Set());
+
+  const updateResumeReplay = useCallback((next: ResumeReplayState | null) => {
+    resumeReplayRef.current = next;
+    setResumeReplay(next);
+  }, []);
 
   useEffect(() => {
     const ws = new WebSocket(getWebSocketUrl("/ws/chat"));
@@ -73,11 +96,13 @@ export function useWebChatConnection({
       setStreaming(false);
       promptInFlightRef.current = false;
       setPendingPermissions([]);
+      updateResumeReplay(null);
     };
     ws.onerror = () => {
       setConnected(false);
       setStreaming(false);
       promptInFlightRef.current = false;
+      updateResumeReplay(null);
     };
 
     ws.onmessage = (event) => {
@@ -107,11 +132,22 @@ export function useWebChatConnection({
           break;
         }
         case "session_ready": {
+          const pendingResume = resumeReplayRef.current;
+          if (!pendingResume && ignoredReplaySessionsRef.current.has(parsed.session_id)) {
+            break;
+          }
+          if (pendingResume && pendingResume.sessionId !== parsed.session_id) {
+            break;
+          }
           setMeta((prev) => ({ ...prev, sessionId: parsed.session_id }));
+          if (pendingResume?.sessionId === parsed.session_id) {
+            updateResumeReplay(null);
+          }
           break;
         }
         case "system_text": {
           appendStandaloneAssistant(parsed.text);
+          updateResumeReplay(null);
           const agentId = switchedAgentId(parsed.text);
           if (agentId) {
             onAgentSelected?.(agentId, "system");
@@ -129,6 +165,7 @@ export function useWebChatConnection({
           appendErrorToStream(parsed.error);
           setStreaming(false);
           promptInFlightRef.current = false;
+          updateResumeReplay(null);
           break;
         }
         case "prompt_done": {
@@ -154,18 +191,26 @@ export function useWebChatConnection({
     };
 
     function handleAcpNotification(notif: SessionNotification) {
+      if (ignoredReplaySessionsRef.current.has(notif.sessionId)) {
+        return;
+      }
+      const pendingResume = resumeReplayRef.current;
+      if (pendingResume && notif.sessionId !== pendingResume.sessionId) {
+        return;
+      }
+
       const update = notif.update;
       switch (update.sessionUpdate) {
+        case "user_message_chunk": {
+          appendUserMessage(contentText(update), update.messageId);
+          break;
+        }
         case "agent_message_chunk": {
-          if (update.content.type === "text") {
-            appendToStreamAssistant(update.content.text);
-          }
+          appendToStreamAssistant(contentText(update), update.messageId);
           break;
         }
         case "agent_thought_chunk": {
-          if (update.content.type === "text") {
-            appendThinkingActivity(update.content.text);
-          }
+          appendThinkingActivity(contentText(update));
           break;
         }
         case "tool_call":
@@ -192,8 +237,12 @@ export function useWebChatConnection({
       setMessages((prev) => appendStandaloneAssistantMessage(prev, text));
     }
 
-    function appendToStreamAssistant(text: string) {
-      setMessages((prev) => appendStreamAssistantMessage(prev, text));
+    function appendUserMessage(text: string, messageId?: string | null) {
+      setMessages((prev) => appendUserMessageChunk(prev, text, messageId));
+    }
+
+    function appendToStreamAssistant(text: string, messageId?: string | null) {
+      setMessages((prev) => appendStreamAssistantMessage(prev, text, messageId));
     }
 
     function appendThinkingActivity(text: string) {
@@ -222,7 +271,7 @@ export function useWebChatConnection({
       ws.close();
       wsRef.current = null;
     };
-  }, [onAgentSelected, t]);
+  }, [onAgentSelected, t, updateResumeReplay]);
 
   const sendMessage = useCallback(
     ({
@@ -279,10 +328,27 @@ export function useWebChatConnection({
     [],
   );
 
-  const clearConversationView = useCallback(() => {
+  const clearConversationView = useCallback((options?: { abortReplay?: boolean }) => {
+    const ws = wsRef.current;
+    const abortedSessionId = resumeReplayRef.current?.sessionId;
+    if (
+      options?.abortReplay &&
+      resumeReplayRef.current &&
+      ws?.readyState === WebSocket.OPEN
+    ) {
+      try {
+        ws.send(JSON.stringify({ type: "stop" }));
+      } catch (error) {
+        console.warn("[ChatView] failed to abort session replay:", error);
+      }
+    }
+    if (options?.abortReplay && abortedSessionId) {
+      ignoredReplaySessionsRef.current.add(abortedSessionId);
+    }
     promptInFlightRef.current = false;
     setStreaming(false);
     setPendingPermissions([]);
+    updateResumeReplay(null);
     setMessages([]);
     setMeta((prev) => ({
       ...prev,
@@ -291,15 +357,20 @@ export function useWebChatConnection({
       agentTitle: undefined,
       agentVersion: undefined,
     }));
-  }, []);
+  }, [updateResumeReplay]);
 
   const resumeSession = useCallback(
     ({ agentId, profileId, launchSession }: ResumeChatSessionRequest) => {
-      clearConversationView();
-      setMeta((prev) => ({ ...prev, sessionId: launchSession.session_id }));
-
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+
+      clearConversationView();
+      ignoredReplaySessionsRef.current.delete(launchSession.session_id);
+      updateResumeReplay({
+        sessionId: launchSession.session_id,
+        title: launchSession.title,
+      });
+      setMeta((prev) => ({ ...prev, sessionId: launchSession.session_id }));
 
       try {
         const payload: Record<string, unknown> = {
@@ -315,14 +386,16 @@ export function useWebChatConnection({
         return true;
       } catch (error) {
         console.warn("[ChatView] failed to resume chat session:", error);
+        updateResumeReplay(null);
         return false;
       }
     },
-    [clearConversationView],
+    [clearConversationView, updateResumeReplay],
   );
 
   const stopStreaming = useCallback(() => {
     const ws = wsRef.current;
+    const abortedSessionId = resumeReplayRef.current?.sessionId;
     if (ws?.readyState === WebSocket.OPEN) {
       try {
         ws.send(JSON.stringify({ type: "stop" }));
@@ -330,9 +403,13 @@ export function useWebChatConnection({
         console.warn("[ChatView] failed to stop chat message:", error);
       }
     }
+    if (abortedSessionId) {
+      ignoredReplaySessionsRef.current.add(abortedSessionId);
+    }
     promptInFlightRef.current = false;
     setStreaming(false);
-  }, []);
+    updateResumeReplay(null);
+  }, [updateResumeReplay]);
 
   const sendPermissionResponse = useCallback((requestId: string, optionId: string) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
@@ -359,6 +436,7 @@ export function useWebChatConnection({
     meta,
     agents,
     pendingPermissions,
+    resumeReplay,
     sendMessage,
     resumeSession,
     clearConversationView,

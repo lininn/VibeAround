@@ -10,6 +10,7 @@ export type ChatActivity = {
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
+  messageId?: string | null;
   progress?: string;
   activities?: ChatActivity[];
   mode?: "standalone" | "stream";

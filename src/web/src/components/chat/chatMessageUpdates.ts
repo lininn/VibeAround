@@ -27,17 +27,68 @@ export function appendStandaloneAssistantMessage(
   return next;
 }
 
-export function appendStreamAssistantMessage(prev: ChatMessage[], text: string): ChatMessage[] {
+function messageIdMatches(message: ChatMessage, messageId?: string | null) {
+  return messageId ? message.messageId === messageId : !message.messageId;
+}
+
+function isEmptyStreamAssistant(message: ChatMessage) {
+  return (
+    message.role === "assistant" &&
+    message.mode === "stream" &&
+    message.content === "" &&
+    !message.progress &&
+    !message.activities?.length
+  );
+}
+
+export function appendUserMessageChunk(
+  prev: ChatMessage[],
+  text: string,
+  messageId?: string | null,
+): ChatMessage[] {
   if (!text) return prev;
-  if (prev.length === 0) return [{ role: "assistant", content: text, mode: "stream" }];
+  if (prev.length === 0) return [{ role: "user", content: text, messageId }];
   const last = prev[prev.length - 1];
-  if (last.role !== "assistant" || last.mode !== "stream") {
-    return [...prev, { role: "assistant", content: text, mode: "stream" }];
+  if (last.role !== "user" || !messageIdMatches(last, messageId)) {
+    return [...prev, { role: "user", content: text, messageId }];
   }
   const next = [...prev];
   next[next.length - 1] = {
     ...last,
     content: last.content + text,
+    messageId: last.messageId ?? messageId,
+  };
+  return next;
+}
+
+export function appendStreamAssistantMessage(
+  prev: ChatMessage[],
+  text: string,
+  messageId?: string | null,
+): ChatMessage[] {
+  if (!text) return prev;
+  if (prev.length === 0) {
+    return [{ role: "assistant", content: text, messageId, mode: "stream" }];
+  }
+  const last = prev[prev.length - 1];
+  if (isEmptyStreamAssistant(last)) {
+    return [
+      ...prev.slice(0, -1),
+      { role: "assistant", content: text, messageId, mode: "stream" },
+    ];
+  }
+  if (
+    last.role !== "assistant" ||
+    last.mode !== "stream" ||
+    !messageIdMatches(last, messageId)
+  ) {
+    return [...prev, { role: "assistant", content: text, messageId, mode: "stream" }];
+  }
+  const next = [...prev];
+  next[next.length - 1] = {
+    ...last,
+    content: last.content + text,
+    messageId: last.messageId ?? messageId,
     progress: undefined,
     mode: "stream",
   };

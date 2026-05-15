@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot } from "lucide-react";
+import { Bot, Loader2 } from "lucide-react";
 import { useI18n } from "@va/i18n";
 import {
   Conversation,
@@ -16,6 +16,8 @@ interface ChatMessageListProps {
   messages: ChatMessage[];
   streaming: boolean;
   agentLabel: string;
+  replayLoading?: boolean;
+  replayTitle?: string;
 }
 
 function ChatActivityList({ activities, hasContent }: { activities: ChatActivity[]; hasContent: boolean }) {
@@ -47,14 +49,30 @@ function ChatActivityList({ activities, hasContent }: { activities: ChatActivity
   );
 }
 
-export function ChatMessageList({ messages, streaming, agentLabel }: ChatMessageListProps) {
+export function ChatMessageList({
+  messages,
+  streaming,
+  agentLabel,
+  replayLoading = false,
+  replayTitle,
+}: ChatMessageListProps) {
   const { t } = useI18n();
 
   return (
     <Conversation className="flex-1">
       <ConversationContent className="px-4 py-5">
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
-          {messages.length === 0 ? (
+          {replayLoading && (
+            <div className="flex items-center gap-2 rounded-md border border-border/70 bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              <span className="min-w-0 truncate">
+                {replayTitle
+                  ? t("Loading {{title}}…", { title: replayTitle })
+                  : t("Loading chat history…")}
+              </span>
+            </div>
+          )}
+          {messages.length === 0 && !replayLoading ? (
             <ConversationEmptyState
               title={t("Chat with {{agent}}", { agent: agentLabel })}
               description={t("Send a message to start.")}

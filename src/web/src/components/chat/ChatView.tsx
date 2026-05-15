@@ -121,6 +121,7 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
     meta,
     agents,
     pendingPermissions,
+    resumeReplay,
     sendMessage,
     resumeSession,
     clearConversationView,
@@ -150,10 +151,11 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
       : sessionSelection.kind === "resume"
         ? launchSessions.find((session) => session.session_id === sessionSelection.sessionId)
         : undefined;
+  const replayLoading = Boolean(resumeReplay);
   const chatStatus: ChatRuntimeStatus =
     pendingPermissions.length > 0
       ? "attention"
-      : streaming
+      : streaming || replayLoading
         ? "working"
         : connected
           ? "ready"
@@ -162,13 +164,15 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
     chatStatus === "attention"
       ? t("Agent needs input")
       : chatStatus === "working"
-        ? t("Agent working")
+        ? replayLoading
+          ? t("Loading chat history")
+          : t("Agent working")
         : chatStatus === "ready"
           ? t("Local agent ready")
           : t("Connecting to local agent");
   const statusIcon = !connected ? (
     <WifiOff className="h-3.5 w-3.5" />
-  ) : streaming ? (
+  ) : streaming || replayLoading ? (
     <Loader2 className="h-3.5 w-3.5 animate-spin" />
   ) : (
     <Wifi className="h-3.5 w-3.5" />
@@ -394,7 +398,7 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
           return next;
         });
         setSelectedAgent(sidebarAgentId);
-        clearConversationView();
+        clearConversationView({ abortReplay: true });
         return;
       }
       if (selection.kind !== "resume") return;
@@ -437,6 +441,7 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
   const handleSubmit = useCallback(() => {
     const text = input.trim();
     if (!text) return;
+    if (replayLoading) return;
     const sent = sendMessage({
       text,
       agentId: selectedAgent,
@@ -453,6 +458,7 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
     }
   }, [
     input,
+    replayLoading,
     selectedAgent,
     selectedLaunchSession,
     selectedProfileId,
@@ -469,6 +475,7 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
           agents={agents}
           selectedAgentFilter={sidebarAgentId}
           sessionsLoading={sidebarSessionsLoading}
+          loadingSessionId={resumeReplay?.sessionId}
           sessionSelection={sidebarSessionSelection}
           onAgentFilterChange={handleSidebarAgentFilterChange}
           onSessionChange={handleSessionChange}
@@ -489,6 +496,7 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
               selectedAgentFilter={sidebarAgentId}
               variant="mobile"
               sessionsLoading={sidebarSessionsLoading}
+              loadingSessionId={resumeReplay?.sessionId}
               sessionSelection={sidebarSessionSelection}
               onAgentFilterChange={handleSidebarAgentFilterChange}
               onSessionChange={handleMobileSessionChange}
@@ -587,7 +595,7 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
                 onSubmit={handleSubmit}
                 onStop={stopStreaming}
                 disabled={!connected}
-                submitDisabled={streaming}
+                submitDisabled={streaming || replayLoading}
                 isStreaming={streaming}
                 placeholder={
                   connected ? t("Ask {{agent}} anything…", { agent: agentLabel }) : t("Connecting…")
@@ -621,7 +629,13 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
           </NewChatHome>
         ) : (
           <>
-            <ChatMessageList messages={messages} streaming={streaming} agentLabel={agentLabel} />
+            <ChatMessageList
+              messages={messages}
+              streaming={streaming}
+              agentLabel={agentLabel}
+              replayLoading={replayLoading}
+              replayTitle={resumeReplay?.title}
+            />
 
             <PendingPermissions
               permissions={pendingPermissions}
@@ -634,8 +648,8 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
               onChange={setInput}
               onSubmit={handleSubmit}
               onStop={stopStreaming}
-              disabled={!connected}
-              submitDisabled={streaming}
+              disabled={!connected || replayLoading}
+              submitDisabled={streaming || replayLoading}
               isStreaming={streaming}
               placeholder={
                 connected ? t("Message {{agent}}…", { agent: agentLabel }) : t("Connecting…")
