@@ -1,10 +1,5 @@
-"use client";
-
-import { cjk } from "@streamdown/cjk";
-import { code } from "@streamdown/code";
-import { Streamdown } from "streamdown";
-
 import type { MessageResponseProps } from "./MessageResponse";
+import { MarkdownRenderer } from "./renderers/MarkdownRenderer";
 
 type MessageSegment =
   | { kind: "markdown"; content: string }
@@ -143,22 +138,12 @@ export function MessageResponseStreamdown({
         segment.kind === "directive" ? (
           <DirectiveBlock key={`${segment.name}-${index}`} segment={segment} />
         ) : (
-          <Streamdown
+          <MarkdownRenderer
             key={`markdown-${index}`}
-            className={[
-              "prose prose-sm dark:prose-invert max-w-none text-sm",
-              "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-              className ?? "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            plugins={{ cjk, code }}
-            shikiTheme={["github-light", "github-dark"]}
-            isAnimating={isStreaming}
-            parseIncompleteMarkdown={true}
-          >
-            {segment.content}
-          </Streamdown>
+            isStreaming={isStreaming}
+            className={className}
+            content={segment.content}
+          />
         ),
       )}
     </>

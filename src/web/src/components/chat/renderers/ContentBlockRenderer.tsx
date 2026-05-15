@@ -18,6 +18,16 @@ interface ContentBlockRendererProps {
   isStreaming?: boolean;
 }
 
+function isMarkdownResource(mimeType: string | null | undefined, uri: string) {
+  const type = mimeType?.split(";")[0]?.trim().toLowerCase();
+  return (
+    type === "text/markdown" ||
+    type === "text/x-markdown" ||
+    type?.endsWith("+markdown") ||
+    /\.(md|markdown|mdown|mkd|mkdn)$/i.test(uri.split(/[?#]/)[0] ?? uri)
+  );
+}
+
 export function ContentBlockRenderer({
   block,
   role,
@@ -94,9 +104,15 @@ export function ContentBlockRenderer({
                 </span>
               )}
             </summary>
-            <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-background/70 p-3 text-xs leading-5 text-muted-foreground">
-              {resource.text}
-            </pre>
+            {isMarkdownResource(resource.mimeType, resource.uri) ? (
+              <div className="mt-3 max-h-80 overflow-auto rounded bg-background/70 p-3">
+                <MessageResponse content={resource.text} />
+              </div>
+            ) : (
+              <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-background/70 p-3 text-xs leading-5 text-muted-foreground">
+                {resource.text}
+              </pre>
+            )}
           </details>
         );
       }
