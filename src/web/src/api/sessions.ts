@@ -79,7 +79,7 @@ export async function createWorkspace(name: string): Promise<CreateWorkspaceResp
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`POST /api/workspaces/create: ${res.status} ${text}`);
+    throw new Error(text || `Failed to create workspace (${res.status})`);
   }
   return CreateWorkspaceResponseSchema.parse(await res.json());
 }

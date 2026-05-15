@@ -92,6 +92,7 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
     [],
   );
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
+  const [defaultWorkspacePath, setDefaultWorkspacePath] = useState<string | undefined>();
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string | undefined>();
   const [workspacesLoading, setWorkspacesLoading] = useState(false);
   const [workspaceCreating, setWorkspaceCreating] = useState(false);
@@ -235,13 +236,17 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
     let cancelled = false;
     setWorkspacesLoading(true);
     void getWorkspaces()
-      .then(({ workspaces }) => {
-        if (!cancelled) setWorkspaces(workspaces);
+      .then(({ workspaces, default_workspace }) => {
+        if (!cancelled) {
+          setWorkspaces(workspaces);
+          setDefaultWorkspacePath(default_workspace);
+        }
       })
       .catch((error) => {
         if (!cancelled) {
           console.warn("[ChatView] failed to load workspaces:", error);
           setWorkspaces([]);
+          setDefaultWorkspacePath(undefined);
         }
       })
       .finally(() => {
@@ -379,6 +384,7 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
     try {
       const response = await createWorkspace(name);
       setWorkspaces(response.workspaces);
+      setDefaultWorkspacePath(response.default_workspace);
       setSelectedWorkspacePath(response.workspace.path);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -615,6 +621,7 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
                 />
                 <NewChatWorkspacePicker
                   workspaces={workspaces}
+                  defaultWorkspacePath={defaultWorkspacePath}
                   selectedWorkspacePath={selectedWorkspace?.path}
                   loading={workspacesLoading}
                   creating={workspaceCreating}

@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 
 interface NewChatWorkspacePickerProps {
   workspaces: WorkspaceItem[];
+  defaultWorkspacePath?: string;
   selectedWorkspacePath?: string;
   loading?: boolean;
   creating?: boolean;
@@ -25,8 +26,19 @@ function workspaceLabel(workspace: string) {
   return parts[parts.length - 1] ?? workspace;
 }
 
+function workspaceFolderName(input: string) {
+  const normalized = input.trim().replace(/[\\/]+$/, "");
+  const parts = normalized.split(/[\\/]+/).filter(Boolean);
+  return parts.at(-1) ?? "";
+}
+
+function pathSeparatorFor(path: string) {
+  return path.includes("\\") && !path.includes("/") ? "\\" : "/";
+}
+
 export function NewChatWorkspacePicker({
   workspaces,
+  defaultWorkspacePath,
   selectedWorkspacePath,
   loading = false,
   creating = false,
@@ -41,10 +53,13 @@ export function NewChatWorkspacePicker({
 
   const handleCreateWorkspace = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const name = draftName.trim();
+    const name = workspaceFolderName(draftName);
     if (!name || !onCreateWorkspace || creating) return;
     await onCreateWorkspace(name);
     setDraftName("");
+  };
+  const handleDraftChange = (value: string) => {
+    setDraftName(/[\\/]/.test(value) ? workspaceFolderName(value) : value);
   };
   const panelLayout = layout === "panel";
 
@@ -63,19 +78,32 @@ export function NewChatWorkspacePicker({
       </div>
       {onCreateWorkspace && (
         <form className="mb-2 flex min-w-0 gap-2" onSubmit={handleCreateWorkspace}>
-          <input
-            value={draftName}
-            onChange={(event) => setDraftName(event.target.value)}
-            placeholder={t("New workspace")}
-            disabled={creating}
-            className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
-          />
+          <div className="flex min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-background text-xs text-foreground focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/30">
+            {defaultWorkspacePath && (
+              <span
+                className="max-w-[48%] shrink truncate border-r border-border bg-muted/30 px-3 py-2 font-mono text-[11px] text-muted-foreground"
+                title={defaultWorkspacePath}
+              >
+                {defaultWorkspacePath.replace(/[\\/]+$/, "")}
+                <span className="text-muted-foreground/50">
+                  {pathSeparatorFor(defaultWorkspacePath)}
+                </span>
+              </span>
+            )}
+            <input
+              value={draftName}
+              onChange={(event) => handleDraftChange(event.target.value)}
+              placeholder={t("Folder name")}
+              disabled={creating}
+              className="min-w-0 flex-1 bg-transparent px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+            />
+          </div>
           <button
             type="submit"
-            disabled={!draftName.trim() || creating}
+            disabled={!workspaceFolderName(draftName) || creating}
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/30 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            title={t("Create workspace")}
-            aria-label={t("Create workspace")}
+            title={t("Create workspace in default folder")}
+            aria-label={t("Create workspace in default folder")}
           >
             {creating ? (
               <Loader2 className="h-4 w-4 animate-spin" />
