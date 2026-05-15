@@ -9,12 +9,15 @@ import {
   ProfileLaunchOptionsSchema,
   SessionListSchema,
   TmuxSessionsResponseSchema,
+  WorkspacesResponseSchema,
   type CreateSessionResponse,
   type LaunchSessionInfo,
   type ProfileLaunchOption,
   type PtyTool,
   type SessionListItem,
   type TmuxSessionsResponse,
+  type WorkspaceItem,
+  type WorkspacesResponse,
 } from "@va/client";
 
 export type {
@@ -23,6 +26,8 @@ export type {
   ProfileLaunchOption,
   SessionListItem,
   TmuxSessionsResponse,
+  WorkspaceItem,
+  WorkspacesResponse,
 };
 
 export interface CreateSessionBody {
@@ -51,12 +56,20 @@ export async function getProfiles(): Promise<ProfileLaunchOption[]> {
   return ProfileLaunchOptionsSchema.parse(await res.json());
 }
 
+export async function getWorkspaces(): Promise<WorkspacesResponse> {
+  const res = await fetch(`${browserBaseUrl()}/api/workspaces`);
+  if (!res.ok) throw new Error(`GET /api/workspaces: ${res.status}`);
+  return WorkspacesResponseSchema.parse(await res.json());
+}
+
 export async function getLaunchSessions(
   agentId: string,
   includeArchived = false,
+  workspacePath?: string,
 ): Promise<LaunchSessionInfo[]> {
   const params = new URLSearchParams();
   if (includeArchived) params.set("include_archived", "true");
+  if (workspacePath) params.set("workspace_path", workspacePath);
   const query = params.toString();
   const path = `/api/agents/${encodeURIComponent(agentId)}/launch-sessions${query ? `?${query}` : ""}`;
   const res = await fetch(`${browserBaseUrl()}${path}`);

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Bot, Loader2, PanelLeftClose, PanelLeftOpen, Wifi, WifiOff } from "lucide-react";
-import { getLaunchSessions, getProfiles } from "@/api/sessions";
+import { getLaunchSessions, getProfiles, getWorkspaces } from "@/api/sessions";
 import { agentIdToToolType, getAgentDisplayName } from "@/lib/agents";
 import type { ChatRuntimeStatus } from "@/lib/dashboard-types";
 import type { LaunchSessionInfo, ProfileLaunchOption } from "@va/client";
@@ -137,7 +137,13 @@ export function ChatView({ onStatusChange }: ChatViewProps) {
     let cancelled = false;
     setSessionsLoading(true);
     setLaunchSessions([]);
-    void getLaunchSessions(selectedAgent)
+    void (async () => {
+      const { workspaces } = await getWorkspaces();
+      const sessionGroups = await Promise.all(
+        workspaces.map((workspace) => getLaunchSessions(selectedAgent, false, workspace.path)),
+      );
+      return sessionGroups.flat();
+    })()
       .then((items) => {
         if (cancelled) return;
         setLaunchSessions(items);
