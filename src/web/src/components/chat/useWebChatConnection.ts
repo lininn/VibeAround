@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SessionNotification } from "@agentclientprotocol/sdk";
+import type {
+  ContentBlock,
+  Plan,
+  SessionNotification,
+  ToolCall,
+  ToolCallUpdate,
+} from "@agentclientprotocol/sdk";
 import {
   ChatEventSchema,
   type AgentInfo,
@@ -23,6 +29,7 @@ import {
 } from "./chatFrameUtils";
 import {
   appendErrorToStreamMessage,
+  appendPlanMessage,
   appendStandaloneAssistantMessage,
   appendStreamAssistantMessage,
   appendThinkingActivityMessage,
@@ -54,15 +61,6 @@ interface ResumeChatSessionRequest {
 export interface ResumeReplayState {
   sessionId: string;
   title?: string;
-}
-
-function contentText(update: SessionNotification["update"]) {
-  if (!("content" in update)) return "";
-  const content = update.content;
-  if (!content || Array.isArray(content) || typeof content !== "object") return "";
-  if (!("type" in content) || content.type !== "text") return "";
-  const text = "text" in content ? content.text : undefined;
-  return typeof text === "string" ? text : "";
 }
 
 export function useWebChatConnection({
@@ -232,12 +230,12 @@ export function useWebChatConnection({
       const update = notif.update;
       switch (update.sessionUpdate) {
         case "user_message_chunk": {
-          appendUserMessage(contentText(update), update.messageId);
+          appendUserMessage(update.content, update.messageId);
           if (replaying) scheduleResumeReplayDone(notif.sessionId);
           break;
         }
         case "agent_message_chunk": {
-          appendToStreamAssistant(contentText(update), update.messageId);
+          appendToStreamAssistant(update.content, update.messageId);
           if (replaying) scheduleResumeReplayDone(notif.sessionId);
           break;
         }
@@ -246,7 +244,7 @@ export function useWebChatConnection({
             scheduleResumeReplayDone(notif.sessionId);
             break;
           }
-          appendThinkingActivity(contentText(update));
+          appendThinkingActivity(update.content);
           break;
         }
         case "tool_call":
@@ -265,6 +263,14 @@ export function useWebChatConnection({
           }
           break;
         }
+        case "plan": {
+          if (replaying) {
+            scheduleResumeReplayDone(notif.sessionId);
+            break;
+          }
+          appendPlan(update);
+          break;
+        }
         // Other ACP update variants (plan, available_commands_update, etc.)
         // are not yet surfaced in the web chat UI. Ignored so future SDK
         // additions don't crash the handler.
@@ -278,20 +284,24 @@ export function useWebChatConnection({
       setMessages((prev) => appendStandaloneAssistantMessage(prev, text));
     }
 
-    function appendUserMessage(text: string, messageId?: string | null) {
-      setMessages((prev) => appendUserMessageChunk(prev, text, messageId));
+    function appendUserMessage(content: ContentBlock, messageId?: string | null) {
+      setMessages((prev) => appendUserMessageChunk(prev, content, messageId));
     }
 
-    function appendToStreamAssistant(text: string, messageId?: string | null) {
-      setMessages((prev) => appendStreamAssistantMessage(prev, text, messageId));
+    function appendToStreamAssistant(content: ContentBlock, messageId?: string | null) {
+      setMessages((prev) => appendStreamAssistantMessage(prev, content, messageId));
     }
 
-    function appendThinkingActivity(text: string) {
-      setMessages((prev) => appendThinkingActivityMessage(prev, text, t("Thinking")));
+    function appendThinkingActivity(content: ContentBlock) {
+      setMessages((prev) => appendThinkingActivityMessage(prev, content, t("Thinking")));
     }
 
-    function appendToolActivity(update: unknown) {
+    function appendToolActivity(update: ToolCall | ToolCallUpdate) {
       setMessages((prev) => appendToolActivityMessage(prev, update));
+    }
+
+    function appendPlan(plan: Plan) {
+      setMessages((prev) => appendPlanMessage(prev, plan));
     }
 
     function setStreamProgress(progress: string) {
