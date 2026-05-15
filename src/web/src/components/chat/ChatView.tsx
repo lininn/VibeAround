@@ -1,7 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, Loader2, PanelLeftClose, PanelLeftOpen, Wifi, WifiOff } from "lucide-react";
+import {
+  Bot,
+  Loader2,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 import { createWorkspace, getLaunchSessions, getProfiles, getWorkspaces } from "@/api/sessions";
 import { agentIdToToolType, getAgentDisplayName } from "@/lib/agents";
 import type { ChatRuntimeStatus } from "@/lib/dashboard-types";
@@ -24,6 +32,7 @@ import { useWebChatConnection } from "./useWebChatConnection";
 
 interface ChatViewProps {
   onStatusChange?: (status: ChatRuntimeStatus) => void;
+  onOpenAppSidebar?: () => void;
 }
 
 const DIRECT_PROFILE_ID = "direct";
@@ -61,7 +70,7 @@ function profileTargetsAgent(profile: ProfileLaunchOption, agentId: string) {
   return profile.launch_targets.some((target) => target.id === agentId);
 }
 
-export function ChatView({ onStatusChange }: ChatViewProps) {
+export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
   const { t } = useI18n();
   const [storedLaunchSelection] = useState(readStoredLaunchSelection);
   const [input, setInput] = useState("");
@@ -95,6 +104,7 @@ export function ChatView({ onStatusChange }: ChatViewProps) {
     Record<string, LaunchSessionInfo | undefined>
   >({});
   const [showSessionSidebar, setShowSessionSidebar] = useState(true);
+  const [mobileSessionSidebarOpen, setMobileSessionSidebarOpen] = useState(false);
 
   const handleSocketAgentSelected = useCallback(
     (agentId: string, source: "config" | "system") => {
@@ -417,6 +427,14 @@ export function ChatView({ onStatusChange }: ChatViewProps) {
     ],
   );
 
+  const handleMobileSessionChange = useCallback(
+    (selection: ChatSessionSelection, session?: LaunchSessionInfo) => {
+      handleSessionChange(selection, session);
+      setMobileSessionSidebarOpen(false);
+    },
+    [handleSessionChange],
+  );
+
   const handleSubmit = useCallback(() => {
     const text = input.trim();
     if (!text) return;
@@ -457,10 +475,43 @@ export function ChatView({ onStatusChange }: ChatViewProps) {
           onSessionChange={handleSessionChange}
         />
       )}
+      {mobileSessionSidebarOpen && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <button
+            type="button"
+            className="absolute inset-0 bg-background/70 backdrop-blur-sm"
+            aria-label={t("Close sessions")}
+            onClick={() => setMobileSessionSidebarOpen(false)}
+          />
+          <div className="absolute inset-y-0 left-0 w-[min(18rem,86vw)] shadow-lg">
+            <ChatSessionSidebar
+              workspaceGroups={launchSessionGroups}
+              agents={agents}
+              selectedAgentFilter={sidebarAgentId}
+              variant="mobile"
+              sessionsLoading={sidebarSessionsLoading}
+              sessionSelection={sidebarSessionSelection}
+              onAgentFilterChange={handleSidebarAgentFilterChange}
+              onSessionChange={handleMobileSessionChange}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border/60 bg-background/95 px-3 py-2">
           <div className="flex min-w-0 items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setMobileSessionSidebarOpen(true)}
+              className="text-muted-foreground hover:text-foreground md:hidden"
+              title={t("Show sessions")}
+              aria-label={t("Show sessions")}
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </Button>
             <Button
               type="button"
               variant="ghost"
@@ -493,21 +544,34 @@ export function ChatView({ onStatusChange }: ChatViewProps) {
               </div>
             </div>
           </div>
-          <div
-            className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 font-mono text-[10px]",
-              chatStatus === "attention"
-                ? "text-amber-400"
-                : chatStatus === "working"
-                  ? "text-primary"
-                  : connected
-                    ? "text-emerald-400/80"
-                    : "text-muted-foreground/60",
-            )}
-            title={statusLabel}
-          >
-            {statusIcon}
-            <span className="hidden sm:inline">{statusLabel}</span>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <div
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 font-mono text-[10px]",
+                chatStatus === "attention"
+                  ? "text-amber-400"
+                  : chatStatus === "working"
+                    ? "text-primary"
+                    : connected
+                      ? "text-emerald-400/80"
+                      : "text-muted-foreground/60",
+              )}
+              title={statusLabel}
+            >
+              {statusIcon}
+              <span className="hidden sm:inline">{statusLabel}</span>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={onOpenAppSidebar}
+              className="text-muted-foreground hover:text-foreground md:hidden"
+              title={t("Show navigation")}
+              aria-label={t("Show navigation")}
+            >
+              <Menu className="h-4 w-4" />
+            </Button>
           </div>
         </header>
 

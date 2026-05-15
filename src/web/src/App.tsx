@@ -1,9 +1,12 @@
 import { useState } from "react";
+import { Menu } from "lucide-react";
+import { useI18n } from "@va/i18n";
 
 import { AppHeader } from "@/components/AppHeader";
 import { ChatView } from "@/components/chat";
 import { TabBar } from "@/components/TabBar";
 import { TerminalWorkspace } from "@/components/TerminalWorkspace";
+import { Button } from "@/components/ui/button";
 import { usePing } from "@/hooks/usePing";
 import { useSessions } from "@/hooks/useSessions";
 import { useTmux } from "@/hooks/useTmux";
@@ -20,10 +23,12 @@ function workspacePaneClass(active: boolean) {
 }
 
 function App() {
+  const { t } = useI18n();
   const [page, setPage] = useState<AppPage>("chat");
   const [viewMode, setViewMode] = useState<ViewMode>("tabs");
   const [chatStatus, setChatStatus] = useState<ChatRuntimeStatus>("connecting");
   const [theme, setTheme] = useState<Theme>(() => getResolvedTheme());
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const pingMs = usePing();
   const tmux = useTmux();
@@ -62,6 +67,8 @@ function App() {
         <AppHeader
           page={page}
           onPageChange={setPage}
+          mobileOpen={mobileSidebarOpen}
+          onMobileOpenChange={setMobileSidebarOpen}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           theme={theme}
@@ -73,6 +80,20 @@ function App() {
         />
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {page !== "chat" && !mobileSidebarOpen && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setMobileSidebarOpen(true)}
+              className="fixed right-2 top-2 z-30 border border-border bg-background/95 text-muted-foreground shadow-sm hover:text-foreground md:hidden"
+              title={t("Show navigation")}
+              aria-label={t("Show navigation")}
+            >
+              <Menu className="h-4 w-4" />
+            </Button>
+          )}
+
           {page === "terminal" && viewMode === "tabs" && (
             <TabBar
               groups={groups}
@@ -94,7 +115,10 @@ function App() {
               aria-hidden={page !== "chat"}
               inert={page !== "chat"}
             >
-              <ChatView onStatusChange={setChatStatus} />
+              <ChatView
+                onStatusChange={setChatStatus}
+                onOpenAppSidebar={() => setMobileSidebarOpen(true)}
+              />
             </section>
             <section
               className={workspacePaneClass(page === "terminal")}

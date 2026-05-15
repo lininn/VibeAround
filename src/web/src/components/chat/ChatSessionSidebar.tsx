@@ -26,6 +26,7 @@ interface ChatSessionSidebarProps {
   workspaceGroups: ChatSessionWorkspaceGroup[];
   agents: AgentInfo[];
   selectedAgentFilter: string;
+  variant?: "desktop" | "mobile";
   sessionsLoading?: boolean;
   sessionSelection: ChatSessionSelection;
   onAgentFilterChange: (agentId: string) => void;
@@ -64,6 +65,7 @@ export function ChatSessionSidebar({
   workspaceGroups,
   agents,
   selectedAgentFilter,
+  variant = "desktop",
   sessionsLoading = false,
   sessionSelection,
   onAgentFilterChange,
@@ -88,7 +90,12 @@ export function ChatSessionSidebar({
   };
 
   return (
-    <aside className="hidden h-full w-64 shrink-0 flex-col border-r border-border bg-muted/20 md:flex">
+    <aside
+      className={cn(
+        "h-full shrink-0 flex-col border-r border-border bg-muted/20",
+        variant === "mobile" ? "flex w-full" : "hidden w-64 md:flex",
+      )}
+    >
       <div className="min-h-0 flex-1 overflow-y-auto p-2 scrollbar-thin">
         <div className="space-y-1">
           <button
