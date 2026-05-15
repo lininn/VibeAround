@@ -1,10 +1,10 @@
 "use client";
 
-import { Bot, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import type { AgentInfo, ProfileLaunchOption } from "@va/client";
 import { useI18n } from "@va/i18n";
 
-import { agentIdToToolType } from "@/lib/agents";
+import { BrandIcon } from "@/components/brand-icon";
 import { cn } from "@/lib/utils";
 
 const DIRECT_PROFILE_ID = "direct";
@@ -24,19 +24,6 @@ function launchProfilesForAgent(profiles: ProfileLaunchOption[], agentId: string
     const target = profile.launch_targets.find((target) => target.id === agentId);
     return target ? [{ profile, usesProxy: Boolean(target.proxy_target_api_type) }] : [];
   });
-}
-
-function agentAccentClass(agentId: string) {
-  switch (agentIdToToolType(agentId)) {
-    case "claude":
-      return "text-orange-500";
-    case "codex":
-      return "text-emerald-500";
-    case "gemini":
-      return "text-blue-500";
-    default:
-      return "text-primary";
-  }
 }
 
 export function NewChatAgentPicker({
@@ -79,7 +66,12 @@ export function NewChatAgentPicker({
                   title={selectedAgentName}
                   aria-label={selectedAgentName}
                 >
-                  <Bot className={cn("h-4 w-4", agentAccentClass(selectedAgentId))} />
+                  <BrandIcon
+                    kind="cli"
+                    id={selectedAgentId}
+                    label={selectedAgentName}
+                    className="h-5 w-5"
+                  />
                 </div>
               </div>
             ) : (
@@ -101,7 +93,7 @@ export function NewChatAgentPicker({
                       title={agent.name}
                       onClick={() => chooseAgent(agent)}
                     >
-                      <Bot className={cn("h-4 w-4", agentAccentClass(agent.id))} />
+                      <BrandIcon kind="cli" id={agent.id} label={agent.name} className="h-5 w-5" />
                       {selected && (
                         <Check className="absolute -right-1 -top-1 h-3.5 w-3.5 rounded-full bg-background text-primary" />
                       )}
@@ -133,6 +125,12 @@ export function NewChatAgentPicker({
                 aria-pressed={selectedProfileId === undefined}
                 onClick={() => onLaunchChange(selectedAgentId, undefined)}
               >
+                <BrandIcon
+                  kind="cli"
+                  id={selectedAgentId}
+                  label={selectedAgentName}
+                  className="h-4 w-4"
+                />
                 <span className="min-w-0 flex-1 truncate">{t("Default")}</span>
                 {selectedProfileId === undefined && (
                   <Check className="h-4 w-4 shrink-0 text-primary" />
@@ -149,6 +147,12 @@ export function NewChatAgentPicker({
                 aria-pressed={selectedProfileId === DIRECT_PROFILE_ID}
                 onClick={() => onLaunchChange(selectedAgentId, DIRECT_PROFILE_ID)}
               >
+                <BrandIcon
+                  kind="cli"
+                  id={selectedAgentId}
+                  label={selectedAgentName}
+                  className="h-4 w-4"
+                />
                 <span className="min-w-0 flex-1 truncate">{t("Direct")}</span>
                 {selectedProfileId === DIRECT_PROFILE_ID && (
                   <Check className="h-4 w-4 shrink-0 text-primary" />
@@ -168,6 +172,13 @@ export function NewChatAgentPicker({
                   title={profile.label}
                   onClick={() => onLaunchChange(selectedAgentId, profile.id)}
                 >
+                  <BrandIcon
+                    kind="provider"
+                    id={profile.provider}
+                    label={profile.label}
+                    fallback={profile.label.slice(0, 1).toUpperCase()}
+                    className="h-4 w-4"
+                  />
                   <span className="min-w-0 flex-1 truncate">
                     {usesProxy
                       ? t("{{profile}} (proxy)", { profile: profile.label })
