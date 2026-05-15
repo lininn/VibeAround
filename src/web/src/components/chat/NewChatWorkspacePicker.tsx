@@ -97,8 +97,8 @@ export function NewChatWorkspacePicker({
       ) : (
         <div
           className={cn(
-            "grid grid-cols-1 gap-2 overflow-y-auto pr-1",
-            panelLayout ? "max-h-44" : "max-h-44 sm:grid-cols-2",
+            "grid grid-cols-1 gap-2",
+            panelLayout ? "overflow-visible" : "max-h-44 overflow-y-auto pr-1 sm:grid-cols-2",
           )}
         >
           {workspaces.map((workspace) => {
