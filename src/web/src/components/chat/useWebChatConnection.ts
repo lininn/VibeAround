@@ -235,24 +235,19 @@ export function useWebChatConnection({
           break;
         }
         case "agent_message_chunk": {
-          appendToStreamAssistant(update.content, update.messageId);
+          appendToStreamAssistant(update.content, update.messageId, {
+            forceNewMessage: replaying && !update.messageId,
+          });
           if (replaying) scheduleResumeReplayDone(notif.sessionId);
           break;
         }
         case "agent_thought_chunk": {
-          if (replaying) {
-            scheduleResumeReplayDone(notif.sessionId);
-            break;
-          }
           appendThinkingActivity(update.content);
+          if (replaying) scheduleResumeReplayDone(notif.sessionId);
           break;
         }
         case "tool_call":
         case "tool_call_update": {
-          if (replaying) {
-            scheduleResumeReplayDone(notif.sessionId);
-            break;
-          }
           const title = toolActivityLabel(update);
           const status = toolActivityStatus(update);
           appendToolActivity(update);
@@ -261,14 +256,12 @@ export function useWebChatConnection({
           } else {
             setStreamProgress(t("Using tool: {{tool}}…", { tool: title }));
           }
+          if (replaying) scheduleResumeReplayDone(notif.sessionId);
           break;
         }
         case "plan": {
-          if (replaying) {
-            scheduleResumeReplayDone(notif.sessionId);
-            break;
-          }
           appendPlan(update);
+          if (replaying) scheduleResumeReplayDone(notif.sessionId);
           break;
         }
         // Other ACP update variants (available_commands_update, mode/config,
@@ -289,8 +282,14 @@ export function useWebChatConnection({
       setMessages((prev) => appendUserMessageChunk(prev, content, messageId));
     }
 
-    function appendToStreamAssistant(content: ContentBlock, messageId?: string | null) {
-      setMessages((prev) => appendStreamAssistantMessage(prev, content, messageId));
+    function appendToStreamAssistant(
+      content: ContentBlock,
+      messageId?: string | null,
+      options?: { forceNewMessage?: boolean },
+    ) {
+      setMessages((prev) =>
+        appendStreamAssistantMessage(prev, content, messageId, options),
+      );
     }
 
     function appendThinkingActivity(content: ContentBlock) {

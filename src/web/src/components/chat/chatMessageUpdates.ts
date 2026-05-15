@@ -20,6 +20,10 @@ import {
 
 type ToolCallLike = ToolCall | ToolCallUpdate;
 
+type AppendMessageOptions = {
+  forceNewMessage?: boolean;
+};
+
 function partId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -148,6 +152,7 @@ export function appendStreamAssistantMessage(
   prev: ChatMessage[],
   block: ContentBlock,
   messageId?: string | null,
+  options: AppendMessageOptions = {},
 ): ChatMessage[] {
   const text = contentBlockText(block);
   if (!text && block.type === "text") return prev;
@@ -163,6 +168,18 @@ export function appendStreamAssistantMessage(
     ];
   }
   const last = prev[prev.length - 1];
+  if (options.forceNewMessage) {
+    return [
+      ...prev,
+      {
+        role: "assistant",
+        content: text,
+        parts: [{ id: partId("content"), kind: "content", block }],
+        messageId,
+        mode: "stream",
+      },
+    ];
+  }
   if (isEmptyStreamAssistant(last)) {
     return [
       ...prev.slice(0, -1),
