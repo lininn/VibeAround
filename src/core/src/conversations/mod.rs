@@ -192,6 +192,21 @@ impl ConversationManager {
             .await
     }
 
+    /// Resume a session immediately by spawning/loading the agent now.
+    pub async fn resume_session(
+        &self,
+        route: RouteKey,
+        cli_kind: String,
+        resume_session_id: String,
+        cwd: Option<String>,
+        profile: Option<String>,
+        handler: Arc<dyn AgentClientHandler>,
+    ) -> acp::Result<()> {
+        let conv = self.get_or_create(route);
+        conv.resume_session(cli_kind, resume_session_id, cwd, profile, handler)
+            .await
+    }
+
     // -----------------------------------------------------------------------
     // Internal
     // -----------------------------------------------------------------------

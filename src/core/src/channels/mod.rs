@@ -33,6 +33,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use agent_client_protocol::schema as acp;
 use tokio::sync::{broadcast, mpsc};
 
+use crate::agent::AgentClientHandler;
 use crate::conversations::event::SystemEvent;
 use crate::conversations::ConversationManager;
 use crate::plugins::DiscoveredPlugin;
@@ -156,6 +157,26 @@ impl ChannelManager {
 
     pub fn conversation_manager(&self) -> Arc<ConversationManager> {
         Arc::clone(&self.conversation_manager)
+    }
+
+    pub async fn resume_session(
+        &self,
+        route: &crate::routing::RouteKey,
+        agent_kind: String,
+        session_id: String,
+        cwd: Option<String>,
+        profile: Option<String>,
+    ) -> acp::Result<()> {
+        let handler: Arc<dyn AgentClientHandler> =
+            Arc::new(bridge_handler::ChannelBridgeHandler::new(
+                Arc::clone(&self.plugin_host),
+                Arc::clone(&self.conversation_manager),
+                route.clone(),
+            ));
+
+        self.conversation_manager
+            .resume_session(route.clone(), agent_kind, session_id, cwd, profile, handler)
+            .await
     }
 
     pub async fn send_output(&self, output: ChannelOutput) {

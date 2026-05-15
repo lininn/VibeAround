@@ -48,6 +48,8 @@ export function ChatView({ onStatusChange }: ChatViewProps) {
     agents,
     pendingPermissions,
     sendMessage,
+    resumeSession,
+    clearConversationView,
     stopStreaming,
     sendPermissionResponse,
     cancelPermissionRequest,
@@ -181,8 +183,29 @@ export function ChatView({ onStatusChange }: ChatViewProps) {
   const handleSessionChange = useCallback(
     (selection: ChatSessionSelection) => {
       setSessionSelections((prev) => ({ ...prev, [selectedAgent]: selection }));
+      if (selection.kind === "new") {
+        clearConversationView();
+        return;
+      }
+      if (selection.kind !== "resume") return;
+
+      const launchSession = launchSessions.find(
+        (session) => session.session_id === selection.sessionId,
+      );
+      if (!launchSession) return;
+      resumeSession({
+        agentId: selectedAgent,
+        profileId: selectedProfileId,
+        launchSession,
+      });
     },
-    [selectedAgent],
+    [
+      clearConversationView,
+      launchSessions,
+      resumeSession,
+      selectedAgent,
+      selectedProfileId,
+    ],
   );
 
   const handleSubmit = useCallback(() => {

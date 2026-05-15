@@ -120,6 +120,48 @@ impl Conversation {
         Ok(())
     }
 
+    /// Resume a session immediately, without waiting for the next prompt.
+    pub async fn resume_session(
+        self: &Arc<Self>,
+        cli_kind: String,
+        resume_session_id: String,
+        cwd: Option<String>,
+        profile: Option<String>,
+        downstream_handler: Arc<dyn AgentClientHandler>,
+    ) -> acp::Result<()> {
+        let cli_kind = crate::resources::resolve_agent_id(&cli_kind)
+            .map_err(|error| acp::Error::new(-32602, error))?;
+
+        self.full_reset().await;
+        *self.cli_kind.lock().await = Some(cli_kind.clone());
+        *self.profile.lock().await = profile;
+        *self.busy.lock().await = true;
+        *self.failed.lock().await = None;
+        let _ = self.change_tx.send(());
+
+        let result = self
+            .ensure_agent(
+                Some(cli_kind),
+                Some(resume_session_id),
+                cwd,
+                downstream_handler,
+            )
+            .await
+            .map(|_| ())
+            .map_err(|error| {
+                let message = format!("{:#}", error);
+                acp::Error::new(-32603, message)
+            });
+
+        *self.busy.lock().await = false;
+        if let Err(error) = &result {
+            *self.failed.lock().await = Some(error.message.to_string());
+        }
+        let _ = self.change_tx.send(());
+
+        result
+    }
+
     // -----------------------------------------------------------------------
     // Public API — direct methods, no command enums
     // -----------------------------------------------------------------------

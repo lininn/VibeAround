@@ -43,6 +43,12 @@ interface SendChatMessageRequest {
   launchSession?: LaunchSessionInfo;
 }
 
+interface ResumeChatSessionRequest {
+  agentId: string;
+  profileId?: string;
+  launchSession: LaunchSessionInfo;
+}
+
 export function useWebChatConnection({
   onAgentSelected,
 }: UseWebChatConnectionOptions = {}) {
@@ -262,6 +268,48 @@ export function useWebChatConnection({
     [],
   );
 
+  const clearConversationView = useCallback(() => {
+    promptInFlightRef.current = false;
+    setStreaming(false);
+    setPendingPermissions([]);
+    setMessages([]);
+    setMeta((prev) => ({
+      ...prev,
+      sessionId: undefined,
+      agentName: undefined,
+      agentTitle: undefined,
+      agentVersion: undefined,
+    }));
+  }, []);
+
+  const resumeSession = useCallback(
+    ({ agentId, profileId, launchSession }: ResumeChatSessionRequest) => {
+      clearConversationView();
+      setMeta((prev) => ({ ...prev, sessionId: launchSession.session_id }));
+
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+
+      try {
+        const payload: Record<string, unknown> = {
+          type: "resume_session",
+          agent: agentId,
+          sessionId: launchSession.session_id,
+          sessionWorkspace: launchSession.workspace,
+        };
+        if (profileId !== undefined) {
+          payload.profileId = profileId;
+        }
+        ws.send(JSON.stringify(payload));
+        return true;
+      } catch (error) {
+        console.warn("[ChatView] failed to resume chat session:", error);
+        return false;
+      }
+    },
+    [clearConversationView],
+  );
+
   const stopStreaming = useCallback(() => {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
@@ -301,6 +349,8 @@ export function useWebChatConnection({
     agents,
     pendingPermissions,
     sendMessage,
+    resumeSession,
+    clearConversationView,
     stopStreaming,
     sendPermissionResponse,
     cancelPermissionRequest,

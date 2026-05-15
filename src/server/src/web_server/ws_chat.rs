@@ -137,6 +137,17 @@ async fn handle_chat_socket(socket: WebSocket, state: AppState) {
                                 );
                             }
                         }
+                        WebChatInput::ResumeSession {
+                            agent,
+                            profile,
+                            session_id,
+                            cwd,
+                        } => {
+                            apply_web_session_resume_now(
+                                &state, &route, agent, profile, session_id, cwd,
+                            )
+                            .await;
+                        }
                     }
                 }
             }
@@ -208,6 +219,72 @@ async fn apply_web_session_resume(
     session_id: String,
     cwd: Option<String>,
 ) {
+    let Some(resume) =
+        resolve_web_session_resume(state, route, agent, profile, session_id, cwd).await
+    else {
+        return;
+    };
+
+    if let Err(error) = state
+        .channel_hub
+        .conversation_manager()
+        .prepare_pickup(
+            route.clone(),
+            resume.agent,
+            resume.session_id,
+            Some(resume.cwd),
+            resume.profile,
+        )
+        .await
+    {
+        send_web_system_text(state, route, &format!("❌ {}", error)).await;
+    }
+}
+
+async fn apply_web_session_resume_now(
+    state: &AppState,
+    route: &RouteKey,
+    agent: Option<String>,
+    profile: Option<String>,
+    session_id: String,
+    cwd: Option<String>,
+) {
+    let Some(resume) =
+        resolve_web_session_resume(state, route, agent, profile, session_id, cwd).await
+    else {
+        return;
+    };
+
+    if let Err(error) = state
+        .channel_hub
+        .resume_session(
+            route,
+            resume.agent,
+            resume.session_id,
+            Some(resume.cwd),
+            resume.profile,
+        )
+        .await
+    {
+        send_web_system_text(state, route, &format!("❌ {}", error)).await;
+    }
+}
+
+struct WebSessionResume {
+    agent: String,
+    profile: Option<String>,
+    session_id: String,
+    cwd: String,
+}
+
+async fn resolve_web_session_resume(
+    state: &AppState,
+    route: &RouteKey,
+    agent: Option<String>,
+    profile: Option<String>,
+    session_id: String,
+    cwd: Option<String>,
+) -> Option<WebSessionResume> {
     let manager = state.channel_hub.conversation_manager();
     let current_state = match manager.conversation(route) {
         Some(conversation) => Some(conversation.state().await),
@@ -226,7 +303,7 @@ async fn apply_web_session_resume(
         Ok(agent_id) => agent_id,
         Err(error) => {
             send_web_system_text(state, route, &format!("❌ {}", error)).await;
-            return;
+            return None;
         }
     };
 
@@ -239,7 +316,7 @@ async fn apply_web_session_resume(
             && state.cli_kind.as_deref() == Some(canonical_agent.as_str())
             && profile_matches
     }) {
-        return;
+        return None;
     }
 
     let cwd = cwd
@@ -254,18 +331,12 @@ async fn apply_web_session_resume(
                 .to_string()
         });
 
-    if let Err(error) = manager
-        .prepare_pickup(
-            route.clone(),
-            canonical_agent,
-            session_id,
-            Some(cwd),
-            profile,
-        )
-        .await
-    {
-        send_web_system_text(state, route, &format!("❌ {}", error)).await;
-    }
+    Some(WebSessionResume {
+        agent: canonical_agent,
+        profile,
+        session_id,
+        cwd,
+    })
 }
 
 async fn send_web_system_text(state: &AppState, route: &RouteKey, text: &str) {
@@ -304,6 +375,12 @@ enum WebChatInput {
         request_id: String,
         response: acp::RequestPermissionResponse,
     },
+    ResumeSession {
+        agent: Option<String>,
+        profile: Option<String>,
+        session_id: String,
+        cwd: Option<String>,
+    },
 }
 
 enum WebChatSessionIntent {
@@ -332,12 +409,7 @@ fn parse_web_chat_input(chat_id: &str, text: &str) -> Option<WebChatInput> {
                         .and_then(|x| x.as_str())
                         .map(ToOwned::to_owned)
                         .unwrap_or_else(|| Uuid::new_v4().to_string());
-                    let agent = v
-                        .get("agent")
-                        .and_then(|x| x.as_str())
-                        .map(str::trim)
-                        .filter(|x| !x.is_empty())
-                        .map(ToOwned::to_owned);
+                    let agent = parse_web_agent(&v);
                     let session_intent = parse_web_session_intent(&v, agent.clone());
                     let profile = parse_web_profile(&v);
                     Some(WebChatInput::Message {
@@ -355,6 +427,29 @@ fn parse_web_chat_input(chat_id: &str, text: &str) -> Option<WebChatInput> {
                         },
                         profile,
                         session_intent,
+                    })
+                }
+                "resume_session" => {
+                    let agent = parse_web_agent(&v);
+                    let profile = parse_web_profile(&v);
+                    let session_id = v
+                        .get("sessionId")
+                        .and_then(|x| x.as_str())
+                        .map(str::trim)
+                        .filter(|x| !x.is_empty())?
+                        .to_string();
+                    let cwd = v
+                        .get("sessionWorkspace")
+                        .and_then(|x| x.as_str())
+                        .map(str::trim)
+                        .filter(|x| !x.is_empty())
+                        .map(ToOwned::to_owned);
+
+                    Some(WebChatInput::ResumeSession {
+                        agent,
+                        profile,
+                        session_id,
+                        cwd,
                     })
                 }
                 "stop" => Some(WebChatInput::Stop(ChannelInput::Stop {
@@ -403,6 +498,15 @@ fn parse_web_chat_input(chat_id: &str, text: &str) -> Option<WebChatInput> {
             }
         }
     }
+}
+
+fn parse_web_agent(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("agent")
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|x| !x.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn parse_web_profile(value: &serde_json::Value) -> Option<String> {
@@ -593,6 +697,30 @@ mod tests {
 
         assert_eq!(agent, "codex");
         assert_eq!(intent_agent, "codex");
+        assert_eq!(session_id, "sid-1");
+        assert_eq!(cwd, "/tmp/project");
+    }
+
+    #[test]
+    fn parses_direct_resume_session() {
+        let input = parse_web_chat_input(
+            "chat-1",
+            r#"{"type":"resume_session","agent":"codex","profileId":"deepseek","sessionId":"sid-1","sessionWorkspace":"/tmp/project"}"#,
+        )
+        .expect("resume session input");
+
+        let WebChatInput::ResumeSession {
+            agent: Some(agent),
+            profile: Some(profile),
+            session_id,
+            cwd: Some(cwd),
+        } = input
+        else {
+            panic!("expected direct resume input");
+        };
+
+        assert_eq!(agent, "codex");
+        assert_eq!(profile, "deepseek");
         assert_eq!(session_id, "sid-1");
         assert_eq!(cwd, "/tmp/project");
     }
