@@ -397,23 +397,6 @@ export function ChatView({ onStatusChange }: ChatViewProps) {
         {showNewChatHome ? (
           <NewChatHome>
             <div className="space-y-4">
-              <NewChatAgentPicker
-                agents={agents}
-                profiles={profiles}
-                selectedAgentId={selectedAgent}
-                selectedProfileId={selectedProfileId}
-                fallbackAgentLabel={agentLabel}
-                onLaunchChange={handleLaunchChange}
-              />
-              <NewChatWorkspacePicker
-                workspaces={workspaces}
-                selectedWorkspacePath={selectedWorkspace?.path}
-                loading={workspacesLoading}
-                creating={workspaceCreating}
-                createError={workspaceCreateError}
-                onWorkspaceChange={setSelectedWorkspacePath}
-                onCreateWorkspace={handleCreateWorkspace}
-              />
               <ChatInput
                 value={input}
                 onChange={setInput}
@@ -435,6 +418,28 @@ export function ChatView({ onStatusChange }: ChatViewProps) {
                 showLaunchSelector={false}
                 variant="hero"
               />
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+                <NewChatAgentPicker
+                  agents={agents}
+                  profiles={profiles}
+                  selectedAgentId={selectedAgent}
+                  selectedProfileId={selectedProfileId}
+                  fallbackAgentLabel={agentLabel}
+                  onLaunchChange={handleLaunchChange}
+                  className="min-w-0"
+                />
+                <NewChatWorkspacePicker
+                  workspaces={workspaces}
+                  selectedWorkspacePath={selectedWorkspace?.path}
+                  loading={workspacesLoading}
+                  creating={workspaceCreating}
+                  createError={workspaceCreateError}
+                  onWorkspaceChange={setSelectedWorkspacePath}
+                  onCreateWorkspace={handleCreateWorkspace}
+                  layout="panel"
+                  className="min-w-0"
+                />
+              </div>
             </div>
           </NewChatHome>
         ) : (

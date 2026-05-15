@@ -13,8 +13,10 @@ interface NewChatWorkspacePickerProps {
   loading?: boolean;
   creating?: boolean;
   createError?: string;
+  layout?: "full" | "panel";
   onWorkspaceChange: (workspacePath: string) => void;
   onCreateWorkspace?: (name: string) => Promise<void> | void;
+  className?: string;
 }
 
 function workspaceLabel(workspace: string) {
@@ -29,8 +31,10 @@ export function NewChatWorkspacePicker({
   loading = false,
   creating = false,
   createError,
+  layout = "full",
   onWorkspaceChange,
   onCreateWorkspace,
+  className,
 }: NewChatWorkspacePickerProps) {
   const { t } = useI18n();
   const [draftName, setDraftName] = useState("");
@@ -42,9 +46,10 @@ export function NewChatWorkspacePicker({
     await onCreateWorkspace(name);
     setDraftName("");
   };
+  const panelLayout = layout === "panel";
 
   return (
-    <section className="mx-auto w-full max-w-4xl">
+    <section className={cn("w-full", !panelLayout && "mx-auto max-w-4xl", className)}>
       <div className="mb-2 flex items-center justify-between gap-3 px-1">
         <div className="font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
           {t("Workspace")}
@@ -63,12 +68,12 @@ export function NewChatWorkspacePicker({
             onChange={(event) => setDraftName(event.target.value)}
             placeholder={t("New workspace")}
             disabled={creating}
-            className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
           <button
             type="submit"
             disabled={!draftName.trim() || creating}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/30 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/30 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             title={t("Create workspace")}
             aria-label={t("Create workspace")}
           >
@@ -90,7 +95,12 @@ export function NewChatWorkspacePicker({
           {loading ? t("Loading workspaces...") : t("No projects")}
         </div>
       ) : (
-        <div className="grid max-h-44 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+        <div
+          className={cn(
+            "grid grid-cols-1 gap-2 overflow-y-auto pr-1",
+            panelLayout ? "max-h-44" : "max-h-44 sm:grid-cols-2",
+          )}
+        >
           {workspaces.map((workspace) => {
             const selected = workspace.path === selectedWorkspacePath;
             return (

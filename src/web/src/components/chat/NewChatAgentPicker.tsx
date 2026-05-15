@@ -16,6 +16,7 @@ interface NewChatAgentPickerProps {
   selectedProfileId?: string;
   fallbackAgentLabel: string;
   onLaunchChange: (agentId: string, profileId?: string) => void;
+  className?: string;
 }
 
 function launchProfilesForAgent(profiles: ProfileLaunchOption[], agentId: string) {
@@ -45,6 +46,7 @@ export function NewChatAgentPicker({
   selectedProfileId,
   fallbackAgentLabel,
   onLaunchChange,
+  className,
 }: NewChatAgentPickerProps) {
   const { t } = useI18n();
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
@@ -62,86 +64,99 @@ export function NewChatAgentPicker({
   };
 
   return (
-    <section className="mx-auto w-full max-w-4xl">
-      <div className="mb-2 px-1 font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
-        {t("Agent")}
-      </div>
-      {agents.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
-          {selectedAgentName}
+    <section className={cn("w-full", className)}>
+      <div className="grid gap-3 md:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        <div>
+          <div className="mb-2 px-1 font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+            {t("Agent")}
+          </div>
+          {agents.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
+              {selectedAgentName}
+            </div>
+          ) : (
+            <div className="grid max-h-44 grid-cols-1 gap-2 overflow-y-auto pr-1">
+              {agents.map((agent) => {
+                const selected = agent.id === selectedAgentId;
+                return (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    className={cn(
+                      "flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                      selected
+                        ? "border-primary/50 bg-primary/5 text-foreground"
+                        : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                    )}
+                    aria-pressed={selected}
+                    onClick={() => chooseAgent(agent)}
+                  >
+                    <Bot className={cn("h-4 w-4 shrink-0", agentAccentClass(agent.id))} />
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                      {agent.name}
+                    </span>
+                    {selected && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {agents.map((agent) => {
-            const selected = agent.id === selectedAgentId;
-            return (
+
+        <div>
+          <div className="mb-2 px-1 font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+            {t("Profile")}
+          </div>
+          <div className="grid max-h-44 grid-cols-1 gap-2 overflow-y-auto pr-1">
+            <button
+              type="button"
+              className={cn(
+                "min-w-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+                selectedProfileId === undefined
+                  ? "border-primary/50 bg-primary/5 text-foreground"
+                  : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+              )}
+              aria-pressed={selectedProfileId === undefined}
+              onClick={() => onLaunchChange(selectedAgentId, undefined)}
+            >
+              {t("Default")}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "min-w-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+                selectedProfileId === DIRECT_PROFILE_ID
+                  ? "border-primary/50 bg-primary/5 text-foreground"
+                  : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+              )}
+              aria-pressed={selectedProfileId === DIRECT_PROFILE_ID}
+              onClick={() => onLaunchChange(selectedAgentId, DIRECT_PROFILE_ID)}
+            >
+              {t("Direct")}
+            </button>
+            {selectedAgentProfiles.map(({ profile, usesProxy }) => (
               <button
-                key={agent.id}
+                key={profile.id}
                 type="button"
                 className={cn(
-                  "flex min-w-0 items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
-                  selected
+                  "min-w-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+                  selectedProfileId === profile.id
                     ? "border-primary/50 bg-primary/5 text-foreground"
                     : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                 )}
-                aria-pressed={selected}
-                onClick={() => chooseAgent(agent)}
+                aria-pressed={selectedProfileId === profile.id}
+                title={profile.label}
+                onClick={() => onLaunchChange(selectedAgentId, profile.id)}
               >
-                <Bot className={cn("h-4 w-4 shrink-0", agentAccentClass(agent.id))} />
-                <span className="min-w-0 flex-1 truncate text-xs font-medium">{agent.name}</span>
-                {selected && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                <span className="block truncate">
+                  {usesProxy
+                    ? t("{{profile}} (proxy)", { profile: profile.label })
+                    : profile.label}
+                </span>
               </button>
-            );
-          })}
+            ))}
+          </div>
         </div>
-      )}
-
-      <div className="mt-2 flex max-h-24 flex-wrap gap-2 overflow-y-auto pr-1">
-        <button
-          type="button"
-          className={cn(
-            "rounded-md border px-2.5 py-1.5 text-xs transition-colors",
-            selectedProfileId === undefined
-              ? "border-primary/50 bg-primary/5 text-foreground"
-              : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-          )}
-          aria-pressed={selectedProfileId === undefined}
-          onClick={() => onLaunchChange(selectedAgentId, undefined)}
-        >
-          {t("Default")}
-        </button>
-        <button
-          type="button"
-          className={cn(
-            "rounded-md border px-2.5 py-1.5 text-xs transition-colors",
-            selectedProfileId === DIRECT_PROFILE_ID
-              ? "border-primary/50 bg-primary/5 text-foreground"
-              : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-          )}
-          aria-pressed={selectedProfileId === DIRECT_PROFILE_ID}
-          onClick={() => onLaunchChange(selectedAgentId, DIRECT_PROFILE_ID)}
-        >
-          {t("Direct")}
-        </button>
-        {selectedAgentProfiles.map(({ profile, usesProxy }) => (
-          <button
-            key={profile.id}
-            type="button"
-            className={cn(
-              "max-w-full rounded-md border px-2.5 py-1.5 text-xs transition-colors",
-              selectedProfileId === profile.id
-                ? "border-primary/50 bg-primary/5 text-foreground"
-                : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-            )}
-            aria-pressed={selectedProfileId === profile.id}
-            title={profile.label}
-            onClick={() => onLaunchChange(selectedAgentId, profile.id)}
-          >
-            <span className="block truncate">
-              {usesProxy ? t("{{profile}} (proxy)", { profile: profile.label }) : profile.label}
-            </span>
-          </button>
-        ))}
       </div>
     </section>
   );
