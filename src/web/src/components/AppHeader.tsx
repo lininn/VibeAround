@@ -47,28 +47,17 @@ export function AppHeader({
   const chatStatusMeta = {
     connecting: {
       label: t("Connecting to local agent"),
-      dot: "bg-muted-foreground/50",
-      pulse: true,
     },
     ready: {
       label: t("Local agent ready"),
-      dot: "bg-emerald-400",
-      pulse: false,
     },
     working: {
       label: t("Agent working"),
-      dot: "bg-primary",
-      pulse: true,
     },
     attention: {
       label: t("Agent needs input"),
-      dot: "bg-amber-400",
-      pulse: true,
     },
-  } satisfies Record<
-    ChatRuntimeStatus,
-    { label: string; dot: string; pulse: boolean }
-  >;
+  } satisfies Record<ChatRuntimeStatus, { label: string }>;
   const chatMeta = chatStatusMeta[chatStatus];
   const terminalTitle =
     totalSessions > 0
@@ -103,13 +92,6 @@ export function AppHeader({
             aria-label={t("Agent")}
           >
             <MessageSquare className="h-4 w-4" />
-            <span
-              className={cn(
-                "absolute right-1 top-1 h-1.5 w-1.5 rounded-full",
-                chatMeta.dot,
-                chatMeta.pulse && "animate-pulse",
-              )}
-            />
           </Button>
           <Button
             type="button"
@@ -209,13 +191,6 @@ export function AppHeader({
               >
                 <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-background text-primary">
                   <MessageSquare className="h-4 w-4" />
-                  <span
-                    className={cn(
-                      "absolute right-1 top-1 h-1.5 w-1.5 rounded-full",
-                      chatMeta.dot,
-                      chatMeta.pulse && "animate-pulse",
-                    )}
-                  />
                 </span>
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium">{t("Chat")}</span>
