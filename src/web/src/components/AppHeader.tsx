@@ -6,6 +6,7 @@ import {
   Sun,
   Terminal,
 } from "lucide-react";
+import type { WebVerboseSettings } from "@va/client";
 import { useI18n } from "@va/i18n";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import type { AppPage, ChatRuntimeStatus } from "@/lib/dashboard-types";
 import type { Theme } from "@/lib/theme";
 import type { ViewMode } from "@/lib/terminal-types";
 import { cn } from "@/lib/utils";
+import { ChatSettingsMenu } from "./chat/ChatSettingsMenu";
 import { LanguageMenu } from "./LanguageMenu";
 
 interface AppHeaderProps {
@@ -28,6 +30,9 @@ interface AppHeaderProps {
   totalSessions: number;
   runningSessions: number;
   chatStatus: ChatRuntimeStatus;
+  webSettings: WebVerboseSettings;
+  webSettingsSaving?: boolean;
+  onWebSettingsChange: (patch: Partial<WebVerboseSettings>) => void;
 }
 
 export function AppHeader({
@@ -42,6 +47,9 @@ export function AppHeader({
   totalSessions,
   runningSessions,
   chatStatus,
+  webSettings,
+  webSettingsSaving = false,
+  onWebSettingsChange,
 }: AppHeaderProps) {
   const { t } = useI18n();
   const chatStatusMeta = {
@@ -141,6 +149,11 @@ export function AppHeader({
         </nav>
 
         <div className="flex flex-col items-center gap-2">
+          <ChatSettingsMenu
+            settings={webSettings}
+            saving={webSettingsSaving}
+            onChange={onWebSettingsChange}
+          />
           <Button
             type="button"
             variant="ghost"
@@ -261,6 +274,11 @@ export function AppHeader({
             </nav>
 
             <div className="flex items-center justify-between gap-2 border-t border-border/70 p-3">
+              <ChatSettingsMenu
+                settings={webSettings}
+                saving={webSettingsSaving}
+                onChange={onWebSettingsChange}
+              />
               <Button
                 type="button"
                 variant="ghost"
