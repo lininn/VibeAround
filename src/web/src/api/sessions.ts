@@ -125,13 +125,13 @@ export async function unarchiveLaunchSession(
 ): Promise<void> {
   const path = `/api/agents/${encodeURIComponent(agentId)}/launch-sessions/${encodeURIComponent(
     sessionId,
-  )}/archive`;
+  )}/unarchive`;
   const res = await fetch(`${browserBaseUrl()}${path}`, {
-    method: "DELETE",
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ workspace_path: workspacePath }),
   });
-  if (!res.ok && res.status !== 204) throw new Error(`DELETE ${path}: ${res.status}`);
+  if (!res.ok && res.status !== 204) throw new Error(`POST ${path}: ${res.status}`);
 }
 
 export async function createSession(body: CreateSessionBody): Promise<CreateSessionResponse> {
