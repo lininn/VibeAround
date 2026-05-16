@@ -2,18 +2,15 @@
 
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { Send, Square } from "lucide-react";
-import type { AgentInfo, LaunchSessionInfo, ProfileLaunchOption } from "@va/client";
 import { useI18n } from "@va/i18n";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ToolType } from "@/lib/terminal-types";
-import { ChatLaunchSelector } from "./ChatLaunchSelector";
-import { ChatSessionSelector } from "./ChatSessionSelector";
-import type { ChatSessionSelection } from "./chatTypes";
 
 export type { ChatSessionSelection } from "./chatTypes";
 
 const TEXTAREA_MAX_HEIGHT_PX = 128;
+const TEXTAREA_MIN_HEIGHT_PX = 40;
+const HERO_TEXTAREA_MIN_HEIGHT_PX = 72;
 
 export interface ChatInputProps {
   value: string;
@@ -24,24 +21,9 @@ export interface ChatInputProps {
   isStreaming?: boolean;
   onStop?: () => void;
   placeholder?: string;
-  /** Shown at bottom-left as "Chat with {targetLabel}", colored by targetTool. */
+  /** Shown at bottom-left as the current chat target. */
   targetLabel?: string;
-  /** Tool type for accent color (claude/gemini/codex/generic). */
-  targetTool?: ToolType;
-  selectedAgentId?: string;
-  /** Available agents for the selector dropdown. */
-  agents?: AgentInfo[];
-  profiles?: ProfileLaunchOption[];
-  selectedProfileId?: string;
-  /** Called when user picks a different agent from the dropdown. */
-  onAgentChange?: (agentId: string) => void;
-  onLaunchChange?: (agentId: string, profileId?: string) => void;
-  /** Resumable sessions discovered for the selected agent/workspace. */
-  sessions?: LaunchSessionInfo[];
-  sessionsLoading?: boolean;
-  sessionSelection?: ChatSessionSelection;
-  activeSessionId?: string;
-  onSessionChange?: (selection: ChatSessionSelection) => void;
+  variant?: "dock" | "hero";
   className?: string;
 }
 
@@ -55,18 +37,7 @@ export function ChatInput({
   onStop,
   placeholder = "Message Claude…",
   targetLabel = "Claude Code",
-  targetTool = "claude",
-  selectedAgentId,
-  agents = [],
-  profiles = [],
-  selectedProfileId,
-  onAgentChange,
-  onLaunchChange,
-  sessions = [],
-  sessionsLoading = false,
-  sessionSelection = { kind: "current" },
-  activeSessionId,
-  onSessionChange,
+  variant = "dock",
   className,
 }: ChatInputProps) {
   const { t } = useI18n();
@@ -76,9 +47,14 @@ export function ChatInput({
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
+    const minHeight =
+      variant === "hero" ? HERO_TEXTAREA_MIN_HEIGHT_PX : TEXTAREA_MIN_HEIGHT_PX;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`;
-  }, [value]);
+    el.style.height = `${Math.max(
+      minHeight,
+      Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX),
+    )}px`;
+  }, [value, variant]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     const isComposing =
@@ -96,11 +72,19 @@ export function ChatInput({
   return (
     <div
       data-slot="chat-input"
-      className={cn("bg-background p-4 border-t border-border", className)}
+      className={cn(
+        variant === "hero" ? "bg-transparent p-0" : "bg-background px-4 pb-4 pt-2",
+        className,
+      )}
     >
       <div
         role="group"
-        className="flex min-h-[2.5rem] flex-col rounded-lg border border-border bg-muted/30 transition-[box-shadow,border-color] focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/30"
+        className={cn(
+          "mx-auto flex max-w-4xl flex-col rounded-lg border border-border transition-[box-shadow,border-color] focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/30",
+          variant === "hero"
+            ? "min-h-[7rem] bg-background shadow-lg shadow-foreground/5"
+            : "min-h-[2.5rem] bg-muted/30",
+        )}
       >
         <textarea
           ref={textareaRef}
@@ -116,30 +100,24 @@ export function ChatInput({
           placeholder={placeholder}
           disabled={disabled}
           rows={1}
-          className="min-h-[2.5rem] max-h-32 resize-none overflow-y-auto border-0 bg-transparent px-3 py-2 text-base sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-0 transition-[height] duration-200 ease-out"
-          style={{ height: "2.5rem" }}
+          className={cn(
+            "max-h-32 resize-none overflow-y-auto border-0 bg-transparent text-base sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-0 transition-[height] duration-200 ease-out",
+            variant === "hero"
+              ? "min-h-[4.5rem] px-4 py-3"
+              : "min-h-[2.5rem] px-3 py-2",
+          )}
+          style={{ height: variant === "hero" ? "4.5rem" : "2.5rem" }}
         />
-        <div className="flex shrink-0 items-center justify-between gap-1.5 px-2 py-1">
+        <div
+          className={cn(
+            "flex shrink-0 items-center justify-between gap-1.5",
+            variant === "hero" ? "px-3 py-2" : "px-2 py-1",
+          )}
+        >
           <div className="flex min-w-0 items-center gap-1.5">
-            <ChatLaunchSelector
-              targetLabel={targetLabel}
-              targetTool={targetTool}
-              selectedAgentId={selectedAgentId}
-              agents={agents}
-              profiles={profiles}
-              selectedProfileId={selectedProfileId}
-              onAgentChange={onAgentChange}
-              onLaunchChange={onLaunchChange}
-            />
-            {onSessionChange && (
-              <ChatSessionSelector
-                sessions={sessions}
-                sessionsLoading={sessionsLoading}
-                sessionSelection={sessionSelection}
-                activeSessionId={activeSessionId}
-                onSessionChange={onSessionChange}
-              />
-            )}
+            <span className="min-w-0 truncate px-1 text-xs font-medium text-muted-foreground">
+              {targetLabel}
+            </span>
           </div>
           <Button
             type="button"

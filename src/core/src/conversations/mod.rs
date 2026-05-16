@@ -124,15 +124,17 @@ impl ConversationManager {
         conv.switch_profile(profile).await;
     }
 
-    /// Select the next web-chat launch route (agent plus optional explicit profile).
+    /// Select the next web-chat launch route.
     pub async fn select_launch_route(
         &self,
         route: &RouteKey,
         agent_kind: String,
         profile: Option<String>,
+        workspace: Option<String>,
     ) -> anyhow::Result<String> {
         let conv = self.get_or_create(route.clone());
-        conv.select_launch_route(agent_kind, profile).await
+        conv.select_launch_route(agent_kind, profile, workspace)
+            .await
     }
 
     /// Reset session on a route (new conversation thread, same agent).
@@ -189,6 +191,21 @@ impl ConversationManager {
     ) -> anyhow::Result<()> {
         let conv = self.get_or_create(route);
         conv.set_handover(cli_kind, resume_session_id, cwd, profile)
+            .await
+    }
+
+    /// Resume a session immediately by spawning/loading the agent now.
+    pub async fn resume_session(
+        &self,
+        route: RouteKey,
+        cli_kind: String,
+        resume_session_id: String,
+        cwd: Option<String>,
+        profile: Option<String>,
+        handler: Arc<dyn AgentClientHandler>,
+    ) -> acp::Result<()> {
+        let conv = self.get_or_create(route);
+        conv.resume_session(cli_kind, resume_session_id, cwd, profile, handler)
             .await
     }
 

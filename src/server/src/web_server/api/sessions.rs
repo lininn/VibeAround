@@ -99,6 +99,65 @@ pub async fn list_launch_sessions_handler(
     Ok(Json(sessions))
 }
 
+#[derive(serde::Deserialize)]
+pub(crate) struct LaunchSessionArchiveBody {
+    workspace_path: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct LaunchSessionArchiveQuery {
+    workspace_path: Option<String>,
+}
+
+/// POST /api/agents/:agent_id/launch-sessions/:session_id/archive -- hide a
+/// CLI-owned session in VibeAround without modifying the agent's session store.
+pub async fn archive_launch_session_handler(
+    Path((agent_id, session_id)): Path<(String, String)>,
+    Json(body): Json<LaunchSessionArchiveBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    set_launch_session_archived(agent_id, session_id, body.workspace_path, true).await
+}
+
+/// POST /api/agents/:agent_id/launch-sessions/:session_id/unarchive -- show a
+/// previously hidden session again without relying on a DELETE request body.
+pub async fn unarchive_launch_session_handler(
+    Path((agent_id, session_id)): Path<(String, String)>,
+    Json(body): Json<LaunchSessionArchiveBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    set_launch_session_archived(agent_id, session_id, body.workspace_path, false).await
+}
+
+/// DELETE /api/agents/:agent_id/launch-sessions/:session_id/archive -- legacy
+/// unarchive endpoint. Use query parameters so clients do not need a DELETE
+/// request body.
+pub async fn unarchive_launch_session_delete_handler(
+    Path((agent_id, session_id)): Path<(String, String)>,
+    Query(query): Query<LaunchSessionArchiveQuery>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    set_launch_session_archived(agent_id, session_id, query.workspace_path, false).await
+}
+
+async fn set_launch_session_archived(
+    agent_id: String,
+    session_id: String,
+    workspace_path: Option<String>,
+    archived: bool,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let agent_id = common::resources::resolve_agent_id(&agent_id)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    let workspace = workspace_path
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| common::config::ensure_loaded().resolve_workspace(&agent_id));
+
+    let result = if archived {
+        common::launch_sessions::archive_session(&agent_id, &workspace, &session_id)
+    } else {
+        common::launch_sessions::unarchive_session(&agent_id, &workspace, &session_id)
+    };
+    result.map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// POST /api/sessions -- create a new PTY session.
 pub async fn create_session_handler(
     State(state): State<AppState>,

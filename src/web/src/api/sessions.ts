@@ -9,12 +9,18 @@ import {
   ProfileLaunchOptionsSchema,
   SessionListSchema,
   TmuxSessionsResponseSchema,
+  WebVerboseSettingsSchema,
+  WorkspaceItemSchema,
+  WorkspacesResponseSchema,
   type CreateSessionResponse,
   type LaunchSessionInfo,
   type ProfileLaunchOption,
   type PtyTool,
   type SessionListItem,
   type TmuxSessionsResponse,
+  type WebVerboseSettings,
+  type WorkspaceItem,
+  type WorkspacesResponse,
 } from "@va/client";
 
 export type {
@@ -23,6 +29,9 @@ export type {
   ProfileLaunchOption,
   SessionListItem,
   TmuxSessionsResponse,
+  WebVerboseSettings,
+  WorkspaceItem,
+  WorkspacesResponse,
 };
 
 export interface CreateSessionBody {
@@ -39,6 +48,14 @@ export interface CreateSessionBody {
   rows?: number;
 }
 
+const CreateWorkspaceResponseSchema = WorkspacesResponseSchema.extend({
+  workspace: WorkspaceItemSchema,
+});
+
+export type CreateWorkspaceResponse = WorkspacesResponse & {
+  workspace: WorkspaceItem;
+};
+
 export async function getSessions(): Promise<SessionListItem[]> {
   const res = await fetch(`${browserBaseUrl()}/api/sessions`);
   if (!res.ok) throw new Error(`GET /api/sessions: ${res.status}`);
@@ -51,17 +68,70 @@ export async function getProfiles(): Promise<ProfileLaunchOption[]> {
   return ProfileLaunchOptionsSchema.parse(await res.json());
 }
 
+export async function getWorkspaces(): Promise<WorkspacesResponse> {
+  const res = await fetch(`${browserBaseUrl()}/api/workspaces`);
+  if (!res.ok) throw new Error(`GET /api/workspaces: ${res.status}`);
+  return WorkspacesResponseSchema.parse(await res.json());
+}
+
+export async function createWorkspace(name: string): Promise<CreateWorkspaceResponse> {
+  const res = await fetch(`${browserBaseUrl()}/api/workspaces/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to create workspace (${res.status})`);
+  }
+  return CreateWorkspaceResponseSchema.parse(await res.json());
+}
+
 export async function getLaunchSessions(
   agentId: string,
   includeArchived = false,
+  workspacePath?: string,
 ): Promise<LaunchSessionInfo[]> {
   const params = new URLSearchParams();
   if (includeArchived) params.set("include_archived", "true");
+  if (workspacePath) params.set("workspace_path", workspacePath);
   const query = params.toString();
   const path = `/api/agents/${encodeURIComponent(agentId)}/launch-sessions${query ? `?${query}` : ""}`;
   const res = await fetch(`${browserBaseUrl()}${path}`);
   if (!res.ok) throw new Error(`GET ${path}: ${res.status}`);
   return LaunchSessionListSchema.parse(await res.json());
+}
+
+export async function archiveLaunchSession(
+  agentId: string,
+  sessionId: string,
+  workspacePath: string,
+): Promise<void> {
+  const path = `/api/agents/${encodeURIComponent(agentId)}/launch-sessions/${encodeURIComponent(
+    sessionId,
+  )}/archive`;
+  const res = await fetch(`${browserBaseUrl()}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workspace_path: workspacePath }),
+  });
+  if (!res.ok && res.status !== 204) throw new Error(`POST ${path}: ${res.status}`);
+}
+
+export async function unarchiveLaunchSession(
+  agentId: string,
+  sessionId: string,
+  workspacePath: string,
+): Promise<void> {
+  const path = `/api/agents/${encodeURIComponent(agentId)}/launch-sessions/${encodeURIComponent(
+    sessionId,
+  )}/unarchive`;
+  const res = await fetch(`${browserBaseUrl()}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workspace_path: workspacePath }),
+  });
+  if (!res.ok && res.status !== 204) throw new Error(`POST ${path}: ${res.status}`);
 }
 
 export async function createSession(body: CreateSessionBody): Promise<CreateSessionResponse> {
@@ -86,4 +156,25 @@ export async function getTmuxSessions(): Promise<TmuxSessionsResponse> {
   const res = await fetch(`${browserBaseUrl()}/api/tmux/sessions`);
   if (!res.ok) throw new Error(`GET /api/tmux/sessions: ${res.status}`);
   return TmuxSessionsResponseSchema.parse(await res.json());
+}
+
+export async function getWebSettings(): Promise<WebVerboseSettings> {
+  const res = await fetch(`${browserBaseUrl()}/api/settings/web`);
+  if (!res.ok) throw new Error(`GET /api/settings/web: ${res.status}`);
+  return WebVerboseSettingsSchema.parse(await res.json());
+}
+
+export async function updateWebSettings(
+  patch: Partial<WebVerboseSettings>,
+): Promise<WebVerboseSettings> {
+  const res = await fetch(`${browserBaseUrl()}/api/settings/web`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`PATCH /api/settings/web: ${res.status} ${text}`);
+  }
+  return WebVerboseSettingsSchema.parse(await res.json());
 }

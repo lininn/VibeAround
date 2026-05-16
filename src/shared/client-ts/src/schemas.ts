@@ -158,6 +158,12 @@ export const WorkspacesResponseSchema = z.object({
 });
 export type WorkspacesResponse = z.infer<typeof WorkspacesResponseSchema>;
 
+export const WebVerboseSettingsSchema = z.object({
+  show_thinking: z.boolean(),
+  show_tool_use: z.boolean(),
+});
+export type WebVerboseSettings = z.infer<typeof WebVerboseSettingsSchema>;
+
 export const PreviewSnapshotSchema = z.object({
   slug: z.string(),
   id: z.string(),

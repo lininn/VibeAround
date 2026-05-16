@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Menu } from "lucide-react";
+import type { WebVerboseSettings } from "@va/client";
+import { useI18n } from "@va/i18n";
 
+import { getWebSettings, updateWebSettings } from "@/api/sessions";
 import { AppHeader } from "@/components/AppHeader";
 import { ChatView } from "@/components/chat";
 import { TabBar } from "@/components/TabBar";
 import { TerminalWorkspace } from "@/components/TerminalWorkspace";
-import { usePing } from "@/hooks/usePing";
+import { Button } from "@/components/ui/button";
 import { useSessions } from "@/hooks/useSessions";
 import { useTmux } from "@/hooks/useTmux";
 import type { AppPage, ChatRuntimeStatus } from "@/lib/dashboard-types";
@@ -19,13 +23,22 @@ function workspacePaneClass(active: boolean) {
   );
 }
 
+const DEFAULT_WEB_SETTINGS: WebVerboseSettings = {
+  show_thinking: false,
+  show_tool_use: false,
+};
+
 function App() {
+  const { t } = useI18n();
   const [page, setPage] = useState<AppPage>("chat");
   const [viewMode, setViewMode] = useState<ViewMode>("tabs");
   const [chatStatus, setChatStatus] = useState<ChatRuntimeStatus>("connecting");
   const [theme, setTheme] = useState<Theme>(() => getResolvedTheme());
+  const [webSettings, setWebSettings] =
+    useState<WebVerboseSettings>(DEFAULT_WEB_SETTINGS);
+  const [webSettingsSaving, setWebSettingsSaving] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  const pingMs = usePing();
   const tmux = useTmux();
   const {
     groups,
@@ -56,70 +69,128 @@ function App() {
     clearMaximized();
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    void getWebSettings()
+      .then((settings) => {
+        if (!cancelled) setWebSettings(settings);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.warn("[App] failed to load web settings:", error);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleWebSettingsChange = useCallback(
+    async (patch: Partial<WebVerboseSettings>) => {
+      const previous = webSettings;
+      setWebSettings((current) => ({ ...current, ...patch }));
+      setWebSettingsSaving(true);
+      try {
+        const saved = await updateWebSettings(patch);
+        setWebSettings(saved);
+      } catch (error) {
+        console.warn("[App] failed to update web settings:", error);
+        setWebSettings(previous);
+      } finally {
+        setWebSettingsSaving(false);
+      }
+    },
+    [webSettings],
+  );
+
   return (
     <ThemeContext.Provider value={theme}>
-      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      <div className="flex h-full min-h-0 overflow-hidden bg-background">
         <AppHeader
           page={page}
           onPageChange={setPage}
+          mobileOpen={mobileSidebarOpen}
+          onMobileOpenChange={setMobileSidebarOpen}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
           theme={theme}
           onThemeToggle={() => setTheme(applyThemeToggle(theme))}
           totalSessions={totalSessions}
           runningSessions={runningSessions}
-          pingMs={pingMs}
           chatStatus={chatStatus}
+          webSettings={webSettings}
+          webSettingsSaving={webSettingsSaving}
+          onWebSettingsChange={handleWebSettingsChange}
         />
 
-        {page === "terminal" && viewMode === "tabs" && (
-          <TabBar
-            groups={groups}
-            activeTabId={activeTabId}
-            onActivate={handleActivateTab}
-            onClose={closeSession}
-            tmuxAvailable={tmux.available}
-            tmuxSessions={tmux.sessions}
-            onAddCli={addCli}
-            onAddProfileCli={addProfileCli}
-            onAttachTmux={attachTmux}
-            onRefreshTmux={tmux.refresh}
-          />
-        )}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {page !== "chat" && !mobileSidebarOpen && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setMobileSidebarOpen(true)}
+              className="fixed right-2 top-2 z-30 border border-border bg-background/95 text-muted-foreground shadow-sm hover:text-foreground md:hidden"
+              title={t("Show navigation")}
+              aria-label={t("Show navigation")}
+            >
+              <Menu className="h-4 w-4" />
+            </Button>
+          )}
 
-        <main className="relative flex-1 min-h-0 overflow-hidden">
-          <section
-            className={workspacePaneClass(page === "chat")}
-            aria-hidden={page !== "chat"}
-            inert={page !== "chat"}
-          >
-            <ChatView onStatusChange={setChatStatus} />
-          </section>
-          <section
-            className={workspacePaneClass(page === "terminal")}
-            aria-hidden={page !== "terminal"}
-            inert={page !== "terminal"}
-          >
-            <TerminalWorkspace
-              isActive={page === "terminal"}
+          {page === "terminal" && viewMode === "tabs" && (
+            <TabBar
               groups={groups}
               activeTabId={activeTabId}
-              maximizedSession={maximizedSession}
-              sessionsLoading={sessionsLoading}
-              viewMode={viewMode}
+              onActivate={handleActivateTab}
+              onClose={closeSession}
               tmuxAvailable={tmux.available}
               tmuxSessions={tmux.sessions}
               onAddCli={addCli}
               onAddProfileCli={addProfileCli}
               onAttachTmux={attachTmux}
               onRefreshTmux={tmux.refresh}
-              onToggleMaximize={toggleMaximize}
-              onCloseSession={closeSession}
-              onSessionState={setSessionState}
             />
-          </section>
-        </main>
+          )}
 
+          <main className="relative min-h-0 flex-1 overflow-hidden">
+            <section
+              className={workspacePaneClass(page === "chat")}
+              aria-hidden={page !== "chat"}
+              inert={page !== "chat"}
+            >
+              <ChatView
+                webSettings={webSettings}
+                onStatusChange={setChatStatus}
+                onOpenAppSidebar={() => setMobileSidebarOpen(true)}
+              />
+            </section>
+            <section
+              className={workspacePaneClass(page === "terminal")}
+              aria-hidden={page !== "terminal"}
+              inert={page !== "terminal"}
+            >
+              <TerminalWorkspace
+                isActive={page === "terminal"}
+                groups={groups}
+                activeTabId={activeTabId}
+                maximizedSession={maximizedSession}
+                sessionsLoading={sessionsLoading}
+                viewMode={viewMode}
+                tmuxAvailable={tmux.available}
+                tmuxSessions={tmux.sessions}
+                onAddCli={addCli}
+                onAddProfileCli={addProfileCli}
+                onAttachTmux={attachTmux}
+                onRefreshTmux={tmux.refresh}
+                onToggleMaximize={toggleMaximize}
+                onCloseSession={closeSession}
+                onSessionState={setSessionState}
+              />
+            </section>
+          </main>
+        </div>
       </div>
     </ThemeContext.Provider>
   );

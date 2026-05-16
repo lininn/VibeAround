@@ -53,8 +53,9 @@ export function ChatLaunchSelector({
   const accentColor = getToolTheme(targetTool, appTheme).accent;
   const currentAgentId = selectedAgentId ?? targetTool;
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId);
+  const activeProfileId = selectedProfileId ?? DIRECT_PROFILE_ID;
   const selectedRouteLabel =
-    selectedProfileId === DIRECT_PROFILE_ID
+    activeProfileId === DIRECT_PROFILE_ID
       ? t("{{agent}} / Direct", { agent: targetLabel })
       : selectedProfile
         ? t("{{agent}} / {{profile}}", { agent: targetLabel, profile: selectedProfile.label })
@@ -79,9 +80,8 @@ export function ChatLaunchSelector({
     return (
       <span
         className="flex min-w-0 items-center gap-1 truncate text-xs font-medium"
-        title={t("Chat with {{agent}}", { agent: targetLabel })}
+        title={targetLabel}
       >
-        <span className="shrink-0 text-muted-foreground">{t("Chat with")}</span>
         <span className="truncate" style={{ color: accentColor }}>
           {targetLabel}
         </span>
@@ -97,9 +97,8 @@ export function ChatLaunchSelector({
           variant="ghost"
           size="xs"
           className="h-6 min-w-0 max-w-[18rem] justify-start gap-1 px-1 text-xs font-medium"
-          title={t("Chat with {{agent}}", { agent: selectedRouteLabel })}
+          title={selectedRouteLabel}
         >
-          <span className="shrink-0 text-muted-foreground">{t("Chat with")}</span>
           <span className="truncate" style={{ color: accentColor }}>
             {selectedRouteLabel}
           </span>
@@ -111,23 +110,6 @@ export function ChatLaunchSelector({
         align="start"
         className="max-h-[18rem] min-w-[210px] max-w-[min(22rem,calc(100vw-1rem))] overflow-y-auto p-0.5 text-xs"
       >
-        <DropdownMenuItem
-          className={COMPACT_MENU_ITEM}
-          onClick={() => chooseLaunch(currentAgentId, undefined)}
-        >
-          <div className="min-w-0">
-            <div className="truncate text-xs">{t("Use configured default")}</div>
-            <div className="truncate text-[11px] leading-4 text-muted-foreground">
-              {targetLabel}
-            </div>
-          </div>
-          {!selectedProfileId && (
-            <span className="ml-auto text-[11px] text-muted-foreground">
-              {t("current")}
-            </span>
-          )}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator className={COMPACT_SEPARATOR} />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger className={COMPACT_SUB_TRIGGER}>
             {t("Launch without profile")}
@@ -140,7 +122,7 @@ export function ChatLaunchSelector({
                 className={`flex items-center justify-between ${COMPACT_MENU_ITEM}`}
               >
                 <span className="truncate">{agent.name}</span>
-                {currentAgentId === agent.id && selectedProfileId === DIRECT_PROFILE_ID && (
+                {currentAgentId === agent.id && activeProfileId === DIRECT_PROFILE_ID && (
                   <span className="text-[11px] text-muted-foreground">{t("current")}</span>
                 )}
               </DropdownMenuItem>
@@ -169,7 +151,7 @@ export function ChatLaunchSelector({
                         ? t("{{profile}} (proxy)", { profile: profile.label })
                         : profile.label}
                     </span>
-                    {currentAgentId === agent.id && selectedProfileId === profile.id && (
+                    {currentAgentId === agent.id && activeProfileId === profile.id && (
                       <span className="text-[11px] text-muted-foreground">{t("current")}</span>
                     )}
                   </DropdownMenuItem>
@@ -182,7 +164,7 @@ export function ChatLaunchSelector({
           agents.map((agent) => (
             <DropdownMenuItem
               key={agent.id}
-              onClick={() => chooseLaunch(agent.id, undefined)}
+              onClick={() => chooseLaunch(agent.id, DIRECT_PROFILE_ID)}
               className={`flex items-center justify-between ${COMPACT_MENU_ITEM}`}
             >
               <span className="truncate">{agent.name}</span>
