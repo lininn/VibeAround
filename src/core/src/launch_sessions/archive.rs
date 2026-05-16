@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
@@ -38,21 +39,17 @@ impl ArchiveStore {
         });
     }
 
-    fn remove(&mut self, agent_id: &str, workspace: &str, session_id: &str) {
-        self.sessions.retain(|session| {
-            !(session.agent_id == agent_id
-                && session.workspace == workspace
-                && session.session_id == session_id)
-        });
+    fn remove(&mut self, agent_id: &str, session_id: &str) {
+        self.sessions
+            .retain(|session| !(session.agent_id == agent_id && session.session_id == session_id));
     }
 }
 
-pub(super) fn archived_session_keys(agent_id: &str, workspace: &Path) -> Vec<String> {
-    let workspace = workspace_key(workspace);
+pub(super) fn archived_session_ids(agent_id: &str) -> HashSet<String> {
     read_store()
         .sessions
         .into_iter()
-        .filter(|session| session.agent_id == agent_id && session.workspace == workspace)
+        .filter(|session| session.agent_id == agent_id)
         .map(|session| session.session_id)
         .collect()
 }
@@ -61,8 +58,12 @@ pub fn archive_session(agent_id: &str, workspace: &Path, session_id: &str) -> Re
     mutate_store(|store| store.insert(agent_id, &workspace_key(workspace), session_id))
 }
 
-pub fn unarchive_session(agent_id: &str, workspace: &Path, session_id: &str) -> Result<(), String> {
-    mutate_store(|store| store.remove(agent_id, &workspace_key(workspace), session_id))
+pub fn unarchive_session(
+    agent_id: &str,
+    _workspace: &Path,
+    session_id: &str,
+) -> Result<(), String> {
+    mutate_store(|store| store.remove(agent_id, session_id))
 }
 
 fn mutate_store(mutator: impl FnOnce(&mut ArchiveStore)) -> Result<(), String> {

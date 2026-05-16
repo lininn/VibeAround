@@ -547,16 +547,13 @@ export function ChatView({
           console.warn("[ChatView] failed to delete archived session cache:", error);
         });
         setLaunchSessionGroups((prev) =>
-          prev.map((group) =>
-            group.workspace.path === session.workspace
-              ? {
-                  ...group,
-                  sessions: group.sessions.filter(
-                    (item) => item.session_id !== session.session_id,
-                  ),
-                }
-              : group,
-          ),
+          prev.map((group) => ({
+            ...group,
+            sessions: group.sessions.filter(
+              (item) =>
+                item.agent_id !== session.agent_id || item.session_id !== session.session_id,
+            ),
+          })),
         );
         setSelectedLaunchSessions((prev) => {
           if (prev[session.agent_id]?.session_id !== session.session_id) return prev;

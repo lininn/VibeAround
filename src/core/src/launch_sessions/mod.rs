@@ -53,7 +53,7 @@ pub fn list_for_agent_workspace_with_archived(
         "qwen-code" => qwen::sessions(workspace),
         _ => Vec::new(),
     };
-    let archived_session_ids = archive::archived_session_keys(agent_id, workspace);
+    let archived_session_ids = archive::archived_session_ids(agent_id);
     if !archived_session_ids.is_empty() {
         for session in &mut sessions {
             if archived_session_ids.contains(&session.session_id) {
