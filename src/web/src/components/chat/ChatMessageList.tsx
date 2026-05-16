@@ -9,7 +9,10 @@ import {
   ConversationScrollButton,
 } from "./Conversation";
 import { Message, MessageContent } from "./Message";
-import { ChatMessageParts } from "./ChatMessageParts";
+import {
+  ChatMessageParts,
+  type ChatDisplaySettings,
+} from "./ChatMessageParts";
 import type { ChatActivity, ChatMessage } from "./chatTypes";
 
 interface ChatMessageListProps {
@@ -18,13 +21,29 @@ interface ChatMessageListProps {
   agentLabel: string;
   replayLoading?: boolean;
   replayTitle?: string;
+  displaySettings: ChatDisplaySettings;
 }
 
-function ChatActivityList({ activities, hasContent }: { activities: ChatActivity[]; hasContent: boolean }) {
+function ChatActivityList({
+  activities,
+  hasContent,
+  displaySettings,
+}: {
+  activities: ChatActivity[];
+  hasContent: boolean;
+  displaySettings: ChatDisplaySettings;
+}) {
   const { t } = useI18n();
+  const filteredActivities = activities.filter((activity) =>
+    activityVisible(activity, displaySettings),
+  );
   const visibleActivities =
-    activities.length > 8 ? activities.slice(Math.max(activities.length - 6, 0)) : activities;
-  const hiddenCount = activities.length - visibleActivities.length;
+    filteredActivities.length > 8
+      ? filteredActivities.slice(Math.max(filteredActivities.length - 6, 0))
+      : filteredActivities;
+  const hiddenCount = filteredActivities.length - visibleActivities.length;
+
+  if (filteredActivities.length === 0) return null;
 
   return (
     <div
@@ -57,12 +76,40 @@ function ChatActivityList({ activities, hasContent }: { activities: ChatActivity
   );
 }
 
+function activityVisible(activity: ChatActivity, settings: ChatDisplaySettings) {
+  if (activity.kind === "thinking") return settings.showThinking;
+  if (activity.kind === "tool") return settings.showTools;
+  return true;
+}
+
+function structuredPartVisible(
+  part: NonNullable<ChatMessage["parts"]>[number],
+  settings: ChatDisplaySettings,
+) {
+  if (part.kind === "thought") return settings.showThinking;
+  if (part.kind === "tool_call") return settings.showTools;
+  return true;
+}
+
+function messageVisible(message: ChatMessage, settings: ChatDisplaySettings) {
+  if (message.role === "user") return true;
+  if (message.parts?.some((part) => structuredPartVisible(part, settings))) {
+    return true;
+  }
+  if (!message.parts?.length && message.content) return true;
+  if (message.activities?.some((activity) => activityVisible(activity, settings))) {
+    return true;
+  }
+  return Boolean(message.progress && settings.showTools);
+}
+
 export function ChatMessageList({
   messages,
   streaming,
   agentLabel,
   replayLoading = false,
   replayTitle,
+  displaySettings,
 }: ChatMessageListProps) {
   const { t } = useI18n();
 
@@ -95,6 +142,16 @@ export function ChatMessageList({
             messages.map((msg, i) => {
               const hasStructuredParts = Boolean(msg.parts?.length);
               const isLastStreamingMessage = streaming && i === messages.length - 1;
+              const showWorkingIndicator =
+                msg.role === "assistant" &&
+                isLastStreamingMessage &&
+                !msg.content &&
+                !msg.progress &&
+                !msg.activities?.length &&
+                !msg.parts?.length;
+              if (!messageVisible(msg, displaySettings) && !showWorkingIndicator) {
+                return null;
+              }
               return (
                 <Message key={i} from={msg.role}>
                   <MessageContent
@@ -106,29 +163,26 @@ export function ChatMessageList({
                           : "w-full px-0 py-1 text-foreground"
                     }
                   >
-                    {msg.role === "assistant" &&
-                      isLastStreamingMessage &&
-                      !msg.content &&
-                      !msg.progress &&
-                      !msg.activities?.length &&
-                      !msg.parts?.length && (
-                        <span className="font-mono text-xs text-primary/80 animate-pulse">
-                          {t("AI is working…")}
-                        </span>
-                      )}
+                    {showWorkingIndicator && (
+                      <span className="font-mono text-xs text-primary/80 animate-pulse">
+                        {t("AI is working…")}
+                      </span>
+                    )}
                     {msg.role === "assistant" &&
                     !hasStructuredParts &&
                     msg.activities?.length ? (
                       <ChatActivityList
                         activities={msg.activities}
                         hasContent={Boolean(msg.content)}
+                        displaySettings={displaySettings}
                       />
                     ) : null}
                     <ChatMessageParts
                       message={msg}
                       isStreaming={isLastStreamingMessage}
+                      displaySettings={displaySettings}
                     />
-                    {msg.progress && (
+                    {msg.progress && displaySettings.showTools && (
                       <span className="font-mono text-xs text-muted-foreground/60 animate-pulse">
                         {msg.progress}
                       </span>

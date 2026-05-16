@@ -8,9 +8,15 @@ import type {
   ChatMessagePart,
 } from "./chatTypes";
 
+export interface ChatDisplaySettings {
+  showThinking: boolean;
+  showTools: boolean;
+}
+
 interface ChatMessagePartsProps {
   message: ChatMessage;
   isStreaming?: boolean;
+  displaySettings: ChatDisplaySettings;
 }
 
 function renderPart(
@@ -37,10 +43,22 @@ function renderPart(
   }
 }
 
-export function ChatMessageParts({ message, isStreaming = false }: ChatMessagePartsProps) {
-  const parts = message.parts ?? [];
+function partVisible(part: ChatMessagePart, settings: ChatDisplaySettings) {
+  if (part.kind === "thought") return settings.showThinking;
+  if (part.kind === "tool_call") return settings.showTools;
+  return true;
+}
 
-  if (parts.length === 0) {
+export function ChatMessageParts({
+  message,
+  isStreaming = false,
+  displaySettings,
+}: ChatMessagePartsProps) {
+  const parts = (message.parts ?? []).filter((part) =>
+    partVisible(part, displaySettings),
+  );
+
+  if ((message.parts ?? []).length === 0) {
     if (message.role === "user") {
       return <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>;
     }
@@ -49,6 +67,8 @@ export function ChatMessageParts({ message, isStreaming = false }: ChatMessagePa
     }
     return <MessageResponse content={message.content} isStreaming={isStreaming} />;
   }
+
+  if (parts.length === 0) return null;
 
   return (
     <div className="flex min-w-0 flex-col gap-3">

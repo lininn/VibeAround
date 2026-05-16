@@ -15,7 +15,9 @@ import {
   createWorkspace,
   getLaunchSessions,
   getProfiles,
+  getWebSettings,
   getWorkspaces,
+  updateWebSettings,
 } from "@/api/sessions";
 import { getAgentDisplayName } from "@/lib/agents";
 import type { ChatRuntimeStatus } from "@/lib/dashboard-types";
@@ -25,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChatInput } from "./ChatInput";
 import { deleteCachedChatSession } from "./chatSessionCache";
+import { ChatSettingsMenu } from "./ChatSettingsMenu";
 import {
   ChatSessionSidebar,
   type ChatSessionWorkspaceGroup,
@@ -44,6 +47,10 @@ interface ChatViewProps {
 
 const DIRECT_PROFILE_ID = "direct";
 const LAUNCH_SELECTION_STORAGE_KEY = "vibearound.webChat.launchSelection";
+const DEFAULT_WEB_SETTINGS = {
+  show_thinking: false,
+  show_tool_use: false,
+};
 
 interface StoredLaunchSelection {
   agentId?: string;
@@ -105,6 +112,8 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
   const [workspaceCreating, setWorkspaceCreating] = useState(false);
   const [workspaceCreateError, setWorkspaceCreateError] = useState<string | undefined>();
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [webSettings, setWebSettings] = useState(DEFAULT_WEB_SETTINGS);
+  const [webSettingsSaving, setWebSettingsSaving] = useState(false);
   const [sessionSelections, setSessionSelections] = useState<Record<string, ChatSessionSelection>>(
     {},
   );
@@ -203,6 +212,13 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
       : agentLabel;
   const showNewChatHome = messages.length === 0 && sessionSelection.kind !== "resume";
   const sidebarSessionsLoading = workspacesLoading || sessionsLoading;
+  const displaySettings = useMemo(
+    () => ({
+      showThinking: webSettings.show_thinking,
+      showTools: webSettings.show_tool_use,
+    }),
+    [webSettings],
+  );
 
   useEffect(() => {
     onStatusChange?.(chatStatus);
@@ -259,6 +275,23 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
       })
       .finally(() => {
         if (!cancelled) setWorkspacesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getWebSettings()
+      .then((settings) => {
+        if (!cancelled) setWebSettings(settings);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.warn("[ChatView] failed to load web settings:", error);
+        }
       });
 
     return () => {
@@ -505,6 +538,24 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
     [clearConversationView, selectedAgent, sessionSelection],
   );
 
+  const handleWebSettingsChange = useCallback(
+    async (patch: Partial<typeof DEFAULT_WEB_SETTINGS>) => {
+      const previous = webSettings;
+      setWebSettings((current) => ({ ...current, ...patch }));
+      setWebSettingsSaving(true);
+      try {
+        const saved = await updateWebSettings(patch);
+        setWebSettings(saved);
+      } catch (error) {
+        console.warn("[ChatView] failed to update web settings:", error);
+        setWebSettings(previous);
+      } finally {
+        setWebSettingsSaving(false);
+      }
+    },
+    [webSettings],
+  );
+
   const handleSubmit = useCallback(() => {
     const text = input.trim();
     if (!text) return;
@@ -643,6 +694,11 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
               {statusIcon}
               <span className="hidden sm:inline">{statusLabel}</span>
             </div>
+            <ChatSettingsMenu
+              settings={webSettings}
+              saving={webSettingsSaving}
+              onChange={handleWebSettingsChange}
+            />
             <Button
               type="button"
               variant="ghost"
@@ -707,6 +763,7 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
               agentLabel={agentLabel}
               replayLoading={replayLoading}
               replayTitle={resumeReplay?.title}
+              displaySettings={displaySettings}
             />
 
             <PendingPermissions
