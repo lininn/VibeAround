@@ -50,6 +50,10 @@ interface ChatViewProps {
 
 const DIRECT_PROFILE_ID = "direct";
 const LAUNCH_SELECTION_STORAGE_KEY = "vibearound.webChat.launchSelection";
+const SESSION_SIDEBAR_WIDTH_STORAGE_KEY = "vibearound.webChat.sessionSidebarWidth";
+const SESSION_SIDEBAR_DEFAULT_WIDTH = 256;
+const SESSION_SIDEBAR_MIN_WIDTH = 224;
+const SESSION_SIDEBAR_MAX_WIDTH = 420;
 
 interface StoredLaunchSelection {
   agentId?: string;
@@ -76,6 +80,33 @@ function writeStoredLaunchSelection(selection: Required<StoredLaunchSelection>) 
     window.localStorage.setItem(LAUNCH_SELECTION_STORAGE_KEY, JSON.stringify(selection));
   } catch {
     // Ignore storage failures; the picker still works for this session.
+  }
+}
+
+function clampSessionSidebarWidth(width: number) {
+  return Math.min(
+    SESSION_SIDEBAR_MAX_WIDTH,
+    Math.max(SESSION_SIDEBAR_MIN_WIDTH, Math.round(width)),
+  );
+}
+
+function readStoredSessionSidebarWidth() {
+  if (typeof window === "undefined") return SESSION_SIDEBAR_DEFAULT_WIDTH;
+  const raw = window.localStorage.getItem(SESSION_SIDEBAR_WIDTH_STORAGE_KEY);
+  const parsed = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(parsed)
+    ? clampSessionSidebarWidth(parsed)
+    : SESSION_SIDEBAR_DEFAULT_WIDTH;
+}
+
+function writeStoredSessionSidebarWidth(width: number) {
+  try {
+    window.localStorage.setItem(
+      SESSION_SIDEBAR_WIDTH_STORAGE_KEY,
+      String(clampSessionSidebarWidth(width)),
+    );
+  } catch {
+    // Width persistence is cosmetic; dragging should still work.
   }
 }
 
@@ -123,6 +154,9 @@ export function ChatView({
   >({});
   const [archivingSessionId, setArchivingSessionId] = useState<string | undefined>();
   const [showSessionSidebar, setShowSessionSidebar] = useState(true);
+  const [sessionSidebarWidth, setSessionSidebarWidth] = useState(
+    readStoredSessionSidebarWidth,
+  );
   const [mobileSessionSidebarOpen, setMobileSessionSidebarOpen] = useState(false);
 
   const handleSocketAgentSelected = useCallback(
@@ -469,6 +503,37 @@ export function ChatView({
     [handleSessionChange],
   );
 
+  const handleSessionSidebarResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      const startX = event.clientX;
+      const startWidth = sessionSidebarWidth;
+      let nextWidth = startWidth;
+      const previousCursor = document.body.style.cursor;
+      const previousUserSelect = document.body.style.userSelect;
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        nextWidth = clampSessionSidebarWidth(
+          startWidth + moveEvent.clientX - startX,
+        );
+        setSessionSidebarWidth(nextWidth);
+      };
+      const handlePointerUp = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", handlePointerUp);
+        document.body.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
+        writeStoredSessionSidebarWidth(nextWidth);
+      };
+
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", handlePointerUp, { once: true });
+    },
+    [sessionSidebarWidth],
+  );
+
   const handleArchiveSession = useCallback(
     async (session: LaunchSessionInfo) => {
       setArchivingSessionId(session.session_id);
@@ -554,18 +619,32 @@ export function ChatView({
   return (
     <div className="flex h-full overflow-hidden bg-background">
       {showSessionSidebar && (
-        <ChatSessionSidebar
-          workspaceGroups={launchSessionGroups}
-          agents={agents}
-          selectedAgentFilter={sidebarAgentId}
-          sessionsLoading={sidebarSessionsLoading}
-          loadingSessionId={resumeReplay?.sessionId}
-          archivingSessionId={archivingSessionId}
-          sessionSelection={sidebarSessionSelection}
-          onAgentFilterChange={handleSidebarAgentFilterChange}
-          onSessionChange={handleSessionChange}
-          onArchiveSession={handleArchiveSession}
-        />
+        <div
+          className="relative hidden h-full shrink-0 md:flex"
+          style={{ width: sessionSidebarWidth }}
+        >
+          <ChatSessionSidebar
+            workspaceGroups={launchSessionGroups}
+            agents={agents}
+            selectedAgentFilter={sidebarAgentId}
+            className="flex w-full"
+            style={{ width: "100%" }}
+            sessionsLoading={sidebarSessionsLoading}
+            loadingSessionId={resumeReplay?.sessionId}
+            archivingSessionId={archivingSessionId}
+            sessionSelection={sidebarSessionSelection}
+            onAgentFilterChange={handleSidebarAgentFilterChange}
+            onSessionChange={handleSessionChange}
+            onArchiveSession={handleArchiveSession}
+          />
+          <button
+            type="button"
+            className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none rounded-sm bg-transparent transition-colors hover:bg-primary/25 focus-visible:bg-primary/25 focus-visible:outline-none"
+            aria-label={t("Resize sessions")}
+            title={t("Resize sessions")}
+            onPointerDown={handleSessionSidebarResizeStart}
+          />
+        </div>
       )}
       {mobileSessionSidebarOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
