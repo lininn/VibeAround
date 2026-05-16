@@ -1,11 +1,14 @@
+use axum::body::Body;
 use axum::body::Bytes;
-use axum::extract::Query;
+use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::api_types::ChatUploadResponse;
+use crate::web_server::AppState;
 
 const DEFAULT_UPLOAD_MIME_TYPE: &str = "application/octet-stream";
 
@@ -13,6 +16,15 @@ const DEFAULT_UPLOAD_MIME_TYPE: &str = "application/octet-stream";
 pub struct UploadChatFileQuery {
     filename: Option<String>,
     mime_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DownloadChatFileQuery {
+    uri: String,
+    name: Option<String>,
+    mime_type: Option<String>,
+    #[serde(default)]
+    inline: bool,
 }
 
 pub async fn upload_chat_file_handler(
@@ -85,6 +97,122 @@ pub async fn upload_chat_file_handler(
     }))
 }
 
+pub async fn download_chat_file_handler(
+    State(state): State<AppState>,
+    Query(query): Query<DownloadChatFileQuery>,
+) -> Result<Response, (StatusCode, String)> {
+    let uri = query.uri.trim();
+    if uri.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "missing file uri".to_string()));
+    }
+
+    let file_name = query
+        .name
+        .as_deref()
+        .map(safe_file_name)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| file_name_from_uri(uri));
+    let content_type = query
+        .mime_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    if uri.starts_with("http://") || uri.starts_with("https://") {
+        return proxy_remote_file(&state, uri, &file_name, content_type, query.inline).await;
+    }
+
+    let path = if let Some(path) = uri.strip_prefix("file://") {
+        std::path::PathBuf::from(percent_decode(path))
+    } else if uri.starts_with('/') {
+        std::path::PathBuf::from(uri)
+    } else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "unsupported file uri scheme".to_string(),
+        ));
+    };
+
+    let bytes = tokio::fs::read(&path).await.map_err(|error| {
+        (
+            StatusCode::NOT_FOUND,
+            format!("failed to read file {}: {error}", path.display()),
+        )
+    })?;
+    let content_type = content_type
+        .or_else(|| mime_for_file_name(&file_name).map(ToOwned::to_owned))
+        .unwrap_or_else(|| DEFAULT_UPLOAD_MIME_TYPE.to_string());
+    Ok(file_response(
+        bytes.into(),
+        &file_name,
+        &content_type,
+        query.inline,
+    ))
+}
+
+async fn proxy_remote_file(
+    state: &AppState,
+    uri: &str,
+    file_name: &str,
+    content_type: Option<String>,
+    inline: bool,
+) -> Result<Response, (StatusCode, String)> {
+    let upstream = state
+        .preview_client
+        .get(uri)
+        .send()
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("upstream request failed: {error}"),
+            )
+        })?;
+    if !upstream.status().is_success() {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("upstream returned {}", upstream.status()),
+        ));
+    }
+    let content_type = content_type
+        .or_else(|| {
+            upstream
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .map(ToOwned::to_owned)
+        })
+        .or_else(|| mime_for_file_name(file_name).map(ToOwned::to_owned))
+        .unwrap_or_else(|| DEFAULT_UPLOAD_MIME_TYPE.to_string());
+    let bytes = upstream.bytes().await.map_err(|error| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("failed to read upstream body: {error}"),
+        )
+    })?;
+    Ok(file_response(bytes, file_name, &content_type, inline))
+}
+
+fn file_response(bytes: Bytes, file_name: &str, content_type: &str, inline: bool) -> Response {
+    let disposition = if inline { "inline" } else { "attachment" };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(
+            header::CONTENT_DISPOSITION,
+            content_disposition(disposition, file_name),
+        )
+        .body(Body::from(bytes))
+        .unwrap_or_else(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to build download response: {error}"),
+            )
+                .into_response()
+        })
+}
+
 fn safe_file_name(value: &str) -> String {
     let base = value
         .rsplit(['/', '\\'])
@@ -107,9 +235,106 @@ fn safe_file_name(value: &str) -> String {
     }
 }
 
+fn file_name_from_uri(uri: &str) -> String {
+    let without_query = uri.split(['?', '#']).next().unwrap_or(uri);
+    let decoded = percent_decode(without_query);
+    decoded
+        .rsplit(['/', '\\'])
+        .find(|part| !part.is_empty())
+        .map(safe_file_name)
+        .filter(|part| !part.is_empty())
+        .unwrap_or_else(|| "download".to_string())
+}
+
+fn mime_for_file_name(file_name: &str) -> Option<&'static str> {
+    let ext = file_name.rsplit('.').next()?.to_ascii_lowercase();
+    match ext.as_str() {
+        "txt" | "log" => Some("text/plain; charset=utf-8"),
+        "md" | "markdown" => Some("text/markdown; charset=utf-8"),
+        "json" => Some("application/json"),
+        "csv" => Some("text/csv; charset=utf-8"),
+        "html" | "htm" => Some("text/html; charset=utf-8"),
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "svg" => Some("image/svg+xml"),
+        "pdf" => Some("application/pdf"),
+        "mp3" => Some("audio/mpeg"),
+        "wav" => Some("audio/wav"),
+        "mp4" => Some("video/mp4"),
+        _ => None,
+    }
+}
+
+fn content_disposition(disposition: &str, file_name: &str) -> String {
+    let fallback = ascii_file_name(file_name);
+    format!(
+        "{disposition}; filename=\"{fallback}\"; filename*=UTF-8''{}",
+        percent_encode(file_name)
+    )
+}
+
+fn ascii_file_name(file_name: &str) -> String {
+    let out = file_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if out.is_empty() {
+        "download".to_string()
+    } else {
+        out
+    }
+}
+
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(h), Some(l)) = (from_hex(bytes[i + 1]), from_hex(bytes[i + 2])) {
+                out.push((h << 4) | l);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(out).unwrap_or_else(|_| input.to_string())
+}
+
+fn percent_encode(input: &str) -> String {
+    let mut out = String::new();
+    for byte in input.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(*byte, b'.' | b'-' | b'_') {
+            out.push(*byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+fn from_hex(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::safe_file_name;
+    use super::{content_disposition, safe_file_name};
 
     #[test]
     fn strips_path_segments_from_upload_names() {
@@ -121,5 +346,13 @@ mod tests {
     fn falls_back_for_empty_upload_names() {
         assert_eq!(safe_file_name("..."), "attachment");
         assert_eq!(safe_file_name(""), "attachment");
+    }
+
+    #[test]
+    fn builds_rfc5987_content_disposition() {
+        assert_eq!(
+            content_disposition("attachment", "报告.md"),
+            "attachment; filename=\"__.md\"; filename*=UTF-8''%E6%8A%A5%E5%91%8A.md"
+        );
     }
 }

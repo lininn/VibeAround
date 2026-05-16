@@ -2,13 +2,18 @@
 
 import { Link } from "lucide-react";
 import type { ContentBlock } from "@agentclientprotocol/sdk";
+import { proxiedFileUrl } from "./contentUtils";
 
 type ResourceLinkBlock = Extract<ContentBlock, { type: "resource_link" }>;
 
 export function ResourceLinkRenderer({ block }: { block: ResourceLinkBlock }) {
+  const href = proxiedFileUrl(block.uri, {
+    name: block.name,
+    mimeType: block.mimeType,
+  });
   return (
     <a
-      href={block.uri}
+      href={href}
       target="_blank"
       rel="noreferrer"
       className="flex min-w-0 items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-sm hover:bg-muted/35"

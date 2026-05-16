@@ -12,7 +12,7 @@ mod sessions;
 mod settings;
 mod workspaces;
 
-pub use files::upload_chat_file_handler;
+pub use files::{download_chat_file_handler, upload_chat_file_handler};
 pub use previews::{delete_preview_handler, list_previews_handler};
 pub use profiles::list_profiles_handler;
 pub use runtime::{

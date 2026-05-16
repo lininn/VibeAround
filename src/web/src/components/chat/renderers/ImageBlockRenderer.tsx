@@ -2,18 +2,25 @@
 
 import { Image as ImageIcon } from "lucide-react";
 import { useI18n } from "@va/i18n";
-import { dataUrl, fileNameFromUri } from "./contentUtils";
+import { dataUrl, fileNameFromUri, proxiedFileUrl } from "./contentUtils";
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 
 type ImageBlock = Extract<ContentBlock, { type: "image" }>;
 
 export function ImageBlockRenderer({ block }: { block: ImageBlock }) {
   const { t } = useI18n();
+  const imageSrc = block.uri
+    ? proxiedFileUrl(block.uri, {
+        name: fileNameFromUri(block.uri),
+        mimeType: block.mimeType,
+        inline: true,
+      })
+    : dataUrl(block.mimeType, block.data);
 
   return (
     <figure className="overflow-hidden rounded-md border border-border/70 bg-muted/20">
       <img
-        src={block.uri ?? dataUrl(block.mimeType, block.data)}
+        src={imageSrc}
         alt={block.uri ? fileNameFromUri(block.uri) : t("Image")}
         className="max-h-[28rem] w-full object-contain"
         loading="lazy"
