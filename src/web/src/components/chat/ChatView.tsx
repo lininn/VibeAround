@@ -594,6 +594,11 @@ export function ChatView({
 
   const handleFilesSelected = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
+    const rejected = files.find((file) => !isAllowedAttachment(file));
+    if (rejected) {
+      setAttachmentError(describeRejection(rejected, t));
+      return;
+    }
     setAttachmentsUploading(true);
     setAttachmentError(undefined);
     try {
@@ -882,4 +887,31 @@ export function ChatView({
       </div>
     </div>
   );
+}
+
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+const ALLOWED_ATTACHMENT_PREFIXES = ["image/", "text/"];
+const ALLOWED_ATTACHMENT_EXACT = ["application/pdf", "application/json"];
+
+function isAllowedAttachment(file: File): boolean {
+  if (file.size > MAX_ATTACHMENT_BYTES) return false;
+  const mime = (file.type ?? "").trim().toLowerCase();
+  if (!mime) return true; // server resolves from filename extension
+  return (
+    ALLOWED_ATTACHMENT_PREFIXES.some((prefix) => mime.startsWith(prefix)) ||
+    ALLOWED_ATTACHMENT_EXACT.includes(mime)
+  );
+}
+
+function describeRejection(
+  file: File,
+  t: (key: string, vars?: Record<string, string | number | null | undefined>) => string,
+): string {
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    return t("{{name}} exceeds the {{limit}} MB upload limit.", {
+      name: file.name,
+      limit: MAX_ATTACHMENT_BYTES / (1024 * 1024),
+    });
+  }
+  return t("{{name}} file type is not allowed.", { name: file.name });
 }

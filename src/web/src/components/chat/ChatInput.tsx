@@ -185,6 +185,7 @@ export function ChatInput({
                   ref={fileInputRef}
                   type="file"
                   multiple
+                  accept="image/*,text/*,application/pdf,application/json"
                   className="hidden"
                   onChange={handleFileChange}
                 />

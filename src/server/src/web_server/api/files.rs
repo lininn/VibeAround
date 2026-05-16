@@ -12,6 +12,17 @@ use crate::web_server::AppState;
 
 const DEFAULT_UPLOAD_MIME_TYPE: &str = "application/octet-stream";
 
+/// Hard cap on a single chat upload. Larger payloads are rejected with 413
+/// before they touch disk. The route also carries `DefaultBodyLimit::max`
+/// at a higher value as a coarse safety net.
+const MAX_UPLOAD_SIZE_BYTES: usize = 20 * 1024 * 1024;
+
+/// Allowed top-level MIME types for chat uploads. Specific exact types
+/// outside these prefixes are listed in `ALLOWED_EXACT_MIME_TYPES`.
+const ALLOWED_MIME_PREFIXES: &[&str] = &["image/", "text/"];
+
+const ALLOWED_EXACT_MIME_TYPES: &[&str] = &["application/pdf", "application/json"];
+
 #[derive(Debug, Deserialize)]
 pub struct UploadChatFileQuery {
     filename: Option<String>,
@@ -39,6 +50,16 @@ pub async fn upload_chat_file_handler(
         ));
     }
 
+    if body.len() > MAX_UPLOAD_SIZE_BYTES {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "uploaded file exceeds {} MB limit",
+                MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)
+            ),
+        ));
+    }
+
     let id = Uuid::new_v4().to_string();
     let name = safe_file_name(
         query
@@ -57,8 +78,16 @@ pub async fn upload_chat_file_handler(
         })
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(DEFAULT_UPLOAD_MIME_TYPE)
-        .to_string();
+        .map(ToOwned::to_owned)
+        .or_else(|| mime_for_file_name(&name).map(ToOwned::to_owned))
+        .unwrap_or_else(|| DEFAULT_UPLOAD_MIME_TYPE.to_string());
+
+    if !is_allowed_upload_mime(&mime_type) {
+        return Err((
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            format!("file type {mime_type} is not allowed"),
+        ));
+    }
 
     let upload_dir = common::config::data_dir()
         .join(".cache")
@@ -213,6 +242,27 @@ fn file_response(bytes: Bytes, file_name: &str, content_type: &str, inline: bool
         })
 }
 
+fn is_allowed_upload_mime(mime: &str) -> bool {
+    let normalized = mime
+        .split(';')
+        .next()
+        .map(str::trim)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if normalized.is_empty() {
+        return false;
+    }
+    if ALLOWED_MIME_PREFIXES
+        .iter()
+        .any(|prefix| normalized.starts_with(prefix))
+    {
+        return true;
+    }
+    ALLOWED_EXACT_MIME_TYPES
+        .iter()
+        .any(|allowed| normalized == *allowed)
+}
+
 fn safe_file_name(value: &str) -> String {
     let base = value
         .rsplit(['/', '\\'])
@@ -334,7 +384,7 @@ fn from_hex(c: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{content_disposition, safe_file_name};
+    use super::{content_disposition, is_allowed_upload_mime, safe_file_name};
 
     #[test]
     fn strips_path_segments_from_upload_names() {
@@ -346,6 +396,25 @@ mod tests {
     fn falls_back_for_empty_upload_names() {
         assert_eq!(safe_file_name("..."), "attachment");
         assert_eq!(safe_file_name(""), "attachment");
+    }
+
+    #[test]
+    fn allowed_mime_types_pass_whitelist() {
+        assert!(is_allowed_upload_mime("image/png"));
+        assert!(is_allowed_upload_mime("image/jpeg"));
+        assert!(is_allowed_upload_mime("image/svg+xml"));
+        assert!(is_allowed_upload_mime("text/plain; charset=utf-8"));
+        assert!(is_allowed_upload_mime("text/markdown"));
+        assert!(is_allowed_upload_mime("application/pdf"));
+        assert!(is_allowed_upload_mime("application/json"));
+    }
+
+    #[test]
+    fn disallowed_mime_types_blocked() {
+        assert!(!is_allowed_upload_mime("application/x-msdownload"));
+        assert!(!is_allowed_upload_mime("application/octet-stream"));
+        assert!(!is_allowed_upload_mime("video/mp4"));
+        assert!(!is_allowed_upload_mime(""));
     }
 
     #[test]
