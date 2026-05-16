@@ -10,7 +10,13 @@ import {
   Wifi,
   WifiOff,
 } from "lucide-react";
-import { createWorkspace, getLaunchSessions, getProfiles, getWorkspaces } from "@/api/sessions";
+import {
+  archiveLaunchSession,
+  createWorkspace,
+  getLaunchSessions,
+  getProfiles,
+  getWorkspaces,
+} from "@/api/sessions";
 import { getAgentDisplayName } from "@/lib/agents";
 import type { ChatRuntimeStatus } from "@/lib/dashboard-types";
 import type { LaunchSessionInfo, ProfileLaunchOption, WorkspaceItem } from "@va/client";
@@ -104,6 +110,7 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
   const [selectedLaunchSessions, setSelectedLaunchSessions] = useState<
     Record<string, LaunchSessionInfo | undefined>
   >({});
+  const [archivingSessionId, setArchivingSessionId] = useState<string | undefined>();
   const [showSessionSidebar, setShowSessionSidebar] = useState(true);
   const [mobileSessionSidebarOpen, setMobileSessionSidebarOpen] = useState(false);
 
@@ -444,6 +451,52 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
     [handleSessionChange],
   );
 
+  const handleArchiveSession = useCallback(
+    async (session: LaunchSessionInfo) => {
+      setArchivingSessionId(session.session_id);
+      try {
+        await archiveLaunchSession(session.agent_id, session.session_id, session.workspace);
+        setLaunchSessionGroups((prev) =>
+          prev.map((group) =>
+            group.workspace.path === session.workspace
+              ? {
+                  ...group,
+                  sessions: group.sessions.filter(
+                    (item) => item.session_id !== session.session_id,
+                  ),
+                }
+              : group,
+          ),
+        );
+        setSelectedLaunchSessions((prev) => {
+          if (prev[session.agent_id]?.session_id !== session.session_id) return prev;
+          const next = { ...prev };
+          delete next[session.agent_id];
+          return next;
+        });
+        setSessionSelections((prev) => {
+          const current = prev[session.agent_id];
+          if (current?.kind !== "resume" || current.sessionId !== session.session_id) {
+            return prev;
+          }
+          return { ...prev, [session.agent_id]: { kind: "new" } };
+        });
+        if (
+          selectedAgent === session.agent_id &&
+          sessionSelection.kind === "resume" &&
+          sessionSelection.sessionId === session.session_id
+        ) {
+          clearConversationView({ abortReplay: true });
+        }
+      } catch (error) {
+        console.warn("[ChatView] failed to archive launch session:", error);
+      } finally {
+        setArchivingSessionId(undefined);
+      }
+    },
+    [clearConversationView, selectedAgent, sessionSelection],
+  );
+
   const handleSubmit = useCallback(() => {
     const text = input.trim();
     if (!text) return;
@@ -482,9 +535,11 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
           selectedAgentFilter={sidebarAgentId}
           sessionsLoading={sidebarSessionsLoading}
           loadingSessionId={resumeReplay?.sessionId}
+          archivingSessionId={archivingSessionId}
           sessionSelection={sidebarSessionSelection}
           onAgentFilterChange={handleSidebarAgentFilterChange}
           onSessionChange={handleSessionChange}
+          onArchiveSession={handleArchiveSession}
         />
       )}
       {mobileSessionSidebarOpen && (
@@ -503,9 +558,11 @@ export function ChatView({ onStatusChange, onOpenAppSidebar }: ChatViewProps) {
               variant="mobile"
               sessionsLoading={sidebarSessionsLoading}
               loadingSessionId={resumeReplay?.sessionId}
+              archivingSessionId={archivingSessionId}
               sessionSelection={sidebarSessionSelection}
               onAgentFilterChange={handleSidebarAgentFilterChange}
               onSessionChange={handleMobileSessionChange}
+              onArchiveSession={handleArchiveSession}
             />
           </div>
         </div>

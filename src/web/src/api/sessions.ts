@@ -99,6 +99,38 @@ export async function getLaunchSessions(
   return LaunchSessionListSchema.parse(await res.json());
 }
 
+export async function archiveLaunchSession(
+  agentId: string,
+  sessionId: string,
+  workspacePath: string,
+): Promise<void> {
+  const path = `/api/agents/${encodeURIComponent(agentId)}/launch-sessions/${encodeURIComponent(
+    sessionId,
+  )}/archive`;
+  const res = await fetch(`${browserBaseUrl()}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workspace_path: workspacePath }),
+  });
+  if (!res.ok && res.status !== 204) throw new Error(`POST ${path}: ${res.status}`);
+}
+
+export async function unarchiveLaunchSession(
+  agentId: string,
+  sessionId: string,
+  workspacePath: string,
+): Promise<void> {
+  const path = `/api/agents/${encodeURIComponent(agentId)}/launch-sessions/${encodeURIComponent(
+    sessionId,
+  )}/archive`;
+  const res = await fetch(`${browserBaseUrl()}${path}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workspace_path: workspacePath }),
+  });
+  if (!res.ok && res.status !== 204) throw new Error(`DELETE ${path}: ${res.status}`);
+}
+
 export async function createSession(body: CreateSessionBody): Promise<CreateSessionResponse> {
   const res = await fetch(`${browserBaseUrl()}/api/sessions`, {
     method: "POST",

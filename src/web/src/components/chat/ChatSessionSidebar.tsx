@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import {
+  Archive,
   ChevronDown,
   ChevronRight,
   Folder,
@@ -29,9 +30,11 @@ interface ChatSessionSidebarProps {
   variant?: "desktop" | "mobile";
   sessionsLoading?: boolean;
   loadingSessionId?: string;
+  archivingSessionId?: string;
   sessionSelection: ChatSessionSelection;
   onAgentFilterChange: (agentId: string) => void;
   onSessionChange: (selection: ChatSessionSelection, session?: LaunchSessionInfo) => void;
+  onArchiveSession: (session: LaunchSessionInfo) => void;
 }
 
 function formatSessionUpdatedAt(updatedAt: number) {
@@ -69,9 +72,11 @@ export function ChatSessionSidebar({
   variant = "desktop",
   sessionsLoading = false,
   loadingSessionId,
+  archivingSessionId,
   sessionSelection,
   onAgentFilterChange,
   onSessionChange,
+  onArchiveSession,
 }: ChatSessionSidebarProps) {
   const { t } = useI18n();
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Record<string, boolean>>({});
@@ -219,35 +224,62 @@ export function ChatSessionSidebar({
                                 sessionSelection.kind === "resume" &&
                                 sessionSelection.sessionId === session.session_id;
                               const loading = loadingSessionId === session.session_id;
+                              const archiving = archivingSessionId === session.session_id;
                               return (
-                                <button
+                                <div
                                   key={session.session_id}
-                                  type="button"
-                                  className={sessionButtonClass(active)}
-                                  aria-busy={loading}
-                                  onClick={() =>
-                                    onSessionChange(
-                                      {
-                                        kind: "resume",
-                                        sessionId: session.session_id,
-                                      },
-                                      session,
-                                    )
-                                  }
+                                  className="group/session relative"
                                 >
-                                  <span className="min-w-0 flex-1">
-                                    <span className="block truncate text-foreground/90">
-                                      {session.title}
+                                  <button
+                                    type="button"
+                                    className={cn(sessionButtonClass(active), "pr-8")}
+                                    aria-busy={loading || archiving}
+                                    onClick={() =>
+                                      onSessionChange(
+                                        {
+                                          kind: "resume",
+                                          sessionId: session.session_id,
+                                        },
+                                        session,
+                                      )
+                                    }
+                                  >
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block truncate text-foreground/90">
+                                        {session.title}
+                                      </span>
+                                      <span className="block truncate text-[11px] leading-4 text-muted-foreground">
+                                        {session.short_id} -{" "}
+                                        {formatSessionUpdatedAt(session.updated_at)}
+                                      </span>
                                     </span>
-                                    <span className="block truncate text-[11px] leading-4 text-muted-foreground">
-                                      {session.short_id} -{" "}
-                                      {formatSessionUpdatedAt(session.updated_at)}
-                                    </span>
-                                  </span>
-                                  {loading && (
-                                    <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
-                                  )}
-                                </button>
+                                    {loading && (
+                                      <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      "absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/50 transition hover:bg-background/80 hover:text-foreground focus-visible:bg-background/80 focus-visible:text-foreground focus-visible:outline-none",
+                                      variant === "desktop"
+                                        ? "opacity-0 group-hover/session:opacity-100 group-focus-within/session:opacity-100"
+                                        : "opacity-100",
+                                    )}
+                                    title={t("Archive chat")}
+                                    aria-label={t("Archive chat")}
+                                    disabled={archiving}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      onArchiveSession(session);
+                                    }}
+                                  >
+                                    {archiving ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Archive className="h-3.5 w-3.5" />
+                                    )}
+                                  </button>
+                                </div>
                               );
                             })}
                             {hiddenSessionCount > 0 && (
