@@ -220,6 +220,14 @@ pub struct WorkspacesResponse {
     pub default_workspace: String,
 }
 
+/// Web transcript visibility settings, backed by
+/// `settings.json.channels.web.verbose`.
+#[derive(Debug, Clone, Serialize)]
+pub struct WebVerboseSettings {
+    pub show_thinking: bool,
+    pub show_tool_use: bool,
+}
+
 /// `POST /api/workspaces/create` response.
 #[derive(Debug, Clone, Serialize)]
 pub struct CreateWorkspaceResponse {
