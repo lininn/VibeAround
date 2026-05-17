@@ -13,13 +13,15 @@ import type { ChatToolCallPart } from "../chatTypes";
 
 function statusIcon(status: ChatToolCallPart["status"], active?: boolean) {
   if (active === true || (active === undefined && status === "in_progress")) {
-    return <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />;
+    return <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />;
   }
-  if (status === "failed") return <XCircle className="h-3.5 w-3.5 text-destructive" />;
+  if (status === "failed") {
+    return <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />;
+  }
   if (active && status === "pending") {
-    return <CircleDashed className="h-3.5 w-3.5 text-muted-foreground" />;
+    return <CircleDashed className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />;
   }
-  return <Circle className="h-3.5 w-3.5 fill-primary/20 text-primary/70" />;
+  return <Circle className="h-3.5 w-3.5 shrink-0 fill-primary/20 text-primary/70" />;
 }
 
 function displayTitle(part: ChatToolCallPart) {
@@ -98,11 +100,6 @@ export function ToolCallRenderer({ part }: { part: ChatToolCallPart }) {
         {part.toolKind && part.title !== part.toolKind && (
           <span className="shrink-0 font-mono text-[10px] uppercase text-muted-foreground/45">
             {part.toolKind}
-          </span>
-        )}
-        {hasDetails && (
-          <span className="ml-auto shrink-0 font-mono text-[10px] uppercase text-muted-foreground/40">
-            details
           </span>
         )}
       </summary>
