@@ -97,6 +97,7 @@ export function ToolCallRenderer({
     hasRichContent ||
     part.rawInput !== undefined ||
     part.rawOutput !== undefined;
+  const shouldOpen = defaultOpen ?? (active || part.status === "failed" || hasRichContent);
 
   if (part.status === "completed" && !hasRichContent) {
     const summary = (
@@ -132,7 +133,7 @@ export function ToolCallRenderer({
 
   return (
     <details
-      open={defaultOpen ?? (active || part.status === "failed" || hasRichContent)}
+      {...(shouldOpen ? { open: true } : {})}
       className="px-1 py-1"
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 text-sm">

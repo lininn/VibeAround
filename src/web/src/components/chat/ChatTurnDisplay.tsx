@@ -203,7 +203,7 @@ function renderWorkPart(
     case "thought":
       return <ThoughtRenderer part={part} />;
     case "tool_call":
-      return <ToolCallRenderer part={part} />;
+      return <ToolCallRenderer part={part} defaultOpen={false} />;
     case "plan":
       return <PlanRenderer part={part} isStreaming={isMessageStreaming && isPartStreaming} />;
   }
@@ -302,6 +302,10 @@ function LiveWorkPart({
 }) {
   if (part.kind === "tool_call") {
     return <ToolCallRenderer part={workToolCallPart(part)} defaultOpen={false} />;
+  }
+
+  if (part.kind === "thought") {
+    return <ThoughtRenderer part={part} />;
   }
 
   const label = workItemLabel({ id: part.id, kind: "part", part });
