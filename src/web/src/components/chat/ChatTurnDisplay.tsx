@@ -1,7 +1,6 @@
 "use client";
 
 import { ChevronDown, Loader2 } from "lucide-react";
-import { Fragment } from "react";
 import { useI18n } from "@va/i18n";
 import { ContentBlockRenderer } from "./renderers/ContentBlockRenderer";
 import { DiffRenderer } from "./renderers/DiffRenderer";
@@ -34,9 +33,12 @@ type ResultItem =
   | { id: string; kind: "content"; block: ContentBlock }
   | { id: string; kind: "toolContent"; item: ToolCallContent };
 
+type TurnDisplaySegment =
+  | { id: string; kind: "work"; items: WorkItem[] }
+  | { id: string; kind: "display"; item: ResultItem };
+
 type TurnDisplayModel = {
-  displayItems: ResultItem[];
-  workItems: WorkItem[];
+  segments: TurnDisplaySegment[];
 };
 
 function contentBlockHasText(block: ContentBlock) {
@@ -97,34 +99,59 @@ function workToolCallPart(part: ChatToolCallPart): ChatToolCallPart {
 
 function buildTurnDisplayModel(message: ChatMessage): TurnDisplayModel {
   const parts = message.parts ?? [];
-  const workItems: WorkItem[] = [];
-  const displayItems: ResultItem[] = [];
+  const segments: TurnDisplaySegment[] = [];
+  let pendingWorkItems: WorkItem[] = [];
+  let workSegmentIndex = 0;
+
+  const flushWorkItems = () => {
+    if (pendingWorkItems.length === 0) return;
+    segments.push({
+      id: `work-${workSegmentIndex}-${pendingWorkItems[0]?.id}`,
+      kind: "work",
+      items: pendingWorkItems,
+    });
+    pendingWorkItems = [];
+    workSegmentIndex += 1;
+  };
+
+  const pushDisplayItem = (item: ResultItem) => {
+    flushWorkItems();
+    segments.push({
+      id: `display-${item.id}`,
+      kind: "display",
+      item,
+    });
+  };
 
   parts.forEach((part) => {
     switch (part.kind) {
       case "content":
-        displayItems.push({ id: part.id, kind: "content", block: part.block });
+        pushDisplayItem({ id: part.id, kind: "content", block: part.block });
         break;
       case "tool_call": {
-        displayItems.push(...toolResultItems(part));
-        workItems.push({ id: part.id, kind: "part", part: workToolCallPart(part) });
+        pendingWorkItems.push({
+          id: part.id,
+          kind: "part",
+          part: workToolCallPart(part),
+        });
+        toolResultItems(part).forEach(pushDisplayItem);
         break;
       }
       case "thought":
       case "plan":
-        workItems.push({ id: part.id, kind: "part", part });
+        pendingWorkItems.push({ id: part.id, kind: "part", part });
         break;
     }
   });
 
   message.activities?.forEach((activity) => {
     if (parts.length === 0) {
-      workItems.push({ id: activity.id, kind: "activity", activity });
+      pendingWorkItems.push({ id: activity.id, kind: "activity", activity });
     }
   });
 
   if (message.progress) {
-    workItems.push({
+    pendingWorkItems.push({
       id: "progress",
       kind: "progress",
       text: message.progress,
@@ -132,7 +159,9 @@ function buildTurnDisplayModel(message: ChatMessage): TurnDisplayModel {
     });
   }
 
-  return { displayItems, workItems };
+  flushWorkItems();
+
+  return { segments };
 }
 
 function workItemVisible(item: WorkItem, settings: ChatDisplaySettings) {
@@ -259,41 +288,21 @@ function WorkGroup({
   );
 }
 
-function LiveWorkPart({
-  part,
-  isMessageStreaming,
-  isPartStreaming,
+function ResultBlock({
+  item,
+  isStreaming = false,
 }: {
-  part: WorkPart;
-  isMessageStreaming: boolean;
-  isPartStreaming: boolean;
+  item: ResultItem;
+  isStreaming?: boolean;
 }) {
-  if (part.kind === "tool_call") {
-    return <ToolCallRenderer part={workToolCallPart(part)} defaultOpen={false} />;
-  }
-
-  if (part.kind === "thought") {
-    return <ThoughtRenderer part={part} />;
-  }
-
-  const label = workItemLabel({ id: part.id, kind: "part", part });
-
-  return (
-    <details className="group/live-work py-1 text-muted-foreground">
-      <summary className="flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground">
-        <span className="min-w-0 truncate">{label}</span>
-        <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open/live-work:rotate-180" />
-      </summary>
-      <div className="mt-3">
-        {renderWorkPart(part, isMessageStreaming, isPartStreaming)}
-      </div>
-    </details>
-  );
-}
-
-function ResultBlock({ item }: { item: ResultItem }) {
   if (item.kind === "content") {
-    return <ContentBlockRenderer block={item.block} role="assistant" />;
+    return (
+      <ContentBlockRenderer
+        block={item.block}
+        role="assistant"
+        isStreaming={isStreaming}
+      />
+    );
   }
   if (item.item.type === "diff") {
     return <DiffRenderer diff={item.item} />;
@@ -302,100 +311,6 @@ function ResultBlock({ item }: { item: ResultItem }) {
     return <ContentBlockRenderer block={item.item.content} role="assistant" />;
   }
   return null;
-}
-
-function ChatLiveTurnDisplay({
-  message,
-  isStreaming,
-  displaySettings,
-}: {
-  message: ChatMessage;
-  isStreaming: boolean;
-  displaySettings: ChatDisplaySettings;
-}) {
-  const parts = message.parts ?? [];
-  const hasParts = parts.length > 0;
-
-  return (
-    <div className="flex min-w-0 flex-col gap-4">
-      {parts.map((part, index) => {
-        const isPartStreaming = index === parts.length - 1;
-        switch (part.kind) {
-          case "content":
-            return (
-              <ContentBlockRenderer
-                key={part.id}
-                block={part.block}
-                role="assistant"
-                isStreaming={isStreaming && isPartStreaming}
-              />
-            );
-          case "thought":
-            return displaySettings.showThinking ? (
-              <LiveWorkPart
-                key={part.id}
-                part={part}
-                isMessageStreaming={isStreaming}
-                isPartStreaming={isPartStreaming}
-              />
-            ) : null;
-          case "plan":
-            return (
-              <LiveWorkPart
-                key={part.id}
-                part={part}
-                isMessageStreaming={isStreaming}
-                isPartStreaming={isPartStreaming}
-              />
-            );
-          case "tool_call": {
-            const results = toolResultItems(part);
-            const showWork = displaySettings.showTools;
-            if (!showWork && results.length === 0) return null;
-
-            return (
-              <Fragment key={part.id}>
-                {showWork && (
-                  <LiveWorkPart
-                    part={part}
-                    isMessageStreaming={isStreaming}
-                    isPartStreaming={isPartStreaming}
-                  />
-                )}
-                {results.map((item) => (
-                  <ResultBlock key={item.id} item={item} />
-                ))}
-              </Fragment>
-            );
-          }
-        }
-      })}
-      {!hasParts &&
-        message.activities
-          ?.filter((activity) =>
-            activity.kind === "thinking"
-              ? displaySettings.showThinking
-              : displaySettings.showTools,
-          )
-          .map((activity) => (
-            <WorkActivityRow key={activity.id} activity={activity} />
-          ))}
-      {message.progress &&
-        (message.progressKind === "thinking"
-          ? displaySettings.showThinking
-          : displaySettings.showTools) && (
-          <WorkProgressRow
-            item={{
-              id: "progress",
-              kind: "progress",
-              text: message.progress,
-              progressKind: message.progressKind ?? "tool",
-            }}
-            isStreaming={isStreaming}
-          />
-        )}
-    </div>
-  );
 }
 
 export function ChatTurnDisplay({
@@ -407,37 +322,34 @@ export function ChatTurnDisplay({
   isStreaming: boolean;
   displaySettings: ChatDisplaySettings;
 }) {
-  if (isStreaming) {
-    return (
-      <ChatLiveTurnDisplay
-        message={message}
-        isStreaming={isStreaming}
-        displaySettings={displaySettings}
-      />
-    );
-  }
-
   const model = buildTurnDisplayModel(message);
-  const hasDisplayItems = model.displayItems.length > 0;
 
-  if (!hasDisplayItems && model.workItems.length === 0) {
+  if (model.segments.length === 0) {
     return null;
   }
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <WorkGroup
-        items={model.workItems}
-        isStreaming={isStreaming}
-        displaySettings={displaySettings}
-      />
-      {model.displayItems.length > 0 && (
-        <div className="flex min-w-0 flex-col gap-4">
-          {model.displayItems.map((item) => (
-            <ResultBlock key={item.id} item={item} />
-          ))}
-        </div>
-      )}
+      {model.segments.map((segment, index) => {
+        const isLastSegment = index === model.segments.length - 1;
+        if (segment.kind === "work") {
+          return (
+            <WorkGroup
+              key={segment.id}
+              items={segment.items}
+              isStreaming={isStreaming && isLastSegment}
+              displaySettings={displaySettings}
+            />
+          );
+        }
+        return (
+          <ResultBlock
+            key={segment.id}
+            item={segment.item}
+            isStreaming={isStreaming && isLastSegment}
+          />
+        );
+      })}
     </div>
   );
 }
