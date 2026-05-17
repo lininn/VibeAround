@@ -503,7 +503,7 @@ function ProcessDetails({
 
   return (
     <details className="group/process text-muted-foreground">
-      <summary className="flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground/75">
+      <summary className="flex cursor-pointer list-none items-center gap-2 border-b border-border/60 pb-3 text-sm text-muted-foreground/75">
         <span className="min-w-0 truncate">{t("Work details")}</span>
         <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open/process:rotate-180" />
       </summary>
