@@ -22,6 +22,10 @@ import type { ChatSessionSelection } from "./chatTypes";
 const SESSION_PREVIEW_LIMIT = 5;
 export const ALL_AGENTS_FILTER = "__all_agents__";
 
+export function chatSessionKey(session: Pick<LaunchSessionInfo, "agent_id" | "workspace" | "session_id">) {
+  return `${session.agent_id}\u0000${session.workspace}\u0000${session.session_id}`;
+}
+
 export interface ChatSessionWorkspaceGroup {
   workspace: WorkspaceItem;
   sessions: LaunchSessionInfo[];
@@ -37,6 +41,7 @@ interface ChatSessionSidebarProps {
   style?: CSSProperties;
   sessionsLoading?: boolean;
   loadingSessionId?: string;
+  loadingSessionKeys?: ReadonlySet<string>;
   archivingSessionId?: string;
   sessionSelection: ChatSessionSelection;
   onSyncSessions: () => void;
@@ -83,6 +88,7 @@ export function ChatSessionSidebar({
   style,
   sessionsLoading = false,
   loadingSessionId,
+  loadingSessionKeys,
   archivingSessionId,
   sessionSelection,
   onSyncSessions,
@@ -272,12 +278,14 @@ export function ChatSessionSidebar({
                                 sessionSelection.kind === "resume" &&
                                 activeAgentId === session.agent_id &&
                                 sessionSelection.sessionId === session.session_id;
-                              const loading = loadingSessionId === session.session_id;
+                              const loading =
+                                loadingSessionId === session.session_id ||
+                                loadingSessionKeys?.has(chatSessionKey(session));
                               const archiving = archivingSessionId === session.session_id;
                               const sessionAgentLabel = agentLabel(session.agent_id);
                               return (
                                 <div
-                                  key={`${session.agent_id}:${session.session_id}`}
+                                  key={chatSessionKey(session)}
                                   className="group/session relative"
                                 >
                                   <button
