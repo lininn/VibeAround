@@ -48,6 +48,7 @@ export const zhCNWebDashboard: Record<string, string> = {
   "What should we build in VibeAround?": "想在 VibeAround 里做点什么？",
   "New chat": "新聊天",
   Filter: "筛选",
+  ALL: "全部",
   "All agents": "全部 Agent",
   Projects: "项目",
   "No projects": "没有项目",

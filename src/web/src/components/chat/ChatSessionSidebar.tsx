@@ -6,7 +6,6 @@ import {
   Archive,
   ChevronDown,
   ChevronRight,
-  Filter,
   Folder,
   Loader2,
   PlusCircle,
@@ -152,7 +151,7 @@ export function ChatSessionSidebar({
                 <button
                   type="button"
                   className={cn(
-                    "flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
+                    "flex h-7 min-w-8 items-center justify-center rounded-md border px-2 font-mono text-[10px] font-semibold uppercase transition-colors",
                     selectedAgentFilter === ALL_AGENTS_FILTER
                       ? "border-primary/50 bg-primary/10 text-primary"
                       : "border-border/70 bg-background/70 text-muted-foreground hover:bg-muted/70 hover:text-foreground",
@@ -162,7 +161,7 @@ export function ChatSessionSidebar({
                   aria-pressed={selectedAgentFilter === ALL_AGENTS_FILTER}
                   onClick={() => onAgentFilterChange(ALL_AGENTS_FILTER)}
                 >
-                  <Filter className="h-3.5 w-3.5" />
+                  {t("ALL")}
                 </button>
                 {agents.map((agent) => {
                   const selected = agent.id === selectedAgentFilter;
