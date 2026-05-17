@@ -81,7 +81,13 @@ function ToolDetails({ part }: { part: ChatToolCallPart }) {
   );
 }
 
-export function ToolCallRenderer({ part }: { part: ChatToolCallPart }) {
+export function ToolCallRenderer({
+  part,
+  defaultOpen,
+}: {
+  part: ChatToolCallPart;
+  defaultOpen?: boolean;
+}) {
   const active = part.active ?? (part.status !== "completed" && part.status !== "failed");
   const title = displayTitle(part);
   const status = visibleStatus(part.status, active);
@@ -126,7 +132,7 @@ export function ToolCallRenderer({ part }: { part: ChatToolCallPart }) {
 
   return (
     <details
-      open={active || part.status === "failed" || hasRichContent}
+      open={defaultOpen ?? (active || part.status === "failed" || hasRichContent)}
       className="px-1 py-1"
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 text-sm">

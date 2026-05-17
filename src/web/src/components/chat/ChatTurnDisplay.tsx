@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown, Loader2 } from "lucide-react";
+import { Fragment } from "react";
 import { useI18n } from "@va/i18n";
 import { ContentBlockRenderer } from "./renderers/ContentBlockRenderer";
 import { DiffRenderer } from "./renderers/DiffRenderer";
@@ -63,6 +64,20 @@ function toolCallHasResultContent(part: ChatToolCallPart) {
   return part.content?.some(toolContentIsResult) ?? false;
 }
 
+function toolResultItems(part: ChatToolCallPart): ResultItem[] {
+  const results: ResultItem[] = [];
+  part.content?.forEach((item, itemIndex) => {
+    if (toolContentIsResult(item)) {
+      results.push({
+        id: `${part.id}-result-${item.type}-${itemIndex}`,
+        kind: "toolContent",
+        item,
+      });
+    }
+  });
+  return results;
+}
+
 export function chatPartVisibleForDisplay(
   part: NonNullable<ChatMessage["parts"]>[number],
   settings: ChatDisplaySettings,
@@ -97,15 +112,7 @@ function buildTurnDisplayModel(message: ChatMessage): TurnDisplayModel {
         }
         break;
       case "tool_call": {
-        part.content?.forEach((item, itemIndex) => {
-          if (toolContentIsResult(item)) {
-            results.push({
-              id: `${part.id}-result-${item.type}-${itemIndex}`,
-              kind: "toolContent",
-              item,
-            });
-          }
-        });
+        results.push(...toolResultItems(part));
         workItems.push({ id: part.id, kind: "part", part: workToolCallPart(part) });
         break;
       }
@@ -284,6 +291,34 @@ function WorkGroup({
   );
 }
 
+function LiveWorkPart({
+  part,
+  isMessageStreaming,
+  isPartStreaming,
+}: {
+  part: ChatMessagePart;
+  isMessageStreaming: boolean;
+  isPartStreaming: boolean;
+}) {
+  if (part.kind === "tool_call") {
+    return <ToolCallRenderer part={workToolCallPart(part)} defaultOpen={false} />;
+  }
+
+  const label = workItemLabel({ id: part.id, kind: "part", part });
+
+  return (
+    <details className="group/live-work py-1 text-muted-foreground">
+      <summary className="flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground">
+        <span className="min-w-0 truncate">{label}</span>
+        <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open/live-work:rotate-180" />
+      </summary>
+      <div className="mt-3">
+        {renderWorkPart(part, isMessageStreaming, isPartStreaming)}
+      </div>
+    </details>
+  );
+}
+
 function ResultBlock({ item }: { item: ResultItem }) {
   if (item.kind === "content") {
     return <ContentBlockRenderer block={item.block} role="assistant" />;
@@ -297,6 +332,100 @@ function ResultBlock({ item }: { item: ResultItem }) {
   return null;
 }
 
+function ChatLiveTurnDisplay({
+  message,
+  isStreaming,
+  displaySettings,
+}: {
+  message: ChatMessage;
+  isStreaming: boolean;
+  displaySettings: ChatDisplaySettings;
+}) {
+  const parts = message.parts ?? [];
+  const hasParts = parts.length > 0;
+
+  return (
+    <div className="flex min-w-0 flex-col gap-4">
+      {parts.map((part, index) => {
+        const isPartStreaming = index === parts.length - 1;
+        switch (part.kind) {
+          case "content":
+            return (
+              <ContentBlockRenderer
+                key={part.id}
+                block={part.block}
+                role="assistant"
+                isStreaming={isStreaming && isPartStreaming}
+              />
+            );
+          case "thought":
+            return displaySettings.showThinking ? (
+              <LiveWorkPart
+                key={part.id}
+                part={part}
+                isMessageStreaming={isStreaming}
+                isPartStreaming={isPartStreaming}
+              />
+            ) : null;
+          case "plan":
+            return (
+              <LiveWorkPart
+                key={part.id}
+                part={part}
+                isMessageStreaming={isStreaming}
+                isPartStreaming={isPartStreaming}
+              />
+            );
+          case "tool_call": {
+            const results = toolResultItems(part);
+            const showWork = displaySettings.showTools;
+            if (!showWork && results.length === 0) return null;
+
+            return (
+              <Fragment key={part.id}>
+                {showWork && (
+                  <LiveWorkPart
+                    part={part}
+                    isMessageStreaming={isStreaming}
+                    isPartStreaming={isPartStreaming}
+                  />
+                )}
+                {results.map((item) => (
+                  <ResultBlock key={item.id} item={item} />
+                ))}
+              </Fragment>
+            );
+          }
+        }
+      })}
+      {!hasParts &&
+        message.activities
+          ?.filter((activity) =>
+            activity.kind === "thinking"
+              ? displaySettings.showThinking
+              : displaySettings.showTools,
+          )
+          .map((activity) => (
+            <WorkActivityRow key={activity.id} activity={activity} />
+          ))}
+      {message.progress &&
+        (message.progressKind === "thinking"
+          ? displaySettings.showThinking
+          : displaySettings.showTools) && (
+          <WorkProgressRow
+            item={{
+              id: "progress",
+              kind: "progress",
+              text: message.progress,
+              progressKind: message.progressKind ?? "tool",
+            }}
+            isStreaming={isStreaming}
+          />
+        )}
+    </div>
+  );
+}
+
 export function ChatTurnDisplay({
   message,
   isStreaming,
@@ -306,6 +435,16 @@ export function ChatTurnDisplay({
   isStreaming: boolean;
   displaySettings: ChatDisplaySettings;
 }) {
+  if (isStreaming) {
+    return (
+      <ChatLiveTurnDisplay
+        message={message}
+        isStreaming={isStreaming}
+        displaySettings={displaySettings}
+      />
+    );
+  }
+
   const model = buildTurnDisplayModel(message);
   const hasLatestText = Boolean(model.latestTextPart);
   const hasResults = model.results.length > 0;
