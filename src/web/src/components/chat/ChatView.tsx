@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Bot,
   Loader2,
   Menu,
   PanelLeftClose,
@@ -27,12 +26,14 @@ import type {
   WorkspaceItem,
 } from "@va/client";
 import { useI18n } from "@va/i18n";
+import { BrandIcon } from "@/components/brand-icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChatInput } from "./ChatInput";
 import { deleteCachedChatSession } from "./chatSessionCache";
 import {
   ChatSessionSidebar,
+  ALL_AGENTS_FILTER,
   type ChatSessionWorkspaceGroup,
 } from "./ChatSessionSidebar";
 import { ChatMessageList } from "./ChatMessageList";
@@ -51,6 +52,7 @@ interface ChatViewProps {
 
 const DIRECT_PROFILE_ID = "direct";
 const LAUNCH_SELECTION_STORAGE_KEY = "vibearound.webChat.launchSelection";
+const LAUNCH_SESSION_CACHE_STORAGE_KEY = "vibearound.webChat.launchSessions.v1";
 const SESSION_SIDEBAR_WIDTH_STORAGE_KEY = "vibearound.webChat.sessionSidebarWidth";
 const SESSION_SIDEBAR_DEFAULT_WIDTH = 256;
 const SESSION_SIDEBAR_MIN_WIDTH = 224;
@@ -59,6 +61,12 @@ const SESSION_SIDEBAR_MAX_WIDTH = 420;
 interface StoredLaunchSelection {
   agentId?: string;
   profileId?: string;
+}
+
+interface StoredLaunchSessionCache {
+  scope: string;
+  syncedAt: number;
+  groups: ChatSessionWorkspaceGroup[];
 }
 
 function readStoredLaunchSelection(): StoredLaunchSelection {
@@ -115,6 +123,110 @@ function profileTargetsAgent(profile: ProfileLaunchOption, agentId: string) {
   return profile.launch_targets.some((target) => target.id === agentId);
 }
 
+function sessionSyncScope(agents: string[], workspaces: WorkspaceItem[]) {
+  return `${agents.join(",")}\u0000${workspaces.map((workspace) => workspace.path).join("\u0000")}`;
+}
+
+function launchSessionKey(session: LaunchSessionInfo) {
+  return `${session.agent_id}\u0000${session.workspace}\u0000${session.session_id}`;
+}
+
+function readCachedLaunchSessionGroups(
+  scope: string,
+  workspaces: WorkspaceItem[],
+): ChatSessionWorkspaceGroup[] | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.localStorage.getItem(LAUNCH_SESSION_CACHE_STORAGE_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Partial<StoredLaunchSessionCache>;
+    if (parsed.scope !== scope || !Array.isArray(parsed.groups)) return undefined;
+    return normalizeSessionGroups(parsed.groups, workspaces);
+  } catch {
+    return undefined;
+  }
+}
+
+function writeCachedLaunchSessionGroups(
+  scope: string,
+  groups: ChatSessionWorkspaceGroup[],
+) {
+  if (typeof window === "undefined") return;
+  try {
+    const payload: StoredLaunchSessionCache = {
+      scope,
+      syncedAt: Date.now(),
+      groups,
+    };
+    window.localStorage.setItem(
+      LAUNCH_SESSION_CACHE_STORAGE_KEY,
+      JSON.stringify(payload),
+    );
+  } catch {
+    // Session cache is an optimization; sync still works without storage.
+  }
+}
+
+function normalizeSessionGroups(
+  groups: ChatSessionWorkspaceGroup[],
+  workspaces: WorkspaceItem[],
+): ChatSessionWorkspaceGroup[] {
+  const workspaceByPath = new Map(workspaces.map((workspace) => [workspace.path, workspace]));
+  return groups
+    .flatMap((group) => {
+      const path = group.workspace?.path;
+      if (typeof path !== "string") return [];
+      const workspace = workspaceByPath.get(path) ?? group.workspace;
+      const sessions = Array.isArray(group.sessions)
+        ? group.sessions.filter(isLaunchSessionInfo)
+        : [];
+      return [{ workspace, sessions }];
+    })
+    .filter((group) =>
+      workspaces.length === 0 ||
+      workspaces.some((workspace) => workspace.path === group.workspace.path),
+    );
+}
+
+function isLaunchSessionInfo(value: unknown): value is LaunchSessionInfo {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<LaunchSessionInfo>;
+  return (
+    typeof item.agent_id === "string" &&
+    typeof item.session_id === "string" &&
+    typeof item.title === "string" &&
+    typeof item.workspace === "string" &&
+    typeof item.updated_at === "number" &&
+    typeof item.short_id === "string" &&
+    typeof item.archived === "boolean"
+  );
+}
+
+function mergeSessionGroups(
+  cachedGroups: ChatSessionWorkspaceGroup[],
+  freshGroups: ChatSessionWorkspaceGroup[],
+  workspaces: WorkspaceItem[],
+): ChatSessionWorkspaceGroup[] {
+  const groups = new Map<string, ChatSessionWorkspaceGroup>();
+  for (const workspace of workspaces) {
+    groups.set(workspace.path, { workspace, sessions: [] });
+  }
+  for (const group of [...cachedGroups, ...freshGroups]) {
+    const workspace =
+      workspaces.find((item) => item.path === group.workspace.path) ?? group.workspace;
+    const current = groups.get(workspace.path) ?? { workspace, sessions: [] };
+    const sessions = new Map(current.sessions.map((session) => [launchSessionKey(session), session]));
+    for (const session of group.sessions) {
+      sessions.set(launchSessionKey(session), session);
+    }
+    groups.set(workspace.path, {
+      workspace,
+      sessions: Array.from(sessions.values()),
+    });
+  }
+  return Array.from(groups.values());
+}
+
 export function ChatView({
   webSettings,
   onStatusChange,
@@ -129,7 +241,7 @@ export function ChatView({
   const [selectedAgent, setSelectedAgent] = useState<string>(
     storedLaunchSelection.agentId ?? "claude",
   );
-  const [sidebarAgentFilter, setSidebarAgentFilter] = useState<string | undefined>();
+  const [sidebarAgentFilter, setSidebarAgentFilter] = useState<string>(ALL_AGENTS_FILTER);
   const [profiles, setProfiles] = useState<ProfileLaunchOption[]>([]);
   const [profileSelections, setProfileSelections] = useState<Record<string, string | undefined>>(
     () =>
@@ -140,9 +252,9 @@ export function ChatView({
           }
         : {},
   );
-  const [launchSessionGroups, setLaunchSessionGroups] = useState<ChatSessionWorkspaceGroup[]>(
-    [],
-  );
+  const [syncedLaunchSessionGroups, setSyncedLaunchSessionGroups] = useState<
+    ChatSessionWorkspaceGroup[]
+  >([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
   const [defaultWorkspacePath, setDefaultWorkspacePath] = useState<string | undefined>();
   const [selectedWorkspacePath, setSelectedWorkspacePath] = useState<string | undefined>();
@@ -162,6 +274,7 @@ export function ChatView({
     readStoredSessionSidebarWidth,
   );
   const [mobileSessionSidebarOpen, setMobileSessionSidebarOpen] = useState(false);
+  const syncedSessionScopeRef = useRef<string | undefined>(undefined);
 
   const handleSocketAgentSelected = useCallback(
     (agentId: string, source: "config" | "system") => {
@@ -187,10 +300,20 @@ export function ChatView({
     cancelPermissionRequest,
   } = useWebChatConnection({ onAgentSelected: handleSocketAgentSelected });
 
-  const sidebarAgentId = sidebarAgentFilter ?? selectedAgent;
+  const launchSessionGroups = useMemo(
+    () =>
+      syncedLaunchSessionGroups.map((group) => ({
+        ...group,
+        sessions:
+          sidebarAgentFilter === ALL_AGENTS_FILTER
+            ? group.sessions
+            : group.sessions.filter((session) => session.agent_id === sidebarAgentFilter),
+      })),
+    [sidebarAgentFilter, syncedLaunchSessionGroups],
+  );
   const launchSessions = useMemo(
-    () => launchSessionGroups.flatMap((group) => group.sessions),
-    [launchSessionGroups],
+    () => syncedLaunchSessionGroups.flatMap((group) => group.sessions),
+    [syncedLaunchSessionGroups],
   );
   const selectedAgentInfo = agents.find((agent) => agent.id === selectedAgent);
   const agentLabel = selectedAgentInfo?.name ?? getAgentDisplayName(selectedAgent);
@@ -200,13 +323,17 @@ export function ChatView({
     (workspace) => workspace.path === selectedWorkspacePath,
   );
   const sessionSelection = sessionSelections[selectedAgent] ?? { kind: "current" };
-  const sidebarSessionSelection = sessionSelections[sidebarAgentId] ?? { kind: "current" };
   const selectedLaunchSession =
     sessionSelection.kind === "resume" &&
+    selectedLaunchSessions[selectedAgent]?.agent_id === selectedAgent &&
     selectedLaunchSessions[selectedAgent]?.session_id === sessionSelection.sessionId
       ? selectedLaunchSessions[selectedAgent]
       : sessionSelection.kind === "resume"
-        ? launchSessions.find((session) => session.session_id === sessionSelection.sessionId)
+        ? launchSessions.find(
+            (session) =>
+              session.agent_id === selectedAgent &&
+              session.session_id === sessionSelection.sessionId,
+          )
         : undefined;
   const replayLoading = Boolean(resumeReplay);
   const chatStatus: ChatRuntimeStatus =
@@ -333,15 +460,12 @@ export function ChatView({
   useEffect(() => {
     if (agents.length === 0) return;
     setSidebarAgentFilter((current) => {
-      if (current && agents.some((agent) => agent.id === current)) {
+      if (current === ALL_AGENTS_FILTER || agents.some((agent) => agent.id === current)) {
         return current;
       }
-      if (agents.some((agent) => agent.id === selectedAgent)) {
-        return selectedAgent;
-      }
-      return agents[0]?.id ?? current;
+      return ALL_AGENTS_FILTER;
     });
-  }, [agents, selectedAgent]);
+  }, [agents]);
 
   useEffect(() => {
     let cancelled = false;
@@ -361,74 +485,75 @@ export function ChatView({
     };
   }, []);
 
-  useEffect(() => {
-    if (!sidebarAgentId) {
-      setLaunchSessionGroups([]);
-      setSessionsLoading(false);
-      return;
-    }
-    if (workspacesLoading) {
-      setLaunchSessionGroups([]);
-      setSessionsLoading(false);
-      return;
-    }
-    if (workspaces.length === 0) {
-      setLaunchSessionGroups([]);
-      setSessionsLoading(false);
-      return;
-    }
+  const syncLaunchSessions = useCallback(
+    async (options?: { force?: boolean }) => {
+      const agentIds = agents.map((agent) => agent.id);
+      if (agentIds.length === 0 || workspacesLoading || workspaces.length === 0) {
+        syncedSessionScopeRef.current = undefined;
+        setSyncedLaunchSessionGroups([]);
+        setSessionsLoading(false);
+        return;
+      }
 
-    let cancelled = false;
-    setSessionsLoading(true);
-    setLaunchSessionGroups([]);
-    void (async () => {
-      return Promise.all(
-        workspaces.map(async (workspace) => {
-          try {
+      const scope = sessionSyncScope(agentIds, workspaces);
+      const previousScope = syncedSessionScopeRef.current;
+      if (!options?.force && previousScope === scope) return;
+      syncedSessionScopeRef.current = scope;
+      const canMergeCurrentGroups = previousScope === scope;
+
+      const cachedGroups = readCachedLaunchSessionGroups(scope, workspaces);
+      if (cachedGroups) {
+        setSyncedLaunchSessionGroups(cachedGroups);
+      } else if (!canMergeCurrentGroups) {
+        setSyncedLaunchSessionGroups([]);
+      }
+
+      setSessionsLoading(true);
+      try {
+        const freshGroups = await Promise.all(
+          workspaces.map(async (workspace) => {
+            const sessionGroups = await Promise.all(
+              agentIds.map(async (agentId) => {
+                try {
+                  return await getLaunchSessions(agentId, false, workspace.path);
+                } catch (error) {
+                  console.warn(
+                    "[ChatView] failed to sync launch sessions for workspace:",
+                    workspace.path,
+                    agentId,
+                    error,
+                  );
+                  return [];
+                }
+              }),
+            );
             return {
               workspace,
-              sessions: await getLaunchSessions(sidebarAgentId, false, workspace.path),
+              sessions: sessionGroups.flat(),
             };
-          } catch (error) {
-            console.warn(
-              "[ChatView] failed to load launch sessions for workspace:",
-              workspace.path,
-              error,
-            );
-            return { workspace, sessions: [] };
-          }
-        }),
-      );
-    })()
-      .then((groups) => {
-        if (cancelled) return;
-        const items = groups.flatMap((group) => group.sessions);
-        setLaunchSessionGroups(groups);
-        setSessionSelections((prev) => {
-          const current = prev[sidebarAgentId];
-          if (
-            current?.kind === "resume" &&
-            !items.some((item) => item.session_id === current.sessionId)
-          ) {
-            return { ...prev, [sidebarAgentId]: { kind: "current" } };
-          }
-          return prev;
+          }),
+        );
+        setSyncedLaunchSessionGroups((currentGroups) => {
+          const mergedGroups = mergeSessionGroups(
+            cachedGroups ?? (canMergeCurrentGroups ? currentGroups : []),
+            freshGroups,
+            workspaces,
+          );
+          writeCachedLaunchSessionGroups(scope, mergedGroups);
+          return mergedGroups;
         });
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          console.warn("[ChatView] failed to load launch sessions:", error);
-          setLaunchSessionGroups([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setSessionsLoading(false);
-      });
+      } catch (error) {
+        console.warn("[ChatView] failed to sync launch sessions:", error);
+      } finally {
+        setSessionsLoading(false);
+      }
+    },
+    [agents, workspaces, workspacesLoading],
+  );
 
-    return () => {
-      cancelled = true;
-    };
-  }, [sidebarAgentId, workspaces, workspacesLoading]);
+  useEffect(() => {
+    void syncLaunchSessions();
+  }, [syncLaunchSessions]);
 
   const handleLaunchChange = useCallback((agentId: string, profileId?: string) => {
     setSelectedAgent(agentId);
@@ -440,6 +565,10 @@ export function ChatView({
   const handleSidebarAgentFilterChange = useCallback((agentId: string) => {
     setSidebarAgentFilter(agentId);
   }, []);
+
+  const handleSyncSessions = useCallback(() => {
+    void syncLaunchSessions({ force: true });
+  }, [syncLaunchSessions]);
 
   const handleCreateWorkspace = useCallback(async (name: string) => {
     setWorkspaceCreating(true);
@@ -459,14 +588,17 @@ export function ChatView({
 
   const handleSessionChange = useCallback(
     (selection: ChatSessionSelection, session?: LaunchSessionInfo) => {
+      const targetAgentId =
+        session?.agent_id ??
+        (sidebarAgentFilter === ALL_AGENTS_FILTER ? selectedAgent : sidebarAgentFilter);
       if (selection.kind === "new") {
-        setSessionSelections((prev) => ({ ...prev, [sidebarAgentId]: selection }));
+        setSessionSelections((prev) => ({ ...prev, [targetAgentId]: selection }));
         setSelectedLaunchSessions((prev) => {
           const next = { ...prev };
-          delete next[sidebarAgentId];
+          delete next[targetAgentId];
           return next;
         });
-        setSelectedAgent(sidebarAgentId);
+        setSelectedAgent(targetAgentId);
         clearConversationView({ abortReplay: true });
         setAttachments([]);
         setAttachmentError(undefined);
@@ -475,22 +607,23 @@ export function ChatView({
       if (selection.kind !== "resume") return;
 
       const launchSession = session ?? launchSessions.find(
-        (item) => item.session_id === selection.sessionId,
+        (item) =>
+          item.agent_id === targetAgentId && item.session_id === selection.sessionId,
       );
       if (!launchSession) return;
 
-      setSessionSelections((prev) => ({ ...prev, [sidebarAgentId]: selection }));
+      setSessionSelections((prev) => ({ ...prev, [launchSession.agent_id]: selection }));
       setSelectedLaunchSessions((prev) => ({
         ...prev,
-        [sidebarAgentId]: launchSession,
+        [launchSession.agent_id]: launchSession,
       }));
-      setSelectedAgent(sidebarAgentId);
+      setSelectedAgent(launchSession.agent_id);
       setSelectedWorkspacePath(launchSession.workspace);
       setAttachments([]);
       setAttachmentError(undefined);
       resumeSession({
-        agentId: sidebarAgentId,
-        profileId: profileSelections[sidebarAgentId] ?? DIRECT_PROFILE_ID,
+        agentId: launchSession.agent_id,
+        profileId: profileSelections[launchSession.agent_id] ?? DIRECT_PROFILE_ID,
         launchSession,
       });
     },
@@ -499,7 +632,8 @@ export function ChatView({
       launchSessions,
       profileSelections,
       resumeSession,
-      sidebarAgentId,
+      selectedAgent,
+      sidebarAgentFilter,
     ],
   );
 
@@ -554,15 +688,19 @@ export function ChatView({
         }).catch((error) => {
           console.warn("[ChatView] failed to delete archived session cache:", error);
         });
-        setLaunchSessionGroups((prev) =>
-          prev.map((group) => ({
+        setSyncedLaunchSessionGroups((prev) => {
+          const next = prev.map((group) => ({
             ...group,
             sessions: group.sessions.filter(
               (item) =>
                 item.agent_id !== session.agent_id || item.session_id !== session.session_id,
             ),
-          })),
-        );
+          }));
+          if (syncedSessionScopeRef.current) {
+            writeCachedLaunchSessionGroups(syncedSessionScopeRef.current, next);
+          }
+          return next;
+        });
         setSelectedLaunchSessions((prev) => {
           if (prev[session.agent_id]?.session_id !== session.session_id) return prev;
           const next = { ...prev };
@@ -673,13 +811,15 @@ export function ChatView({
           <ChatSessionSidebar
             workspaceGroups={launchSessionGroups}
             agents={agents}
-            selectedAgentFilter={sidebarAgentId}
+            selectedAgentFilter={sidebarAgentFilter}
+            activeAgentId={selectedAgent}
             className="flex w-full"
             style={{ width: "100%" }}
             sessionsLoading={sidebarSessionsLoading}
             loadingSessionId={resumeReplay?.sessionId}
             archivingSessionId={archivingSessionId}
-            sessionSelection={sidebarSessionSelection}
+            sessionSelection={sessionSelection}
+            onSyncSessions={handleSyncSessions}
             onAgentFilterChange={handleSidebarAgentFilterChange}
             onSessionChange={handleSessionChange}
             onArchiveSession={handleArchiveSession}
@@ -705,12 +845,14 @@ export function ChatView({
             <ChatSessionSidebar
               workspaceGroups={launchSessionGroups}
               agents={agents}
-              selectedAgentFilter={sidebarAgentId}
+              selectedAgentFilter={sidebarAgentFilter}
+              activeAgentId={selectedAgent}
               variant="mobile"
               sessionsLoading={sidebarSessionsLoading}
               loadingSessionId={resumeReplay?.sessionId}
               archivingSessionId={archivingSessionId}
-              sessionSelection={sidebarSessionSelection}
+              sessionSelection={sessionSelection}
+              onSyncSessions={handleSyncSessions}
               onAgentFilterChange={handleSidebarAgentFilterChange}
               onSessionChange={handleMobileSessionChange}
               onArchiveSession={handleArchiveSession}
@@ -749,7 +891,12 @@ export function ChatView({
               )}
             </Button>
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-              <Bot className="h-4 w-4" />
+              <BrandIcon
+                kind="cli"
+                id={selectedAgent}
+                label={agentLabel}
+                className="h-4 w-4"
+              />
             </div>
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-foreground">
