@@ -6,9 +6,11 @@ import {
   Archive,
   ChevronDown,
   ChevronRight,
+  Filter,
   Folder,
   Loader2,
   PlusCircle,
+  RefreshCw,
 } from "lucide-react";
 import type { AgentInfo, LaunchSessionInfo, WorkspaceItem } from "@va/client";
 import { useI18n } from "@va/i18n";
@@ -18,6 +20,7 @@ import { cn } from "@/lib/utils";
 import type { ChatSessionSelection } from "./chatTypes";
 
 const SESSION_PREVIEW_LIMIT = 5;
+export const ALL_AGENTS_FILTER = "__all_agents__";
 
 export function chatSessionKey(session: Pick<LaunchSessionInfo, "agent_id" | "workspace" | "session_id">) {
   return `${session.agent_id}\u0000${session.workspace}\u0000${session.session_id}`;
@@ -32,6 +35,7 @@ interface ChatSessionSidebarProps {
   workspaceGroups: ChatSessionWorkspaceGroup[];
   agents: AgentInfo[];
   selectedAgentFilter: string;
+  activeAgentId: string;
   variant?: "desktop" | "mobile";
   className?: string;
   style?: CSSProperties;
@@ -40,6 +44,7 @@ interface ChatSessionSidebarProps {
   loadingSessionKeys?: ReadonlySet<string>;
   archivingSessionId?: string;
   sessionSelection: ChatSessionSelection;
+  onSyncSessions: () => void;
   onAgentFilterChange: (agentId: string) => void;
   onSessionChange: (selection: ChatSessionSelection, session?: LaunchSessionInfo) => void;
   onArchiveSession: (session: LaunchSessionInfo) => void;
@@ -77,6 +82,7 @@ export function ChatSessionSidebar({
   workspaceGroups,
   agents,
   selectedAgentFilter,
+  activeAgentId,
   variant = "desktop",
   className,
   style,
@@ -85,6 +91,7 @@ export function ChatSessionSidebar({
   loadingSessionKeys,
   archivingSessionId,
   sessionSelection,
+  onSyncSessions,
   onAgentFilterChange,
   onSessionChange,
   onArchiveSession,
@@ -139,9 +146,24 @@ export function ChatSessionSidebar({
           {agents.length > 0 && (
             <div className="mb-3">
               <div className="mb-2 px-2 font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
-                {t("Agents")}
+                {t("Filter")}
               </div>
               <div className="flex flex-wrap gap-1.5 px-2">
+                <button
+                  type="button"
+                  className={cn(
+                    "flex h-7 w-7 items-center justify-center rounded-md border transition-colors",
+                    selectedAgentFilter === ALL_AGENTS_FILTER
+                      ? "border-primary/50 bg-primary/10 text-primary"
+                      : "border-border/70 bg-background/70 text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+                  )}
+                  title={t("All agents")}
+                  aria-label={t("All agents")}
+                  aria-pressed={selectedAgentFilter === ALL_AGENTS_FILTER}
+                  onClick={() => onAgentFilterChange(ALL_AGENTS_FILTER)}
+                >
+                  <Filter className="h-3.5 w-3.5" />
+                </button>
                 {agents.map((agent) => {
                   const selected = agent.id === selectedAgentFilter;
                   return (
@@ -171,7 +193,7 @@ export function ChatSessionSidebar({
               </div>
             </div>
           )}
-          {sessionsLoading ? (
+          {sessionsLoading && workspaceGroups.length === 0 ? (
             <div className="flex items-center gap-2 px-2 py-4 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               {t("Loading sessions...")}
@@ -182,8 +204,24 @@ export function ChatSessionSidebar({
             </div>
           ) : (
             <div className="space-y-5">
-              <div className="px-2 font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
-                {t("Projects")}
+              <div className="flex items-center justify-between gap-2 px-2">
+                <div className="font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  {t("Projects")}
+                </div>
+                <button
+                  type="button"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/60 transition hover:bg-muted/70 hover:text-foreground focus-visible:bg-muted/70 focus-visible:text-foreground focus-visible:outline-none"
+                  title={t("Sync sessions")}
+                  aria-label={t("Sync sessions")}
+                  disabled={sessionsLoading}
+                  onClick={onSyncSessions}
+                >
+                  {sessionsLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
+                </button>
               </div>
               {workspaceGroups.map((group) => {
                 const workspacePath = group.workspace.path;
@@ -238,7 +276,7 @@ export function ChatSessionSidebar({
                             {visibleSessions.map((session) => {
                               const active =
                                 sessionSelection.kind === "resume" &&
-                                selectedAgentFilter === session.agent_id &&
+                                activeAgentId === session.agent_id &&
                                 sessionSelection.sessionId === session.session_id;
                               const loading =
                                 loadingSessionId === session.session_id ||
