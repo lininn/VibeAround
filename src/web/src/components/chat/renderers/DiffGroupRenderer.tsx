@@ -62,7 +62,7 @@ export function DiffGroupRenderer({ items }: { items: DiffGroupItem[] }) {
             className="group/diff-row border-t border-border/60 first:border-t-0"
           >
             <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm hover:bg-muted/30">
-              <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+              <span className="min-w-0 flex-1 truncate text-foreground/90">
                 {row.diff.path}
               </span>
               <span className="shrink-0 font-mono text-xs text-emerald-600">
