@@ -20,7 +20,6 @@ import {
 import { getAgentDisplayName } from "@/lib/agents";
 import type { ChatRuntimeStatus } from "@/lib/dashboard-types";
 import type {
-  AgentInfo,
   LaunchSessionInfo,
   ProfileLaunchOption,
   WebVerboseSettings,
@@ -32,11 +31,18 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MAX_ATTACHMENT_BYTES, isAllowedAttachment } from "./attachmentTypes";
 import { ChatInput } from "./ChatInput";
+import { ChatRuntimeHost } from "./ChatRuntimeHost";
 import {
   chatRuntimeKeyForSession,
   createDraftRuntimeKey,
   INITIAL_RUNTIME_KEY,
 } from "./chatRuntimeKeys";
+import type {
+  ChatRuntimeActions,
+  ChatRuntimeSnapshot,
+  ChatRuntimeSpec,
+} from "./chatRuntimeTypes";
+import { EMPTY_RUNTIME_SNAPSHOT } from "./chatRuntimeTypes";
 import { deleteCachedChatSession } from "./chatSessionCache";
 import {
   chatSessionKey,
@@ -67,16 +73,8 @@ import { PendingPermissions } from "./PendingPermissions";
 import { currentUnixSeconds } from "./chatTime";
 import type {
   ChatAttachment,
-  ChatMessage,
-  ChatMeta,
   ChatSessionSelection,
-  PendingPermission,
-  SessionModeState,
 } from "./chatTypes";
-import {
-  type ResumeReplayState,
-  useWebChatConnection,
-} from "./useWebChatConnection";
 
 interface ChatViewProps {
   webSettings: WebVerboseSettings;
@@ -85,142 +83,6 @@ interface ChatViewProps {
 }
 
 const DIRECT_PROFILE_ID = "direct";
-
-interface ChatRuntimeSpec {
-  agentId: string;
-  profileId?: string;
-  workspacePath?: string;
-  launchSession?: LaunchSessionInfo;
-  title?: string;
-  lastPromptAt?: number;
-  initialResume?: {
-    agentId: string;
-    profileId?: string;
-    launchSession: LaunchSessionInfo;
-  };
-}
-
-interface ChatRuntimeSnapshot {
-  messages: ChatMessage[];
-  connected: boolean;
-  streaming: boolean;
-  meta: ChatMeta;
-  agents: AgentInfo[];
-  pendingPermissions: PendingPermission[];
-  sessionMode: SessionModeState | null;
-  resumeReplay: ResumeReplayState | null;
-  lastPromptDoneAt?: number;
-}
-
-interface ChatRuntimeActions {
-  sendMessage: ReturnType<typeof useWebChatConnection>["sendMessage"];
-  resumeSession: ReturnType<typeof useWebChatConnection>["resumeSession"];
-  clearConversationView: ReturnType<typeof useWebChatConnection>["clearConversationView"];
-  setSessionMode: ReturnType<typeof useWebChatConnection>["setSessionMode"];
-  setSessionConfigOption: ReturnType<typeof useWebChatConnection>["setSessionConfigOption"];
-  stopStreaming: ReturnType<typeof useWebChatConnection>["stopStreaming"];
-  sendPermissionResponse: ReturnType<typeof useWebChatConnection>["sendPermissionResponse"];
-  cancelPermissionRequest: ReturnType<typeof useWebChatConnection>["cancelPermissionRequest"];
-}
-
-const EMPTY_RUNTIME_SNAPSHOT: ChatRuntimeSnapshot = {
-  messages: [],
-  connected: false,
-  streaming: false,
-  meta: {},
-  agents: [],
-  pendingPermissions: [],
-  sessionMode: null,
-  resumeReplay: null,
-  lastPromptDoneAt: undefined,
-};
-
-function ChatRuntimeHost({
-  runtimeKey,
-  initialResume,
-  onSnapshot,
-  onActions,
-  onAgentSelected,
-}: {
-  runtimeKey: string;
-  initialResume?: ChatRuntimeSpec["initialResume"];
-  onSnapshot: (runtimeKey: string, snapshot: ChatRuntimeSnapshot) => void;
-  onActions: (runtimeKey: string, actions: ChatRuntimeActions | null) => void;
-  onAgentSelected: (
-    runtimeKey: string,
-    agentId: string,
-    source: "config" | "system",
-  ) => void;
-}) {
-  const initialResumeStartedRef = useRef(false);
-  const handleAgentSelected = useCallback(
-    (agentId: string, source: "config" | "system") =>
-      onAgentSelected(runtimeKey, agentId, source),
-    [onAgentSelected, runtimeKey],
-  );
-  const connection = useWebChatConnection({ onAgentSelected: handleAgentSelected });
-
-  useEffect(() => {
-    onSnapshot(runtimeKey, {
-      messages: connection.messages,
-      connected: connection.connected,
-      streaming: connection.streaming,
-      meta: connection.meta,
-      agents: connection.agents,
-      pendingPermissions: connection.pendingPermissions,
-      sessionMode: connection.sessionMode,
-      resumeReplay: connection.resumeReplay,
-      lastPromptDoneAt: connection.lastPromptDoneAt,
-    });
-  }, [
-    connection.agents,
-    connection.connected,
-    connection.lastPromptDoneAt,
-    connection.messages,
-    connection.meta,
-    connection.pendingPermissions,
-    connection.resumeReplay,
-    connection.sessionMode,
-    connection.streaming,
-    onSnapshot,
-    runtimeKey,
-  ]);
-
-  useEffect(() => {
-    onActions(runtimeKey, {
-      sendMessage: connection.sendMessage,
-      resumeSession: connection.resumeSession,
-      clearConversationView: connection.clearConversationView,
-      setSessionMode: connection.setSessionMode,
-      setSessionConfigOption: connection.setSessionConfigOption,
-      stopStreaming: connection.stopStreaming,
-      sendPermissionResponse: connection.sendPermissionResponse,
-      cancelPermissionRequest: connection.cancelPermissionRequest,
-    });
-    return () => onActions(runtimeKey, null);
-  }, [
-    connection.cancelPermissionRequest,
-    connection.clearConversationView,
-    connection.resumeSession,
-    connection.sendMessage,
-    connection.sendPermissionResponse,
-    connection.setSessionConfigOption,
-    connection.setSessionMode,
-    connection.stopStreaming,
-    onActions,
-    runtimeKey,
-  ]);
-
-  useEffect(() => {
-    if (!initialResume || initialResumeStartedRef.current || !connection.connected) {
-      return;
-    }
-    initialResumeStartedRef.current = true;
-    connection.resumeSession(initialResume);
-  }, [connection.connected, connection.resumeSession, initialResume]);
-
-  return null;
-}
 
 export function ChatView({
   webSettings,
