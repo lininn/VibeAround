@@ -628,11 +628,9 @@ export function useWebChatConnection({
         messageId,
         optimistic: true,
       };
-      setMessages((prev) => {
-        const next = [...prev, optimisticMessage];
-        messagesRef.current = next;
-        return next;
-      });
+      const optimisticMessages = [...messagesRef.current, optimisticMessage];
+      messagesRef.current = optimisticMessages;
+      setMessages(optimisticMessages);
       setStreaming(true);
       const submittedAt = Math.floor(Date.now() / 1000);
 
