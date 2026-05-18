@@ -220,7 +220,6 @@ async fn handle_chat_socket(socket: WebSocket, state: AppState) {
                                     continue;
                                 }
                             }
-                            state.web_channel.mark_route_active(&active_route);
                             let task_state = state.clone();
                             let task_route = active_route.clone();
                             direct_resume_task = Some(tokio::spawn(async move {

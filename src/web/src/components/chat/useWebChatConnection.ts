@@ -75,6 +75,7 @@ export interface ResumeReplayState {
   agentId?: string;
   workspace?: string;
   updatedAt?: number;
+  blocking?: boolean;
 }
 
 export function useWebChatConnection({
@@ -93,6 +94,7 @@ export function useWebChatConnection({
   const promptInFlightRef = useRef(false);
   const resumeReplayRef = useRef<ResumeReplayState | null>(null);
   const resumeRequestIdRef = useRef(0);
+  const cancelReplayOnNextTurnRef = useRef(false);
   const messagesRef = useRef<ChatMessage[]>([]);
   const replayMessageBufferRef = useRef<{
     sessionId: string;
@@ -321,6 +323,10 @@ export function useWebChatConnection({
           break;
         }
         case "turn_status": {
+          if (parsed.active && cancelReplayOnNextTurnRef.current) {
+            cancelReplayOnNextTurnRef.current = false;
+            finishResumeReplay(undefined, { cache: false });
+          }
           setStreaming(parsed.active);
           promptInFlightRef.current = parsed.active;
           break;
@@ -510,7 +516,6 @@ export function useWebChatConnection({
       }
       if (promptInFlightRef.current) return false;
 
-      clearReplayCacheContext();
       promptInFlightRef.current = true;
       const messageId = createMessageId();
       const contentParts = messageContentBlocks(trimmed, attachments).map((block, index) => ({
@@ -558,9 +563,14 @@ export function useWebChatConnection({
           payload.sessionWorkspace = launchSession.workspace;
         }
         ws.send(JSON.stringify(payload));
+        if (resumeReplayRef.current) {
+          cancelReplayOnNextTurnRef.current = true;
+        }
+        clearReplayCacheContext();
         return true;
       } catch (error) {
         console.warn("[ChatView] failed to send chat message:", error);
+        cancelReplayOnNextTurnRef.current = false;
         promptInFlightRef.current = false;
         setStreaming(false);
         setMessages((prev) => prev.slice(0, -2));
@@ -610,6 +620,7 @@ export function useWebChatConnection({
     clearResumeReplayDoneTimer();
     clearReplayCacheContext();
     replayMessageBufferRef.current = null;
+    cancelReplayOnNextTurnRef.current = false;
     promptInFlightRef.current = false;
     setStreaming(false);
     setPendingPermissions([]);
@@ -638,6 +649,7 @@ export function useWebChatConnection({
         agentId,
         workspace: launchSession.workspace,
         updatedAt: launchSession.updated_at,
+        blocking: true,
       };
       replayMessageBufferRef.current = {
         sessionId: launchSession.session_id,
@@ -657,10 +669,18 @@ export function useWebChatConnection({
           });
           if (resumeRequestIdRef.current !== requestId) return;
           if (cachedMessages) {
+            const backgroundReplay = { ...replay, blocking: false };
+            replayCacheContextRef.current = backgroundReplay;
+            updateResumeReplay(backgroundReplay);
             const settledCachedMessages = settleStreamActivitiesMessage(cachedMessages);
-            setMessages((prev) =>
-              mergeChatMessageSnapshots(prev, settledCachedMessages),
-            );
+            setMessages((prev) => {
+              const mergedMessages = mergeChatMessageSnapshots(
+                prev,
+                settledCachedMessages,
+              );
+              messagesRef.current = mergedMessages;
+              return mergedMessages;
+            });
           }
         } catch (error) {
           console.warn("[ChatView] failed to read cached session:", error);
@@ -717,6 +737,7 @@ export function useWebChatConnection({
     setStreaming(false);
     setMessages((prev) => settleStreamActivitiesMessage(prev));
     replayMessageBufferRef.current = null;
+    cancelReplayOnNextTurnRef.current = false;
     clearReplayCacheContext();
     updateResumeReplay(null);
   }, [clearReplayCacheContext, updateResumeReplay]);

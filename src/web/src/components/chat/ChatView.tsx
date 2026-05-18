@@ -582,6 +582,9 @@ export function ChatView({
   );
   const pendingPermissions = activeRuntime.pendingPermissions;
   const resumeReplay = activeRuntime.resumeReplay;
+  const replayBlocksInput = Boolean(
+    resumeReplay && resumeReplay.blocking !== false,
+  );
   const sendMessage = activeRuntimeActions?.sendMessage;
   const stopStreaming = activeRuntimeActions?.stopStreaming;
   const sendPermissionResponse = activeRuntimeActions?.sendPermissionResponse;
@@ -1432,7 +1435,7 @@ export function ChatView({
     const text = input.trim();
     if (!text && attachments.length === 0) return;
     if (attachmentsUploading) return;
-    if (replayLoading) return;
+    if (replayBlocksInput) return;
     if (!sendMessage) return;
     const sent = sendMessage({
       text,
@@ -1472,7 +1475,7 @@ export function ChatView({
     attachments,
     attachmentsUploading,
     input,
-    replayLoading,
+    replayBlocksInput,
     selectedAgent,
     selectedLaunchSession,
     selectedProfileId,
@@ -1657,7 +1660,7 @@ export function ChatView({
                 onFilesSelected={handleFilesSelected}
                 onRemoveAttachment={handleRemoveAttachment}
                 disabled={!connected}
-                submitDisabled={streaming || replayLoading || attachmentsUploading}
+                submitDisabled={streaming || replayBlocksInput || attachmentsUploading}
                 isStreaming={streaming}
                 sendWithModifierEnter={webSettings.send_with_modifier_enter}
                 placeholder={
@@ -1721,8 +1724,8 @@ export function ChatView({
               attachmentError={attachmentError}
               onFilesSelected={handleFilesSelected}
               onRemoveAttachment={handleRemoveAttachment}
-              disabled={!connected || replayLoading}
-              submitDisabled={streaming || replayLoading || attachmentsUploading}
+              disabled={!connected || replayBlocksInput}
+              submitDisabled={streaming || replayBlocksInput || attachmentsUploading}
               isStreaming={streaming}
               sendWithModifierEnter={webSettings.send_with_modifier_enter}
               placeholder={
