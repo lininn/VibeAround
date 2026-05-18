@@ -47,10 +47,15 @@ import {
   readCachedChatSession,
   writeCachedChatSession,
 } from "./chatSessionCache";
+import { currentUnixSeconds } from "./chatTime";
 
 interface UseWebChatConnectionOptions {
   onAgentSelected?: (agentId: string, source: "config" | "system") => void;
 }
+
+const CACHE_WRITE_DEBOUNCE_MS = 350;
+const RESUME_REPLAY_SETTLE_MS = 700;
+const USER_CONTENT_PART_ID_PREFIX = "user-content";
 
 interface SendChatMessageRequest {
   text: string;
@@ -190,7 +195,7 @@ export function useWebChatConnection({
       clearReplayCacheWriteTimer();
       replayCacheWriteTimerRef.current = setTimeout(() => {
         cacheResumeReplay(replay);
-      }, 350);
+      }, CACHE_WRITE_DEBOUNCE_MS);
     },
     [cacheResumeReplay, clearReplayCacheWriteTimer],
   );
@@ -209,7 +214,7 @@ export function useWebChatConnection({
       clearActiveTranscriptCacheWriteTimer();
       activeTranscriptCacheWriteTimerRef.current = setTimeout(() => {
         cacheTranscript(context);
-      }, 350);
+      }, CACHE_WRITE_DEBOUNCE_MS);
     },
     [cacheTranscript, clearActiveTranscriptCacheWriteTimer],
   );
@@ -279,7 +284,7 @@ export function useWebChatConnection({
       if (resumeReplayDoneTimerRef.current) return;
       resumeReplayDoneTimerRef.current = setTimeout(() => {
         finishResumeReplay(sessionId, { cache: true });
-      }, 700);
+      }, RESUME_REPLAY_SETTLE_MS);
     },
     [finishResumeReplay],
   );
@@ -389,7 +394,7 @@ export function useWebChatConnection({
               ...activeTranscriptCacheRef.current,
               updatedAt: Math.max(
                 activeTranscriptCacheRef.current.updatedAt ?? 0,
-                Math.floor(Date.now() / 1000),
+                currentUnixSeconds(),
               ),
             };
             cacheTranscript(activeTranscriptCacheRef.current);
@@ -617,7 +622,7 @@ export function useWebChatConnection({
       promptInFlightRef.current = true;
       const messageId = createMessageId();
       const contentParts = messageContentBlocks(trimmed, attachments).map((block, index) => ({
-        id: `user-content-${Date.now()}-${index}`,
+        id: `${USER_CONTENT_PART_ID_PREFIX}-${Date.now()}-${index}`,
         kind: "content" as const,
         block,
       }));
@@ -632,7 +637,7 @@ export function useWebChatConnection({
       messagesRef.current = optimisticMessages;
       setMessages(optimisticMessages);
       setStreaming(true);
-      const submittedAt = Math.floor(Date.now() / 1000);
+      const submittedAt = currentUnixSeconds();
 
       try {
         const payload: Record<string, unknown> = {

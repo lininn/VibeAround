@@ -32,6 +32,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MAX_ATTACHMENT_BYTES, isAllowedAttachment } from "./attachmentTypes";
 import { ChatInput } from "./ChatInput";
+import {
+  chatRuntimeKeyForSession,
+  createDraftRuntimeKey,
+  INITIAL_RUNTIME_KEY,
+} from "./chatRuntimeKeys";
 import { deleteCachedChatSession } from "./chatSessionCache";
 import {
   chatSessionKey,
@@ -59,6 +64,7 @@ import { NewChatAgentPicker } from "./NewChatAgentPicker";
 import { NewChatHome } from "./NewChatHome";
 import { NewChatWorkspacePicker } from "./NewChatWorkspacePicker";
 import { PendingPermissions } from "./PendingPermissions";
+import { currentUnixSeconds } from "./chatTime";
 import type {
   ChatAttachment,
   ChatMessage,
@@ -79,7 +85,6 @@ interface ChatViewProps {
 }
 
 const DIRECT_PROFILE_ID = "direct";
-const INITIAL_RUNTIME_KEY = "draft:initial";
 
 interface ChatRuntimeSpec {
   agentId: string;
@@ -539,9 +544,7 @@ export function ChatView({
   const createDraftRuntime = useCallback((agentId: string, workspacePath?: string) => {
     clearStoredActiveLaunchSession();
     storedActiveLaunchSessionKeyRef.current = undefined;
-    const runtimeKey = `draft:${agentId}:${Date.now()}:${Math.random()
-      .toString(36)
-      .slice(2)}`;
+    const runtimeKey = createDraftRuntimeKey(agentId);
     setRuntimeSpecs((prev) => ({
       ...prev,
       [runtimeKey]: {
@@ -597,7 +600,7 @@ export function ChatView({
         return runtimeKey;
       }
 
-      const runtimeKey = `session:${chatSessionKey(session)}`;
+      const runtimeKey = chatRuntimeKeyForSession(session);
       setRuntimeSpecs((prev) =>
         prev[runtimeKey]
           ? prev
@@ -1245,7 +1248,7 @@ export function ChatView({
     });
     if (!sent) return;
 
-    const promptSubmittedAt = Math.floor(Date.now() / 1000);
+    const promptSubmittedAt = currentUnixSeconds();
     setInput("");
     setAttachments([]);
     setAttachmentError(undefined);
