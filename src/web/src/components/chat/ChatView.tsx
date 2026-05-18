@@ -35,10 +35,25 @@ import { ChatInput } from "./ChatInput";
 import { deleteCachedChatSession } from "./chatSessionCache";
 import {
   chatSessionKey,
-  ChatSessionSidebar,
   ALL_AGENTS_FILTER,
+  mergeSessionGroupUpdates,
+  profileTargetsAgent,
+  sessionSyncScope,
   type ChatSessionWorkspaceGroup,
-} from "./ChatSessionSidebar";
+} from "./chatSessionModel";
+import { ChatSessionSidebar } from "./ChatSessionSidebar";
+import {
+  clampSessionSidebarWidth,
+  clearStoredActiveLaunchSession,
+  readCachedLaunchSessionGroups,
+  readStoredActiveLaunchSession,
+  readStoredLaunchSelection,
+  readStoredSessionSidebarWidth,
+  writeCachedLaunchSessionGroups,
+  writeStoredActiveLaunchSession,
+  writeStoredLaunchSelection,
+  writeStoredSessionSidebarWidth,
+} from "./chatSessionStorage";
 import { ChatMessageList } from "./ChatMessageList";
 import { NewChatAgentPicker } from "./NewChatAgentPicker";
 import { NewChatHome } from "./NewChatHome";
@@ -64,31 +79,7 @@ interface ChatViewProps {
 }
 
 const DIRECT_PROFILE_ID = "direct";
-const LAUNCH_SELECTION_STORAGE_KEY = "vibearound.webChat.launchSelection";
-const ACTIVE_LAUNCH_SESSION_STORAGE_KEY = "vibearound.webChat.activeLaunchSession";
-const LAUNCH_SESSION_CACHE_STORAGE_KEY = "vibearound.webChat.launchSessions.v1";
-const SESSION_SIDEBAR_WIDTH_STORAGE_KEY = "vibearound.webChat.sessionSidebarWidth";
-const SESSION_SIDEBAR_DEFAULT_WIDTH = 256;
-const SESSION_SIDEBAR_MIN_WIDTH = 224;
-const SESSION_SIDEBAR_MAX_WIDTH = 420;
 const INITIAL_RUNTIME_KEY = "draft:initial";
-
-interface StoredLaunchSelection {
-  agentId?: string;
-  profileId?: string;
-}
-
-interface StoredActiveLaunchSession {
-  agentId: string;
-  sessionId: string;
-  workspace: string;
-}
-
-interface StoredLaunchSessionCache {
-  scope: string;
-  syncedAt: number;
-  groups: ChatSessionWorkspaceGroup[];
-}
 
 interface ChatRuntimeSpec {
   agentId: string;
@@ -138,245 +129,6 @@ const EMPTY_RUNTIME_SNAPSHOT: ChatRuntimeSnapshot = {
   resumeReplay: null,
   lastPromptDoneAt: undefined,
 };
-
-function readStoredLaunchSelection(): StoredLaunchSelection {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(LAUNCH_SELECTION_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as StoredLaunchSelection;
-    return {
-      agentId: typeof parsed.agentId === "string" ? parsed.agentId : undefined,
-      profileId: typeof parsed.profileId === "string" ? parsed.profileId : undefined,
-    };
-  } catch {
-    return {};
-  }
-}
-
-function writeStoredLaunchSelection(selection: Required<StoredLaunchSelection>) {
-  try {
-    window.localStorage.setItem(LAUNCH_SELECTION_STORAGE_KEY, JSON.stringify(selection));
-  } catch {
-    // Ignore storage failures; the picker still works for this session.
-  }
-}
-
-function readStoredActiveLaunchSession(): StoredActiveLaunchSession | undefined {
-  if (typeof window === "undefined") return undefined;
-  try {
-    const raw = window.localStorage.getItem(ACTIVE_LAUNCH_SESSION_STORAGE_KEY);
-    if (!raw) return undefined;
-    const parsed = JSON.parse(raw) as Partial<StoredActiveLaunchSession>;
-    if (
-      typeof parsed.agentId !== "string" ||
-      typeof parsed.sessionId !== "string" ||
-      typeof parsed.workspace !== "string"
-    ) {
-      return undefined;
-    }
-    return {
-      agentId: parsed.agentId,
-      sessionId: parsed.sessionId,
-      workspace: parsed.workspace,
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-function writeStoredActiveLaunchSession(session: StoredActiveLaunchSession) {
-  try {
-    window.localStorage.setItem(
-      ACTIVE_LAUNCH_SESSION_STORAGE_KEY,
-      JSON.stringify(session),
-    );
-  } catch {
-    // Restoring the active chat is best-effort; the session list remains usable.
-  }
-}
-
-function clearStoredActiveLaunchSession() {
-  try {
-    window.localStorage.removeItem(ACTIVE_LAUNCH_SESSION_STORAGE_KEY);
-  } catch {
-    // Ignore storage failures.
-  }
-}
-
-function clampSessionSidebarWidth(width: number) {
-  return Math.min(
-    SESSION_SIDEBAR_MAX_WIDTH,
-    Math.max(SESSION_SIDEBAR_MIN_WIDTH, Math.round(width)),
-  );
-}
-
-function readStoredSessionSidebarWidth() {
-  if (typeof window === "undefined") return SESSION_SIDEBAR_DEFAULT_WIDTH;
-  const raw = window.localStorage.getItem(SESSION_SIDEBAR_WIDTH_STORAGE_KEY);
-  const parsed = raw ? Number(raw) : Number.NaN;
-  return Number.isFinite(parsed)
-    ? clampSessionSidebarWidth(parsed)
-    : SESSION_SIDEBAR_DEFAULT_WIDTH;
-}
-
-function writeStoredSessionSidebarWidth(width: number) {
-  try {
-    window.localStorage.setItem(
-      SESSION_SIDEBAR_WIDTH_STORAGE_KEY,
-      String(clampSessionSidebarWidth(width)),
-    );
-  } catch {
-    // Width persistence is cosmetic; dragging should still work.
-  }
-}
-
-function profileTargetsAgent(profile: ProfileLaunchOption, agentId: string) {
-  return profile.launch_targets.some((target) => target.id === agentId);
-}
-
-function sessionSyncScope(
-  agents: string[],
-  workspaces: WorkspaceItem[],
-  showArchived: boolean,
-) {
-  return `${agents.join(",")}\u0000${showArchived ? "archived" : "active"}\u0000${workspaces.map((workspace) => workspace.path).join("\u0000")}`;
-}
-
-function launchSessionKey(session: LaunchSessionInfo) {
-  return `${session.agent_id}\u0000${session.workspace}\u0000${session.session_id}`;
-}
-
-function sameLaunchSession(a: LaunchSessionInfo, b: LaunchSessionInfo) {
-  return (
-    a.agent_id === b.agent_id &&
-    a.session_id === b.session_id &&
-    a.title === b.title &&
-    a.workspace === b.workspace &&
-    a.updated_at === b.updated_at &&
-    a.short_id === b.short_id &&
-    a.archived === b.archived &&
-    Boolean(a.active) === Boolean(b.active)
-  );
-}
-
-function readCachedLaunchSessionGroups(
-  scope: string,
-  workspaces: WorkspaceItem[],
-): ChatSessionWorkspaceGroup[] | undefined {
-  if (typeof window === "undefined") return undefined;
-  try {
-    const raw = window.localStorage.getItem(LAUNCH_SESSION_CACHE_STORAGE_KEY);
-    if (!raw) return undefined;
-    const parsed = JSON.parse(raw) as Partial<StoredLaunchSessionCache>;
-    if (parsed.scope !== scope || !Array.isArray(parsed.groups)) return undefined;
-    return normalizeSessionGroups(parsed.groups, workspaces);
-  } catch {
-    return undefined;
-  }
-}
-
-function writeCachedLaunchSessionGroups(
-  scope: string,
-  groups: ChatSessionWorkspaceGroup[],
-) {
-  if (typeof window === "undefined") return;
-  try {
-    const payload: StoredLaunchSessionCache = {
-      scope,
-      syncedAt: Date.now(),
-      groups,
-    };
-    window.localStorage.setItem(
-      LAUNCH_SESSION_CACHE_STORAGE_KEY,
-      JSON.stringify(payload),
-    );
-  } catch {
-    // Session cache is an optimization; sync still works without storage.
-  }
-}
-
-function normalizeSessionGroups(
-  groups: ChatSessionWorkspaceGroup[],
-  workspaces: WorkspaceItem[],
-): ChatSessionWorkspaceGroup[] {
-  const workspaceByPath = new Map(workspaces.map((workspace) => [workspace.path, workspace]));
-  return groups
-    .flatMap((group) => {
-      const path = group.workspace?.path;
-      if (typeof path !== "string") return [];
-      const workspace = workspaceByPath.get(path) ?? group.workspace;
-      const sessions = Array.isArray(group.sessions)
-        ? group.sessions.filter(isLaunchSessionInfo)
-        : [];
-      return [{ workspace, sessions }];
-    })
-    .filter((group) =>
-      workspaces.length === 0 ||
-      workspaces.some((workspace) => workspace.path === group.workspace.path),
-    );
-}
-
-function isLaunchSessionInfo(value: unknown): value is LaunchSessionInfo {
-  if (!value || typeof value !== "object") return false;
-  const item = value as Partial<LaunchSessionInfo>;
-  return (
-    typeof item.agent_id === "string" &&
-    typeof item.session_id === "string" &&
-    typeof item.title === "string" &&
-    typeof item.workspace === "string" &&
-    typeof item.updated_at === "number" &&
-    typeof item.short_id === "string" &&
-    typeof item.archived === "boolean"
-  );
-}
-
-function mergeSessionGroupUpdates(
-  currentGroups: ChatSessionWorkspaceGroup[],
-  updatedGroups: ChatSessionWorkspaceGroup[],
-  workspaces: WorkspaceItem[],
-  updatedAgentIds: string[],
-): ChatSessionWorkspaceGroup[] {
-  const workspaceByPath = new Map(workspaces.map((workspace) => [workspace.path, workspace]));
-  const updatedAgents = new Set(updatedAgentIds);
-  const groups = new Map<string, ChatSessionWorkspaceGroup>();
-  for (const workspace of workspaces) {
-    groups.set(workspace.path, { workspace, sessions: [] });
-  }
-  for (const group of currentGroups) {
-    const workspace =
-      workspaceByPath.get(group.workspace.path) ?? group.workspace;
-    groups.set(workspace.path, { workspace, sessions: group.sessions });
-  }
-
-  for (const group of normalizeSessionGroups(updatedGroups, workspaces)) {
-    const current = groups.get(group.workspace.path) ?? {
-      workspace: workspaceByPath.get(group.workspace.path) ?? group.workspace,
-      sessions: [],
-    };
-    const sessions = new Map<string, LaunchSessionInfo>();
-    for (const session of current.sessions) {
-      if (!updatedAgents.has(session.agent_id)) {
-        sessions.set(launchSessionKey(session), session);
-      }
-    }
-    for (const session of group.sessions) {
-      const key = launchSessionKey(session);
-      const existing = sessions.get(key);
-      sessions.set(key, existing && sameLaunchSession(existing, session) ? existing : session);
-    }
-    const nextSessions = Array.from(sessions.values());
-    groups.set(group.workspace.path, {
-      workspace: current.workspace,
-      sessions:
-        nextSessions.length === current.sessions.length &&
-        nextSessions.every((session, index) => session === current.sessions[index])
-          ? current.sessions
-          : nextSessions,
-    });
-  }
-  return Array.from(groups.values());
-}
 
 function ChatRuntimeHost({
   runtimeKey,
@@ -1162,7 +914,7 @@ export function ChatView({
       ...prev,
       [session.agent_id]: session,
     }));
-    storedActiveLaunchSessionKeyRef.current = launchSessionKey(session);
+    storedActiveLaunchSessionKeyRef.current = chatSessionKey(session);
     activateRuntimeForSession(session);
   }, [
     activateRuntimeForSession,
@@ -1272,7 +1024,7 @@ export function ChatView({
         sessionId: launchSession.session_id,
         workspace: launchSession.workspace,
       });
-      storedActiveLaunchSessionKeyRef.current = launchSessionKey(launchSession);
+      storedActiveLaunchSessionKeyRef.current = chatSessionKey(launchSession);
       setAttachments([]);
       setAttachmentError(undefined);
       activateRuntimeForSession(launchSession);

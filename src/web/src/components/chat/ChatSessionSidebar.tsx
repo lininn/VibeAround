@@ -11,24 +11,19 @@ import {
   PlusCircle,
   RefreshCw,
 } from "lucide-react";
-import type { AgentInfo, LaunchSessionInfo, WorkspaceItem } from "@va/client";
+import type { AgentInfo, LaunchSessionInfo } from "@va/client";
 import { useI18n } from "@va/i18n";
 
 import { BrandIcon } from "@/components/brand-icon";
 import { cn } from "@/lib/utils";
 import type { ChatSessionSelection } from "./chatTypes";
+import {
+  ALL_AGENTS_FILTER,
+  chatSessionKey,
+  type ChatSessionWorkspaceGroup,
+} from "./chatSessionModel";
 
 const SESSION_PREVIEW_LIMIT = 5;
-export const ALL_AGENTS_FILTER = "__all_agents__";
-
-export function chatSessionKey(session: Pick<LaunchSessionInfo, "agent_id" | "workspace" | "session_id">) {
-  return `${session.agent_id}\u0000${session.workspace}\u0000${session.session_id}`;
-}
-
-export interface ChatSessionWorkspaceGroup {
-  workspace: WorkspaceItem;
-  sessions: LaunchSessionInfo[];
-}
 
 interface ChatSessionSidebarProps {
   workspaceGroups: ChatSessionWorkspaceGroup[];
