@@ -96,6 +96,7 @@ interface ChatRuntimeSpec {
   workspacePath?: string;
   launchSession?: LaunchSessionInfo;
   title?: string;
+  lastPromptAt?: number;
   initialResume?: {
     agentId: string;
     profileId?: string;
@@ -697,7 +698,11 @@ export function ChatView({
           session_id: sessionId,
           title,
           workspace: workspacePath,
-          updated_at: spec.launchSession?.updated_at ?? snapshot.resumeReplay?.updatedAt ?? 0,
+          updated_at: Math.max(
+            spec.lastPromptAt ?? 0,
+            spec.launchSession?.updated_at ?? 0,
+            snapshot.resumeReplay?.updatedAt ?? 0,
+          ),
           short_id: spec.launchSession?.short_id ?? sessionId.slice(0, 8),
           archived: false,
           active: true,
@@ -1487,6 +1492,7 @@ export function ChatView({
     });
     if (!sent) return;
 
+    const promptSubmittedAt = Math.floor(Date.now() / 1000);
     setInput("");
     setAttachments([]);
     setAttachmentError(undefined);
@@ -1498,6 +1504,7 @@ export function ChatView({
         profileId: selectedProfileId,
         workspacePath: selectedWorkspace?.path,
         launchSession: selectedLaunchSession,
+        lastPromptAt: promptSubmittedAt,
         title:
           text ||
           attachments[0]?.name ||
