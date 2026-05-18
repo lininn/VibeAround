@@ -274,6 +274,7 @@ impl WebChannelManager {
         }
         if matches!(output, ChannelOutput::PromptDone { .. }) {
             self.clear_route_pending_permissions(&chat_id);
+            self.clear_route_pending_user_messages(&chat_id);
         }
         self.broadcast_output(&chat_id, output.clone());
         for output in follow_up_outputs {
@@ -362,6 +363,12 @@ impl WebChannelManager {
         for request_id in request_ids {
             permission_routes.remove(&request_id);
         }
+    }
+
+    fn clear_route_pending_user_messages(&self, route_chat_id: &str) {
+        self.route_pending_user_messages
+            .write()
+            .remove(route_chat_id);
     }
 
     fn take_pending_user_message_outputs(
@@ -517,6 +524,38 @@ mod tests {
                 active: false,
             }
         );
+    }
+
+    #[test]
+    fn prompt_done_drops_unbound_pending_user_message() {
+        let manager = WebChannelManager::new();
+        let route = RouteKey::new("web", "chat-1");
+        manager.set_route_agent("chat-1", "codex".to_string());
+
+        let (tx, mut rx) = manager.sender();
+        manager.register_connection("chat-1".to_string(), "conn-1".to_string(), tx, true);
+        manager.record_user_message(
+            &route,
+            "msg-1".to_string(),
+            vec![serde_json::json!({"type": "text", "text": "hello"})],
+            true,
+        );
+        manager.dispatch_output(ChannelOutput::PromptDone {
+            route: route.clone(),
+            message_id: Some("msg-1".to_string()),
+        });
+        while rx.try_recv().is_ok() {}
+
+        manager.dispatch_output(ChannelOutput::SessionReady {
+            route,
+            session_id: "sid-1".to_string(),
+        });
+
+        assert!(matches!(
+            rx.try_recv().expect("session ready"),
+            ChannelOutput::SessionReady { .. }
+        ));
+        assert!(rx.try_recv().is_err());
     }
 }
 
