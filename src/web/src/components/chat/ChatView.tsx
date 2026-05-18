@@ -65,6 +65,7 @@ import {
   writeStoredLaunchSelection,
   writeStoredSessionSidebarWidth,
 } from "./chatSessionStorage";
+import { shortSessionId } from "./chatSessionDisplay";
 import { ChatMessageList } from "./ChatMessageList";
 import { NewChatAgentPicker } from "./NewChatAgentPicker";
 import { NewChatHome } from "./NewChatHome";
@@ -322,7 +323,7 @@ export function ChatView({
             spec.launchSession?.updated_at ?? 0,
             snapshot.resumeReplay?.updatedAt ?? 0,
           ),
-          short_id: spec.launchSession?.short_id ?? sessionId.slice(0, 8),
+          short_id: spec.launchSession?.short_id ?? shortSessionId(sessionId),
           archived: false,
           active: true,
         } satisfies LaunchSessionInfo,
@@ -1283,7 +1284,7 @@ export function ChatView({
                   )}
                   {meta.sessionId && (
                     <span className="truncate text-muted-foreground/40">
-                      {meta.sessionId.slice(0, 8)}
+                      {shortSessionId(meta.sessionId)}
                     </span>
                   )}
                 </div>
