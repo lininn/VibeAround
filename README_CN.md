@@ -30,7 +30,7 @@ VibeAround 是一个面向本地 AI 编程 Agent 的桌面中枢。它把 Claude
 
 | 启动本地 Agent | 查看代码变更 | 生成视觉素材 |
 |---|---|---|
-| <img src="docs/assets/screenshots/web-chat-start.jpg" alt="VibeAround Web Chat 工作区启动页" width="100%" /> | <img src="docs/assets/screenshots/web-chat-diff.jpg" alt="VibeAround Web Chat 代码 diff 对话" width="100%" /> | <img src="docs/assets/screenshots/web-chat-imagegen.jpg" alt="VibeAround Web Chat 图片生成会话" width="100%" /> |
+| <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.6.2/screenshots/web-chat-start.webp" alt="VibeAround Web Chat 工作区启动页" width="100%" /> | <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.6.2/screenshots/web-chat-diff.webp" alt="VibeAround Web Chat 代码 diff 对话" width="100%" /> | <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.6.2/screenshots/web-chat-imagegen.webp" alt="VibeAround Web Chat 图片生成会话" width="100%" /> |
 
 ## 为什么需要 VibeAround
 

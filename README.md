@@ -30,7 +30,7 @@ The core idea is simple: keep the agent running on your machine, but let you rea
 
 | Start a local agent | Review code changes | Generate visual assets |
 |---|---|---|
-| <img src="docs/assets/screenshots/web-chat-start.jpg" alt="VibeAround web chat workspace launcher" width="100%" /> | <img src="docs/assets/screenshots/web-chat-diff.jpg" alt="VibeAround web chat code review with diff" width="100%" /> | <img src="docs/assets/screenshots/web-chat-imagegen.jpg" alt="VibeAround web chat image generation session" width="100%" /> |
+| <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.6.2/screenshots/web-chat-start.webp" alt="VibeAround web chat workspace launcher" width="100%" /> | <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.6.2/screenshots/web-chat-diff.webp" alt="VibeAround web chat code review with diff" width="100%" /> | <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.6.2/screenshots/web-chat-imagegen.webp" alt="VibeAround web chat image generation session" width="100%" /> |
 
 ## Why VibeAround
 
