@@ -125,7 +125,7 @@ Provider Profile 让本地 Agent 可以连接官方 API、OpenAI-compatible endp
 | Azure OpenAI | 内置 Azure profile |
 | Custom endpoint | 自带兼容 base URL |
 
-VibeAround 的本地 API bridge 由 [va-ai-api-bridge](https://github.com/jazzenchen/va-ai-api-bridge) 驱动，重点打通常见 Agent API 形态：
+VibeAround 的本地 API bridge 由 [va-ai-api-bridge](https://github.com/jazzenchen/va-ai-api-bridge) 驱动，昵称是 `va-aab`，重点打通常见 Agent API 形态：
 
 | API 形态 | 常见 endpoint |
 |---|---|
@@ -178,7 +178,7 @@ bun run prebuild
 bun run dev
 ```
 
-AI API bridge SDK 作为独立开源 Rust crate 维护。本地联调时可以把 SDK checkout 放在 `src/sdks/`，但应用默认消费发布后的 crate，不再依赖 submodule。
+AI API bridge SDK（`va-aab`）作为独立开源 Rust crate 维护。本地联调时可以把 SDK checkout 放在 `src/sdks/`，但应用默认消费发布后的 crate，不再依赖 submodule。
 
 环境要求：Rust 1.82+、推荐 Node.js 24 LTS、Bun 1.3+。macOS 还需要执行 `xcode-select --install`；Linux 需要安装发行版对应的 WebKitGTK/Tauri 系统依赖。
 

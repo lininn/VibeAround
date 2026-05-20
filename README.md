@@ -125,7 +125,7 @@ Provider profiles let you launch local agents against first-party APIs, OpenAI-c
 | Azure OpenAI | Built-in Azure profile |
 | Custom endpoint | Bring your own compatible base URL |
 
-VibeAround's local API bridge is powered by [va-ai-api-bridge](https://github.com/jazzenchen/va-ai-api-bridge). It translates between the common agent API shapes:
+VibeAround's local API bridge is powered by [va-ai-api-bridge](https://github.com/jazzenchen/va-ai-api-bridge), nicknamed `va-aab`. It translates between the common agent API shapes:
 
 | API shape | Common endpoint |
 |---|---|
@@ -178,7 +178,7 @@ bun run prebuild
 bun run dev
 ```
 
-The AI API bridge SDK is maintained as a separate open-source Rust crate. Local SDK checkouts can live under `src/sdks/` for development, but the app consumes the published crate rather than a submodule.
+The AI API bridge SDK (`va-aab`) is maintained as a separate open-source Rust crate. Local SDK checkouts can live under `src/sdks/` for development, but the app consumes the published crate rather than a submodule.
 
 Prerequisites: Rust 1.82+, Node.js 24 LTS recommended, Bun 1.3+. On macOS, also run `xcode-select --install`; on Linux, install the WebKitGTK/Tauri system dependencies for your distro.
 
