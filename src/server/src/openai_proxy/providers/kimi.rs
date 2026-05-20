@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
-use va_ai_api_proxy::{ContentBlock, Extensions, FinishReason, UniversalEvent};
+use va_ai_api_bridge::{ContentBlock, Extensions, FinishReason, UniversalEvent};
 
 const TOOL_CALLS_SECTION_BEGIN: &str = "<|tool_calls_section_begin|>";
 const TOOL_CALLS_SECTION_END: &str = "<|tool_calls_section_end|>";

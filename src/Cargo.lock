@@ -4263,7 +4263,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "uuid",
- "va-ai-api-proxy",
+ "va-ai-api-bridge",
 ]
 
 [[package]]
@@ -5672,8 +5672,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "va-ai-api-proxy"
+name = "va-ai-api-bridge"
 version = "0.1.0"
+source = "git+https://github.com/jazzenchen/va-ai-api-proxy.git?branch=codex/api-bridge-rename#f5f3381f013f115014cea44338d2133f4fe22fdd"
 dependencies = [
  "serde",
  "serde_json",

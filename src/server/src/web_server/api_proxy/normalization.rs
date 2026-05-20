@@ -11,7 +11,7 @@ pub(super) fn normalize_target_request(
         ProxyProtocol::OpenAiChat => normalize_openai_chat_request(request),
         ProxyProtocol::OpenAiResponses => Ok(()),
         ProxyProtocol::GeminiGenerateContent => {
-            va_ai_api_proxy::translator::gemini_generate_content::strip_route_metadata(request);
+            va_ai_api_bridge::translator::gemini_generate_content::strip_route_metadata(request);
             Ok(())
         }
     }

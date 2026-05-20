@@ -8,7 +8,7 @@ use axum::response::Response;
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use serde_json::Value;
-use va_ai_api_proxy::{DecodeState, EncodeState, UniversalEvent, WireEvent};
+use va_ai_api_bridge::{DecodeState, EncodeState, UniversalEvent, WireEvent};
 
 use crate::openai_proxy::providers::ProviderProxyAdapter;
 

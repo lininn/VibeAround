@@ -1,5 +1,5 @@
 use serde_json::Value;
-use va_ai_api_proxy::{
+use va_ai_api_bridge::{
     AnthropicMessagesTranslator, DecodeState, EncodeState, GeminiGenerateContentTranslator,
     OpenAiChatTranslator, OpenAiResponsesTranslator, UniversalEvent, WireEvent, WireTranslator,
 };
@@ -28,7 +28,7 @@ impl ProxyProtocol {
     pub(super) fn decode_agent_request(
         self,
         raw: Value,
-    ) -> va_ai_api_proxy::Result<va_ai_api_proxy::UniversalRequest> {
+    ) -> va_ai_api_bridge::Result<va_ai_api_bridge::UniversalRequest> {
         match self {
             Self::OpenAiResponses => OpenAiResponsesTranslator.decode_request(raw),
             Self::OpenAiChat => OpenAiChatTranslator.decode_request(raw),
@@ -39,8 +39,8 @@ impl ProxyProtocol {
 
     pub(super) fn encode_upstream_request(
         self,
-        request: &va_ai_api_proxy::UniversalRequest,
-    ) -> va_ai_api_proxy::Result<Value> {
+        request: &va_ai_api_bridge::UniversalRequest,
+    ) -> va_ai_api_bridge::Result<Value> {
         match self {
             Self::OpenAiResponses => OpenAiResponsesTranslator.encode_request(request),
             Self::OpenAiChat => OpenAiChatTranslator.encode_request(request),
@@ -52,7 +52,7 @@ impl ProxyProtocol {
     pub(super) fn decode_upstream_response(
         self,
         raw: Value,
-    ) -> va_ai_api_proxy::Result<Vec<UniversalEvent>> {
+    ) -> va_ai_api_bridge::Result<Vec<UniversalEvent>> {
         match self {
             Self::OpenAiResponses => OpenAiResponsesTranslator.decode_response(raw),
             Self::OpenAiChat => OpenAiChatTranslator.decode_response(raw),
@@ -65,7 +65,7 @@ impl ProxyProtocol {
         self,
         raw: Value,
         state: &mut DecodeState,
-    ) -> va_ai_api_proxy::Result<Vec<UniversalEvent>> {
+    ) -> va_ai_api_bridge::Result<Vec<UniversalEvent>> {
         match self {
             Self::OpenAiResponses => OpenAiResponsesTranslator.decode_stream_chunk(raw, state),
             Self::OpenAiChat => OpenAiChatTranslator.decode_stream_chunk(raw, state),
@@ -80,7 +80,7 @@ impl ProxyProtocol {
         self,
         events: &[UniversalEvent],
         state: &mut EncodeState,
-    ) -> va_ai_api_proxy::Result<Vec<WireEvent>> {
+    ) -> va_ai_api_bridge::Result<Vec<WireEvent>> {
         match self {
             Self::OpenAiResponses => OpenAiResponsesTranslator.encode_events(events, state),
             Self::OpenAiChat => OpenAiChatTranslator.encode_events(events, state),

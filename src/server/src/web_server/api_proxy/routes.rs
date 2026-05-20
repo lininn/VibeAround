@@ -121,7 +121,7 @@ pub async fn legacy_gemini_generate_content_handler(
             "Gemini route must end with {model}:generateContent or {model}:streamGenerateContent",
         );
     };
-    va_ai_api_proxy::translator::gemini_generate_content::attach_route_metadata(
+    va_ai_api_bridge::translator::gemini_generate_content::attach_route_metadata(
         &mut original_request,
         model,
         action == "streamGenerateContent",
@@ -177,7 +177,7 @@ pub async fn local_gemini_generate_content_handler(
             "Gemini route must end with {model}:generateContent or {model}:streamGenerateContent",
         );
     };
-    va_ai_api_proxy::translator::gemini_generate_content::attach_route_metadata(
+    va_ai_api_bridge::translator::gemini_generate_content::attach_route_metadata(
         &mut original_request,
         model,
         action == "streamGenerateContent",

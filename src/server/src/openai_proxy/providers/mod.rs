@@ -6,7 +6,7 @@ mod zai;
 
 use common::profiles::schema::ProfileDef;
 use serde_json::Value;
-use va_ai_api_proxy::UniversalEvent;
+use va_ai_api_bridge::UniversalEvent;
 
 use self::dashscope::DashScopeProxyAdapter;
 use self::deepseek::DeepSeekProxyAdapter;

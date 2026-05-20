@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::{json, Value};
-use va_ai_api_proxy::{
+use va_ai_api_bridge::{
     ContentBlock, FinishReason, UniversalEvent, UniversalItem, UniversalResponse, Usage,
 };
 
@@ -48,7 +48,7 @@ pub(super) async fn translated_completion_response(
         ProxyProtocol::OpenAiChat => events_to_openai_chat_response(&events),
         ProxyProtocol::AnthropicMessages => events_to_anthropic_response(&events),
         ProxyProtocol::GeminiGenerateContent => {
-            va_ai_api_proxy::translator::gemini_generate_content::encode_response(&events)
+            va_ai_api_bridge::translator::gemini_generate_content::encode_response(&events)
         }
     };
     Json(body).into_response()

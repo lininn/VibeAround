@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use serde_json::{Number, Value};
-use va_ai_api_proxy::{ContentBlock, UniversalEvent};
+use va_ai_api_bridge::{ContentBlock, UniversalEvent};
 
 #[derive(Debug, Clone, Default)]
 pub struct MiniMaxProxyAdapter {
