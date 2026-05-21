@@ -23,6 +23,7 @@
 
 mod bridge;
 pub mod install;
+pub mod launch;
 mod mcp;
 pub mod runtime;
 mod skills;

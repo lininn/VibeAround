@@ -6,10 +6,9 @@
 //! together and this file owns all the "spawn an agent, keep it alive,
 //! wire notifications" plumbing.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context};
 
@@ -18,7 +17,6 @@ use agent_client_protocol::schema as acp;
 use crate::agent::{Agent, AgentClientHandler};
 use crate::agent_state;
 use crate::config;
-use crate::profiles;
 
 use super::super::event::SystemEvent;
 use super::super::handover::HandoverHandler;
@@ -148,15 +146,19 @@ impl Conversation {
             ("VIBEAROUND_AGENT_KIND".to_string(), agent_id.clone()),
         ];
         let mut extra_args = Vec::new();
-        if profile_uses_vibearound_credentials(&profile) {
-            let applied =
-                materialize_profile_for_agent(&profile, &agent_id, &workspace, &self.route)
-                    .with_context(|| {
-                        format!(
-                            "failed to apply profile '{}' to agent '{}'",
-                            profile, agent_id
-                        )
-                    })?;
+        if crate::agent::launch::profile_uses_vibearound_credentials(&profile) {
+            let applied = crate::agent::launch::materialize_profile_for_agent(
+                &profile,
+                &agent_id,
+                &workspace,
+                &self.route,
+            )
+            .with_context(|| {
+                format!(
+                    "failed to apply profile '{}' to agent '{}'",
+                    profile, agent_id
+                )
+            })?;
             tracing::info!(
                 route = %self.route,
                 cli_kind = %cli_kind,
@@ -344,83 +346,4 @@ impl Conversation {
             );
         }
     }
-}
-
-fn profile_uses_vibearound_credentials(profile: &str) -> bool {
-    !matches!(profile, "default" | "none" | "off" | "direct")
-}
-
-struct AppliedProfile {
-    env: Vec<(String, String)>,
-    command_args: Vec<String>,
-}
-
-fn materialize_profile_for_agent(
-    profile_id: &str,
-    agent_id: &str,
-    workspace: &Path,
-    channel_route: &crate::routing::RouteKey,
-) -> anyhow::Result<AppliedProfile> {
-    let profile = profiles::schema::load(profile_id)
-        .map(profiles::normalize_legacy_profile_and_persist)
-        .ok_or_else(|| anyhow!("profile '{}' not found", profile_id))?;
-    let route = profiles::connections::resolve_profile_agent_route(&profile, agent_id).ok_or_else(
-        || {
-            anyhow!(
-                "profile '{}' cannot launch agent '{}'",
-                profile.id,
-                agent_id
-            )
-        },
-    )?;
-    let launch_id = uuid::Uuid::new_v4().to_string();
-    let rendered =
-        profiles::runtime::render_for_agent_route(&profile, agent_id, &launch_id, &route)?;
-    if route.bridge_target_api_type.is_some() {
-        write_bridge_launch_metadata(
-            &launch_id,
-            &profile.id,
-            agent_id,
-            workspace,
-            channel_route,
-            &route,
-        )?;
-    }
-    let command_args = rendered.command_args.clone();
-    let mut env = profiles::runtime::materialize_env(&profile.id, rendered)?;
-    env.push(("VIBEAROUND_LAUNCH_ID".to_string(), launch_id));
-    env.push(("VIBEAROUND_PROFILE_ID".to_string(), profile.id.clone()));
-    env.push(("VIBEAROUND_LAUNCH_TARGET".to_string(), agent_id.to_string()));
-
-    Ok(AppliedProfile { env, command_args })
-}
-
-fn write_bridge_launch_metadata(
-    launch_id: &str,
-    profile_id: &str,
-    agent_id: &str,
-    workspace: &Path,
-    channel_route: &crate::routing::RouteKey,
-    route: &profiles::connections::ProfileAgentRoute,
-) -> anyhow::Result<()> {
-    let dir = config::data_dir().join("api-bridge").join("launches");
-    std::fs::create_dir_all(&dir)?;
-    let body = serde_json::json!({
-        "schemaVersion": 1,
-        "createdAtUnix": SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_secs())
-            .unwrap_or_default(),
-        "launchId": launch_id,
-        "profileId": profile_id,
-        "agent": agent_id,
-        "workspace": workspace.to_string_lossy(),
-        "channelKind": channel_route.channel_kind,
-        "chatId": channel_route.chat_id,
-        "clientProtocol": route.client_api_type,
-        "upstreamProtocol": route.bridge_target_api_type,
-    });
-    let path = dir.join(format!("{launch_id}.json"));
-    std::fs::write(path, serde_json::to_vec_pretty(&body)?)?;
-    Ok(())
 }
