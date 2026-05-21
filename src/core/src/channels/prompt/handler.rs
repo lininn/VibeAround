@@ -9,8 +9,10 @@ use crate::channels::bridge_handler::ChannelBridgeHandler;
 use crate::channels::plugin_host::PluginHost;
 use crate::channels::types::ChannelOutput;
 use crate::routing::RouteKey;
+use crate::workspace::context_transfer;
 use crate::workspace::manager::{ThreadChoice, WorkspaceSwitch};
 use crate::workspace::threads::runtime::ThreadRuntime;
+use crate::workspace::threads::store::HostBinding;
 use crate::workspace::WorkspaceThreadManager;
 
 use super::send_system_text;
@@ -120,11 +122,68 @@ async fn handle_command(
                 }
             }
         }
+        ThreadCommand::SwitchHost { agent, profile } => {
+            let target =
+                resolve_host_binding(&agent, profile.as_deref()).map_err(invalid_params)?;
+            let runtime = workspace_threads
+                .resolve_route_runtime(route)
+                .await
+                .map_err(internal_error)?;
+            let before = runtime.state().await;
+            let package = if let Some(session_id) = before.session_id.as_deref() {
+                match context_transfer::capture(
+                    route,
+                    &before.workspace,
+                    &before.workspace_id,
+                    &before.thread_id,
+                    &before.host_binding,
+                    session_id,
+                    &target,
+                )
+                .await
+                {
+                    Ok(package) => Some(package),
+                    Err(error) => {
+                        send_system_text(
+                            plugin_host,
+                            route,
+                            &format!(
+                                "Context transfer failed; switching host without replay: {:#}",
+                                error
+                            ),
+                        )
+                        .await;
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            runtime
+                .switch_host(target.clone(), package.is_some())
+                .await?;
+            start_runtime_and_notify(&runtime, plugin_host, route).await?;
+            if let Some(package) = package {
+                let blocks =
+                    context_transfer::bootstrap_prompt(&package).map_err(internal_error)?;
+                let handler: Arc<dyn AgentClientHandler> = Arc::new(
+                    ChannelBridgeHandler::for_thread(Arc::clone(plugin_host), route.clone()),
+                );
+                let _ = runtime.prompt(route, blocks, handler).await;
+            }
+            send_system_text(
+                plugin_host,
+                route,
+                &format!("Switched host to {}.", target.agent_id),
+            )
+            .await;
+        }
         ThreadCommand::Help => {
             send_system_text(
                 plugin_host,
                 route,
-                "Commands: /switch workspace <id|path>, /new, /close. Reply with a listed number or thread id after switching workspace.",
+                "Commands: /switch workspace <id|path>, /switch host <agent> [profile], /new, /close. Reply with a listed number or thread id after switching workspace.",
             )
             .await;
         }
@@ -184,6 +243,10 @@ enum ThreadCommand {
     New,
     Close,
     SwitchWorkspace(String),
+    SwitchHost {
+        agent: String,
+        profile: Option<String>,
+    },
     Help,
     Unknown(String),
 }
@@ -207,6 +270,15 @@ fn parse_thread_command(text: &str) -> Option<ThreadCommand> {
         let token = token.trim();
         if !token.is_empty() {
             return Some(ThreadCommand::SwitchWorkspace(token.to_string()));
+        }
+    }
+    if let Some(rest) = normalized.strip_prefix("/switch host ") {
+        let mut parts = rest.split_whitespace();
+        if let Some(agent) = parts.next() {
+            return Some(ThreadCommand::SwitchHost {
+                agent: agent.to_string(),
+                profile: parts.next().map(ToOwned::to_owned),
+            });
         }
     }
     Some(ThreadCommand::Unknown(normalized))
@@ -243,6 +315,20 @@ fn internal_error(error: anyhow::Error) -> acp::Error {
     acp::Error::new(-32603, format!("{:#}", error))
 }
 
+fn invalid_params(error: String) -> acp::Error {
+    acp::Error::new(-32602, error)
+}
+
+fn resolve_host_binding(agent: &str, profile: Option<&str>) -> Result<HostBinding, String> {
+    let agent_id = crate::resources::resolve_agent_id(agent)?;
+    let profile_id = profile
+        .map(str::trim)
+        .filter(|profile| !profile.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| Some("direct".to_string()));
+    Ok(HostBinding::new(agent_id, profile_id))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +340,13 @@ mod tests {
         assert_eq!(
             parse_thread_command("/switch   workspace   general"),
             Some(ThreadCommand::SwitchWorkspace("general".to_string()))
+        );
+        assert_eq!(
+            parse_thread_command("/switch host codex profileA"),
+            Some(ThreadCommand::SwitchHost {
+                agent: "codex".to_string(),
+                profile: Some("profileA".to_string())
+            })
         );
     }
 }

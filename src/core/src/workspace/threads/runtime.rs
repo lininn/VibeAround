@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 
 use crate::agent::{Agent, AgentClientHandler};
 use crate::routing::RouteKey;
+use crate::workspace::registry::WorkspaceId;
 
 use super::store::{
     HostBinding, ThreadEvent, ThreadEventStore, ThreadStatus, WorkspaceThread, WorkspaceThreadId,
@@ -17,6 +18,7 @@ use super::store::{
 #[derive(Debug, Clone)]
 pub struct ThreadRuntimeState {
     pub thread_id: WorkspaceThreadId,
+    pub workspace_id: WorkspaceId,
     pub host_binding: HostBinding,
     pub session_id: Option<String>,
     pub workspace: PathBuf,
@@ -55,6 +57,7 @@ impl ThreadRuntime {
         let thread = self.thread.lock().await;
         ThreadRuntimeState {
             thread_id: thread.id.clone(),
+            workspace_id: thread.workspace_id.clone(),
             host_binding: thread.host_binding.clone(),
             session_id: self.session_id.lock().await.clone(),
             workspace: self.workspace.clone(),
