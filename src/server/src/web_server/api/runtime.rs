@@ -118,7 +118,7 @@ pub async fn stop_channel_handler(
 }
 
 /// POST /api/channels/:kind/restart -- user-initiated restart (kill +
-/// immediate respawn, no 15s backoff).
+/// immediate respawn, no retry backoff).
 pub async fn restart_channel_handler(
     State(state): State<AppState>,
     Path(kind): Path<String>,

@@ -28,7 +28,9 @@ use tokio::sync::{broadcast, mpsc};
 use crate::conversations::ConversationManager;
 use crate::process::bridge::{BridgeFactory, ProcessBridge};
 use crate::process::registry::ProcessKind;
-use crate::process::supervisor::{ProcessEvent, ProcessId, RestartPolicy, SpawnSpec, Supervisor};
+use crate::process::supervisor::{
+    ProcessEvent, ProcessId, RestartBackoff, RestartPolicy, SpawnSpec, Supervisor,
+};
 use crate::workspace::WorkspaceThreadManager;
 
 use super::manifest::ChannelPluginManifest;
@@ -41,7 +43,8 @@ use super::ChannelInput;
 // Tunables — kept at module scope so the Dashboard can display them.
 // ---------------------------------------------------------------------------
 
-pub const RESTART_BACKOFF: Duration = Duration::from_secs(15);
+pub const RESTART_BACKOFF_INITIAL: Duration = Duration::from_secs(5);
+pub const RESTART_BACKOFF_MAX: Duration = Duration::from_secs(300);
 pub const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(90);
 
 // ---------------------------------------------------------------------------
@@ -141,8 +144,8 @@ impl ChannelMonitor {
 
     /// Register a channel plugin. The supervisor spawns immediately
     /// (no wait for the next tick) and keeps it alive under an
-    /// `OnCrash` policy with a 15-second backoff and a 90-second
-    /// heartbeat watchdog.
+    /// `OnCrash` policy with a short exponential backoff capped at five
+    /// minutes and a 90-second heartbeat watchdog.
     pub fn register(self: &Arc<Self>, manifest: ChannelPluginManifest) {
         let kind = manifest.channel_kind.clone();
 
@@ -163,7 +166,7 @@ impl ChannelMonitor {
             kind.clone(),
             spec,
             RestartPolicy::OnCrash {
-                backoff: RESTART_BACKOFF,
+                backoff: RestartBackoff::exponential(RESTART_BACKOFF_INITIAL, RESTART_BACKOFF_MAX),
                 watchdog: Some(HEARTBEAT_TIMEOUT),
             },
             factory,

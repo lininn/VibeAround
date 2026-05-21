@@ -576,19 +576,17 @@ impl WebSocketPluginRuntime {
         })
     }
 
-    pub async fn send_output(&self, output: ChannelOutput) {
+    pub async fn send_output(&self, output: ChannelOutput) -> Result<(), String> {
         tracing::info!(
             "[WebSocketPluginRuntime] send_output channel_kind={} route={}",
             self.channel_kind,
             output.route_key()
         );
-        if let Err(error) = self.outbound_tx.send(output) {
-            tracing::info!(
-                "[{}] failed to deliver websocket output: {}",
-                self.channel_kind,
-                error
-            );
-        }
+        self.outbound_tx.send(output).map_err(|error| {
+            let message = format!("failed to deliver websocket output: {error}");
+            tracing::info!("[{}] {}", self.channel_kind, message);
+            message
+        })
     }
 
     pub async fn shutdown(&self) {}

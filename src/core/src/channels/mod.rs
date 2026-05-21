@@ -19,6 +19,7 @@
 pub mod bridge_handler;
 pub mod manifest;
 pub mod monitor;
+pub mod outbox;
 pub mod plugin_bridge;
 pub mod plugin_host;
 pub mod plugin_runtime;
