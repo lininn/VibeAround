@@ -34,8 +34,10 @@ import {
   WorkspacePanel,
 } from "./LaunchBuilderPanels";
 import {
+  createProfile,
   deleteProfile,
   getLauncherPreferences,
+  getProfile,
   launchDirect,
   launchDirectResume,
   launchProfile,
@@ -58,6 +60,7 @@ import {
   type LauncherPreferences,
   type WorkspaceOption,
 } from "./api";
+import { buildProfileCopyDraft } from "./profileClone";
 import {
   agentLabel,
   agentProfileId,
@@ -82,7 +85,11 @@ import {
   type ProfileChoice,
   type SessionChoice,
 } from "./launchModel";
-import type { ConnectionAgentId, ProfileSummary } from "./types";
+import type {
+  ConnectionAgentId,
+  ProfileConnectionPreference,
+  ProfileSummary,
+} from "./types";
 
 const AGENT_ORDER = [
   "codex",
@@ -508,6 +515,33 @@ export function AgentLaunchBuilder({
     }
   }
 
+  async function copyProfile(profile: ProfileSummary) {
+    if (!prefs) return;
+    setBusy(true);
+    onError(null);
+    try {
+      const fullProfile = await getProfile(profile.id);
+      const copiedProfile = await createProfile(
+        buildProfileCopyDraft(fullProfile, t("Copy")),
+      );
+      const sourceConnections = prefs.profileConnections[profile.id] ?? {};
+      const connectionCopies = Object.entries(sourceConnections)
+        .filter((entry): entry is [ConnectionAgentId, ProfileConnectionPreference] =>
+          Boolean(entry[1]),
+        )
+        .map(([connectionAgentId, preference]) =>
+          setProfileConnection(copiedProfile.id, connectionAgentId, preference),
+        );
+      await Promise.all(connectionCopies);
+      await Promise.all([refreshProfiles(), refreshPrefs()]);
+      onToast(t("Profile copied"));
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function reorderProfile(fromId: string, toId: string) {
     if (fromId === toId) return;
     const visibleIds = profileOptions.map((profile) => profile.id);
@@ -733,6 +767,7 @@ export function AgentLaunchBuilder({
                   }
                   onMakeDefault={makeDefault}
                   onEditProfile={onEditProfile}
+                  onCopyProfile={(profile) => void copyProfile(profile)}
                   onConnectionSettings={onConnectionSettings}
                   onDeleteProfile={(profile) => void removeProfile(profile)}
                   onReorderProfile={(fromId, toId) =>

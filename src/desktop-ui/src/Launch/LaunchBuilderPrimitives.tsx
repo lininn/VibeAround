@@ -6,6 +6,7 @@ import {
 } from "react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import {
+  Copy,
   GripVertical,
   MoreVertical,
   Pencil,
@@ -292,12 +293,14 @@ export function ProfileActionsMenu({
   bridgeAvailable,
   onConnectionSettings,
   onEditProfile,
+  onCopyProfile,
   onDeleteProfile,
 }: {
   profile: ProfileSummary;
   bridgeAvailable: boolean;
   onConnectionSettings: (profile: ProfileSummary) => void;
   onEditProfile: (profile: ProfileSummary) => void;
+  onCopyProfile: (profile: ProfileSummary) => void;
   onDeleteProfile: (profile: ProfileSummary) => void;
 }) {
   const { t } = useI18n();
@@ -330,6 +333,13 @@ export function ProfileActionsMenu({
         >
           <Pencil className="h-3 w-3" />
           {t("Edit")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="text-xs"
+          onSelect={() => onCopyProfile(profile)}
+        >
+          <Copy className="h-3 w-3" />
+          {t("Copy")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
