@@ -12,6 +12,7 @@ use crate::conversations::ConversationManager;
 use crate::proc_log;
 use crate::process::registry::ProcessKind;
 use crate::routing::RouteKey;
+use crate::workspace::WorkspaceThreadManager;
 
 use super::super::plugin_host::PluginHost;
 use super::super::prompt::handle_prompt;
@@ -26,6 +27,7 @@ pub(super) struct PluginAgentHandler {
     /// Still used for fire-and-forget operations: cancel, callback.
     input_tx: mpsc::UnboundedSender<ChannelInput>,
     conversation_manager: Arc<ConversationManager>,
+    workspace_thread_manager: Arc<WorkspaceThreadManager>,
     plugin_host: Arc<PluginHost>,
 }
 
@@ -35,6 +37,7 @@ impl PluginAgentHandler {
         config: serde_json::Value,
         input_tx: mpsc::UnboundedSender<ChannelInput>,
         conversation_manager: Arc<ConversationManager>,
+        workspace_thread_manager: Arc<WorkspaceThreadManager>,
         plugin_host: Arc<PluginHost>,
     ) -> Self {
         Self {
@@ -42,6 +45,7 @@ impl PluginAgentHandler {
             config,
             input_tx,
             conversation_manager,
+            workspace_thread_manager,
             plugin_host,
         }
     }
@@ -110,10 +114,9 @@ impl PluginAgentHandler {
         // Session notifications stream to the plugin via ChannelBridgeHandler
         // → PluginHost → output_tx → output forwarder → conn.session_notification().
         let result = handle_prompt(
-            &self.conversation_manager,
+            &self.workspace_thread_manager,
             &self.plugin_host,
             route.clone(),
-            None, // cli_kind: plugin prompts don't specify
             content_blocks,
         )
         .await;

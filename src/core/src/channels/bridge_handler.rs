@@ -24,7 +24,7 @@ use super::types::ChannelOutput;
 
 pub(crate) struct ChannelBridgeHandler {
     plugin_host: Arc<PluginHost>,
-    conversation_manager: Arc<ConversationManager>,
+    conversation_manager: Option<Arc<ConversationManager>>,
     route: RouteKey,
 }
 
@@ -36,7 +36,15 @@ impl ChannelBridgeHandler {
     ) -> Self {
         Self {
             plugin_host,
-            conversation_manager,
+            conversation_manager: Some(conversation_manager),
+            route,
+        }
+    }
+
+    pub(crate) fn for_thread(plugin_host: Arc<PluginHost>, route: RouteKey) -> Self {
+        Self {
+            plugin_host,
+            conversation_manager: None,
             route,
         }
     }
@@ -77,8 +85,11 @@ impl AgentClientHandler for ChannelBridgeHandler {
             if update.get("sessionUpdate").and_then(|v| v.as_str())
                 == Some("available_commands_update")
             {
-                if let Some(commands) = update.get("availableCommands") {
-                    self.conversation_manager
+                if let (Some(conversation_manager), Some(commands)) = (
+                    self.conversation_manager.as_ref(),
+                    update.get("availableCommands"),
+                ) {
+                    conversation_manager
                         .list_agent_commands_update(&self.route, commands.clone())
                         .await;
                 }

@@ -14,6 +14,7 @@ use tokio::sync::mpsc;
 
 use crate::conversations::ConversationManager;
 use crate::process::bridge::{BridgeFuture, CancelSignal, ProcessBridge, StdioPipes};
+use crate::workspace::WorkspaceThreadManager;
 
 use super::plugin_host::PluginHost;
 use super::transport_stdio::run_acp_plugin_bridge;
@@ -26,6 +27,7 @@ pub struct ChannelPluginBridge {
     pub input_tx: mpsc::UnboundedSender<ChannelInput>,
     pub output_rx: mpsc::UnboundedReceiver<ChannelOutput>,
     pub conversation_manager: Arc<ConversationManager>,
+    pub workspace_thread_manager: Arc<WorkspaceThreadManager>,
     pub plugin_host: Arc<PluginHost>,
 }
 
@@ -41,6 +43,7 @@ impl ProcessBridge for ChannelPluginBridge {
                 this.input_tx,
                 this.output_rx,
                 this.conversation_manager,
+                this.workspace_thread_manager,
                 this.plugin_host,
                 cancel,
             )

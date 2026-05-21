@@ -29,6 +29,7 @@ use crate::conversations::ConversationManager;
 use crate::process::bridge::{BridgeFactory, ProcessBridge};
 use crate::process::registry::ProcessKind;
 use crate::process::supervisor::{ProcessEvent, ProcessId, RestartPolicy, SpawnSpec, Supervisor};
+use crate::workspace::WorkspaceThreadManager;
 
 use super::manifest::ChannelPluginManifest;
 use super::plugin_bridge::ChannelPluginBridge;
@@ -100,6 +101,7 @@ pub struct ChannelMonitor {
     supervisor: Arc<Supervisor>,
     kinds: DashMap<String, ProcessId>,
     conversation_manager: Arc<ConversationManager>,
+    workspace_thread_manager: Arc<WorkspaceThreadManager>,
     input_tx: mpsc::UnboundedSender<ChannelInput>,
     plugin_host: Arc<PluginHost>,
     /// Republished `()` stream for `StateSource::subscribe_changes`.
@@ -115,6 +117,7 @@ impl ChannelMonitor {
     /// [`StateSource::subscribe_changes`]: crate::state::StateSource::subscribe_changes
     pub fn new(
         conversation_manager: Arc<ConversationManager>,
+        workspace_thread_manager: Arc<WorkspaceThreadManager>,
         input_tx: mpsc::UnboundedSender<ChannelInput>,
         plugin_host: Arc<PluginHost>,
         change_tx: broadcast::Sender<()>,
@@ -129,6 +132,7 @@ impl ChannelMonitor {
             supervisor,
             kinds: DashMap::new(),
             conversation_manager,
+            workspace_thread_manager,
             input_tx,
             plugin_host,
             change_tx,
@@ -150,6 +154,7 @@ impl ChannelMonitor {
             manifest,
             Arc::clone(&self.input_tx_owned()),
             Arc::clone(&self.conversation_manager),
+            Arc::clone(&self.workspace_thread_manager),
             Arc::clone(&self.plugin_host),
         );
 
@@ -299,6 +304,7 @@ fn build_bridge_factory(
     manifest: ChannelPluginManifest,
     input_tx: Arc<mpsc::UnboundedSender<ChannelInput>>,
     conversation_manager: Arc<ConversationManager>,
+    workspace_thread_manager: Arc<WorkspaceThreadManager>,
     plugin_host: Arc<PluginHost>,
 ) -> BridgeFactory {
     Box::new(move || {
@@ -317,6 +323,7 @@ fn build_bridge_factory(
             input_tx: (*input_tx).clone(),
             output_rx,
             conversation_manager: Arc::clone(&conversation_manager),
+            workspace_thread_manager: Arc::clone(&workspace_thread_manager),
             plugin_host: Arc::clone(&plugin_host),
         }) as Box<dyn ProcessBridge>
     })

@@ -4,15 +4,13 @@
 //! `ChannelInput` from stdio plugins or the web chat. It routes by
 //! variant:
 //!
-//! - `Message` / `Callback` → [`handler::handle_prompt`] (slash
-//!   command parse → ConversationManager prompt).
-//! - `Stop` / `Close` / `SwitchAgent` → direct `ConversationManager` calls.
+//! - `Message` / `Callback` → [`handler::handle_prompt`] (workspace thread
+//!   slash command parse → thread runtime prompt).
+//! - `Stop` / `Close` / `SwitchAgent` → workspace thread control.
 //! - `Log` → forward to the daemon log stream.
 //!
 //! Sub-modules:
 //! - [`handler`]   — `handle_prompt` + slash-command dispatch.
-//! - [`handover`]  — Direction-2 session export (generate resume command).
-//! - [`mode`]      — `/mode <id>` handling.
 
 mod handler;
 mod handover;
@@ -22,8 +20,8 @@ use std::sync::Arc;
 
 use agent_client_protocol::schema as acp;
 
-use crate::conversations::ConversationManager;
 use crate::routing::{Attachment, RouteKey};
+use crate::workspace::WorkspaceThreadManager;
 
 use super::plugin_host::PluginHost;
 use super::types::{ChannelInput, ChannelOutput};
@@ -33,7 +31,7 @@ pub(crate) use handler::handle_prompt;
 /// Dispatch a single `ChannelInput` to the right subsystem. Used by both the
 /// stdio plugin transport and the legacy web-chat channel-input thread.
 pub async fn handle_channel_input(
-    conversation_manager: &Arc<ConversationManager>,
+    workspace_threads: &Arc<WorkspaceThreadManager>,
     plugin_host: &Arc<PluginHost>,
     input: ChannelInput,
 ) {
@@ -61,10 +59,9 @@ pub async fn handle_channel_input(
             let content_blocks = envelope_content_blocks(&text, &envelope.attachments);
 
             match handle_prompt(
-                conversation_manager,
+                workspace_threads,
                 plugin_host,
                 route.clone(),
-                cli_kind,
                 content_blocks,
             )
             .await
@@ -80,16 +77,21 @@ pub async fn handle_channel_input(
             send_prompt_done(plugin_host, &route, message_id).await;
         }
         ChannelInput::Stop { route } => {
-            let _ = conversation_manager.cancel(&route).await;
+            let runtime = workspace_threads.resolve_route_runtime(&route).await;
+            if let Ok(runtime) = runtime {
+                let _ = runtime.cancel().await;
+            }
         }
         ChannelInput::Close { route, reason } => {
-            conversation_manager.close(&route, reason).await;
+            let _ = workspace_threads.close_route(&route, reason).await;
         }
         ChannelInput::SwitchAgent { route, agent_kind } => {
-            if let Err(e) = conversation_manager.switch_agent(&route, agent_kind).await {
-                tracing::warn!(route = %route, error = %e, "switch agent failed");
-                send_system_text(plugin_host, &route, &format!("❌ {}", e)).await;
-            }
+            send_system_text(
+                plugin_host,
+                &route,
+                &format!("Use /switch host {} with workspace threads.", agent_kind),
+            )
+            .await;
         }
         ChannelInput::Log { level, message } => {
             tracing::info!(

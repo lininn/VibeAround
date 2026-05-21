@@ -37,6 +37,7 @@ use crate::agent::AgentClientHandler;
 use crate::conversations::event::SystemEvent;
 use crate::conversations::ConversationManager;
 use crate::plugins::DiscoveredPlugin;
+use crate::workspace::WorkspaceThreadManager;
 
 use self::manifest::ChannelPluginManifest;
 use self::plugin_host::PluginHost;
@@ -56,6 +57,7 @@ pub struct ChannelManager {
     input_tx: mpsc::UnboundedSender<ChannelInput>,
     input_rx: StdMutex<Option<mpsc::UnboundedReceiver<ChannelInput>>>,
     conversation_manager: Arc<ConversationManager>,
+    workspace_thread_manager: Arc<WorkspaceThreadManager>,
     /// Lazy-initialised on first `register_plugin` call. The monitor is
     /// a thin facade over `process::Supervisor` — it owns the supervisor
     /// and its tick loop internally.
@@ -63,13 +65,17 @@ pub struct ChannelManager {
 }
 
 impl ChannelManager {
-    pub fn new(conversation_manager: Arc<ConversationManager>) -> Self {
+    pub fn new(
+        conversation_manager: Arc<ConversationManager>,
+        workspace_thread_manager: Arc<WorkspaceThreadManager>,
+    ) -> Self {
         let (input_tx, input_rx) = mpsc::unbounded_channel();
         Self {
             plugin_host: Arc::new(PluginHost::new(input_tx.clone())),
             input_tx,
             input_rx: StdMutex::new(Some(input_rx)),
             conversation_manager,
+            workspace_thread_manager,
             monitor: StdMutex::new(None),
         }
     }
@@ -88,6 +94,7 @@ impl ChannelManager {
         let (change_tx, _) = tokio::sync::broadcast::channel::<()>(64);
         let m = monitor::ChannelMonitor::new(
             Arc::clone(&self.conversation_manager),
+            Arc::clone(&self.workspace_thread_manager),
             self.input_tx.clone(),
             Arc::clone(&self.plugin_host),
             change_tx,
@@ -152,11 +159,16 @@ impl ChannelManager {
 
     /// Process a single input on the current executor.
     pub async fn process_input(&self, input: ChannelInput) {
-        prompt::handle_channel_input(&self.conversation_manager, &self.plugin_host, input).await;
+        prompt::handle_channel_input(&self.workspace_thread_manager, &self.plugin_host, input)
+            .await;
     }
 
     pub fn conversation_manager(&self) -> Arc<ConversationManager> {
         Arc::clone(&self.conversation_manager)
+    }
+
+    pub fn workspace_thread_manager(&self) -> Arc<WorkspaceThreadManager> {
+        Arc::clone(&self.workspace_thread_manager)
     }
 
     pub async fn resume_session(
