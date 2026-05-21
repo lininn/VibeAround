@@ -94,6 +94,30 @@ async fn handle_command(
             )
             .await;
         }
+        ThreadCommand::Pickup(code) => {
+            let Some((agent, session_id, cwd)) = crate::workspace::handoff::consume(&code) else {
+                send_system_text(plugin_host, route, "Handoff code is invalid or expired.").await;
+                return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
+            };
+            let agent_id = crate::resources::resolve_agent_id(&agent).map_err(invalid_params)?;
+            let runtime = workspace_threads
+                .attach_external_session(
+                    route,
+                    agent_id.clone(),
+                    None,
+                    session_id,
+                    std::path::PathBuf::from(cwd),
+                )
+                .await
+                .map_err(internal_error)?;
+            start_runtime_and_notify(&runtime, plugin_host, route).await?;
+            send_system_text(
+                plugin_host,
+                route,
+                &format!("Attached handoff session to {}.", agent_id),
+            )
+            .await;
+        }
         ThreadCommand::SwitchWorkspace(token) => {
             match workspace_threads
                 .switch_workspace(route, &token)
@@ -183,7 +207,7 @@ async fn handle_command(
             send_system_text(
                 plugin_host,
                 route,
-                "Commands: /switch workspace <id|path>, /switch host <agent> [profile], /new, /close. Reply with a listed number or thread id after switching workspace.",
+                "Commands: /switch workspace <id|path>, /switch host <agent> [profile], /pickup <code>, /new, /close. Reply with a listed number or thread id after switching workspace.",
             )
             .await;
         }
@@ -242,6 +266,7 @@ async fn start_runtime_and_notify(
 enum ThreadCommand {
     New,
     Close,
+    Pickup(String),
     SwitchWorkspace(String),
     SwitchHost {
         agent: String,
@@ -262,6 +287,12 @@ fn parse_thread_command(text: &str) -> Option<ThreadCommand> {
     }
     if normalized == "/close" {
         return Some(ThreadCommand::Close);
+    }
+    if let Some(code) = normalized.strip_prefix("/pickup ") {
+        let code = code.trim();
+        if !code.is_empty() {
+            return Some(ThreadCommand::Pickup(code.to_string()));
+        }
     }
     if normalized == "/help" || normalized == "/commands" {
         return Some(ThreadCommand::Help);

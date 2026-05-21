@@ -3,8 +3,7 @@
 //!
 //! 1. **`session_notification`** — forward every `acp::SessionNotification`
 //!    from the agent to the channel plugin as a `ChannelOutput::RawAcp`
-//!    envelope. It also peeks at `available_commands_update` events so the
-//!    pod can cache the agent's command list for later `/agent` queries.
+//!    envelope.
 //! 2. **`request_permission`** — turn an ACP `requestPermission` call from
 //!    the upstream agent into a `ChannelOutput::PermissionRequest` to the
 //!    plugin, then await the plugin's reply via a per-request oneshot
@@ -16,7 +15,6 @@ use std::sync::Arc;
 use agent_client_protocol::schema as acp;
 
 use crate::agent::AgentClientHandler;
-use crate::conversations::ConversationManager;
 use crate::routing::RouteKey;
 
 use super::plugin_host::PluginHost;
@@ -24,29 +22,12 @@ use super::types::ChannelOutput;
 
 pub(crate) struct ChannelBridgeHandler {
     plugin_host: Arc<PluginHost>,
-    conversation_manager: Option<Arc<ConversationManager>>,
     route: RouteKey,
 }
 
 impl ChannelBridgeHandler {
-    pub(crate) fn new(
-        plugin_host: Arc<PluginHost>,
-        conversation_manager: Arc<ConversationManager>,
-        route: RouteKey,
-    ) -> Self {
-        Self {
-            plugin_host,
-            conversation_manager: Some(conversation_manager),
-            route,
-        }
-    }
-
     pub(crate) fn for_thread(plugin_host: Arc<PluginHost>, route: RouteKey) -> Self {
-        Self {
-            plugin_host,
-            conversation_manager: None,
-            route,
-        }
+        Self { plugin_host, route }
     }
 }
 
@@ -80,21 +61,6 @@ impl AgentClientHandler for ChannelBridgeHandler {
             update_kind,
             preview
         );
-
-        if let Some(update) = payload.get("update") {
-            if update.get("sessionUpdate").and_then(|v| v.as_str())
-                == Some("available_commands_update")
-            {
-                if let (Some(conversation_manager), Some(commands)) = (
-                    self.conversation_manager.as_ref(),
-                    update.get("availableCommands"),
-                ) {
-                    conversation_manager
-                        .list_agent_commands_update(&self.route, commands.clone())
-                        .await;
-                }
-            }
-        }
 
         self.plugin_host
             .send_output(ChannelOutput::RawAcp {

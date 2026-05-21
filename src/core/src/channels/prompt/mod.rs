@@ -10,11 +10,9 @@
 //! - `Log` → forward to the daemon log stream.
 //!
 //! Sub-modules:
-//! - [`handler`]   — `handle_prompt` + slash-command dispatch.
+//! - [`handler`] — `handle_prompt` + workspace-thread command dispatch.
 
 mod handler;
-mod handover;
-mod mode;
 
 use std::sync::Arc;
 

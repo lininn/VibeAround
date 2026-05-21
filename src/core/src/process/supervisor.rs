@@ -901,7 +901,7 @@ impl Supervisor {
         // Auto-deregister terminal one-shot processes. Without this the
         // `processes` map grows unbounded over daemon lifetime as
         // `RestartPolicy::Never` workloads (chiefly `AcpAgent` spawns
-        // tied to opened conversations) accumulate Stopped entries.
+        // tied to one-shot agent launches) accumulate Stopped entries.
         // Keeping `OnCrash` entries around is deliberate: a user-stopped
         // channel plugin can still be resurrected via `force_start`.
         if matches!(proc.policy, RestartPolicy::Never)

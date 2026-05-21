@@ -1,10 +1,12 @@
 //! Workspace/thread orchestration.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
 use dashmap::DashMap;
+use tokio::sync::broadcast;
 
 use crate::agent_state;
 use crate::routing::RouteKey;
@@ -15,6 +17,7 @@ use super::threads::attachment::{
     RouteAttachmentEvent, RouteAttachmentEventStore, RouteAttachmentProjection,
 };
 use super::threads::runtime::ThreadRuntime;
+use super::threads::runtime::ThreadRuntimeState;
 use super::threads::store::{
     HostBinding, ThreadEvent, ThreadEventStore, ThreadProjection, WorkspaceThread,
     WorkspaceThreadId,
@@ -26,10 +29,12 @@ pub struct WorkspaceThreadManager {
     attachment_store: RouteAttachmentEventStore,
     runtimes: DashMap<WorkspaceThreadId, Arc<ThreadRuntime>>,
     pending_selections: DashMap<RouteKey, Vec<ThreadChoice>>,
+    change_tx: broadcast::Sender<()>,
 }
 
 impl WorkspaceThreadManager {
     pub fn new_default() -> Arc<Self> {
+        let (change_tx, _) = broadcast::channel(64);
         Arc::new(Self {
             workspace_store: WorkspaceEventStore::new(WorkspaceEventStore::default_path()),
             thread_store: ThreadEventStore::new(ThreadEventStore::default_path()),
@@ -38,6 +43,7 @@ impl WorkspaceThreadManager {
             ),
             runtimes: DashMap::new(),
             pending_selections: DashMap::new(),
+            change_tx,
         })
     }
 
@@ -46,12 +52,14 @@ impl WorkspaceThreadManager {
         thread_path: PathBuf,
         attachment_path: PathBuf,
     ) -> Arc<Self> {
+        let (change_tx, _) = broadcast::channel(64);
         Arc::new(Self {
             workspace_store: WorkspaceEventStore::new(workspace_path),
             thread_store: ThreadEventStore::new(thread_path),
             attachment_store: RouteAttachmentEventStore::new(attachment_path),
             runtimes: DashMap::new(),
             pending_selections: DashMap::new(),
+            change_tx,
         })
     }
 
@@ -122,6 +130,74 @@ impl WorkspaceThreadManager {
             .map_err(|error| anyhow!(error.to_string()))
     }
 
+    pub async fn close_thread(
+        &self,
+        thread_id: &WorkspaceThreadId,
+        reason: Option<String>,
+    ) -> anyhow::Result<()> {
+        let runtime = self.runtime_for_thread(thread_id).await?;
+        runtime
+            .close(reason)
+            .await
+            .map_err(|error| anyhow!(error.to_string()))
+    }
+
+    pub async fn attach_external_session(
+        &self,
+        route: &RouteKey,
+        agent_id: String,
+        profile_id: Option<String>,
+        session_id: String,
+        cwd: PathBuf,
+    ) -> anyhow::Result<Arc<ThreadRuntime>> {
+        let workspace = self.ensure_workspace_for_cwd(cwd).await?;
+        let host_binding = HostBinding::new(agent_id.clone(), profile_id.clone());
+        let projection = self.thread_projection().await?;
+        let thread = projection
+            .for_workspace(&workspace.id, false)
+            .find(|thread| {
+                thread
+                    .agent_sessions
+                    .values()
+                    .flatten()
+                    .any(|session| session.session_id == session_id)
+            })
+            .cloned()
+            .unwrap_or_else(|| {
+                self.new_thread_record_with_host(workspace.id.clone(), host_binding.clone())
+            });
+
+        self.ensure_thread_persisted(&thread).await?;
+        if thread.host_binding != host_binding {
+            self.thread_store
+                .append(&ThreadEvent::host_changed(
+                    thread.id.clone(),
+                    host_binding.clone(),
+                    false,
+                ))
+                .await
+                .context("append external session host binding")?;
+            self.notify_change();
+        }
+        self.thread_store
+            .append(&ThreadEvent::agent_session_observed(
+                thread.id.clone(),
+                agent_id,
+                profile_id,
+                session_id,
+            ))
+            .await
+            .context("append external session")?;
+        self.notify_change();
+        self.attach_route(route.clone(), workspace.id, thread.id.clone())
+            .await?;
+        let thread = self
+            .thread(&thread.id)
+            .await?
+            .ok_or_else(|| anyhow!("thread {} not found after attach", thread.id))?;
+        self.runtime_from_thread(thread).await
+    }
+
     pub async fn switch_workspace(
         &self,
         route: &RouteKey,
@@ -189,6 +265,43 @@ impl WorkspaceThreadManager {
         Ok(self.attachment_projection().await?.get(route).cloned())
     }
 
+    pub async fn runtime_entries(&self) -> anyhow::Result<Vec<WorkspaceThreadRuntimeEntry>> {
+        let thread_projection = self.thread_projection().await?;
+        let attachment_projection = self.attachment_projection().await?;
+        let mut routes_by_thread: HashMap<WorkspaceThreadId, RouteKey> = HashMap::new();
+        for attachment in attachment_projection.all() {
+            routes_by_thread.insert(attachment.thread_id.clone(), attachment.route.clone());
+        }
+
+        let mut entries = Vec::new();
+        for thread in thread_projection.all() {
+            if thread.status != super::threads::store::ThreadStatus::Open {
+                continue;
+            }
+            let runtime = self.runtime_from_thread(thread.clone()).await?;
+            entries.push(WorkspaceThreadRuntimeEntry {
+                route: routes_by_thread.get(&thread.id).cloned(),
+                first_user_prompt: thread.first_user_prompt.clone(),
+                created_at: thread.created_at.clone(),
+                updated_at: thread.updated_at.clone(),
+                state: runtime.state().await,
+            });
+        }
+        entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        Ok(entries)
+    }
+
+    pub async fn shutdown_all(&self) {
+        let runtimes: Vec<Arc<ThreadRuntime>> = self
+            .runtimes
+            .iter()
+            .map(|entry| Arc::clone(entry.value()))
+            .collect();
+        for runtime in runtimes {
+            runtime.shutdown_host().await;
+        }
+    }
+
     async fn attach_route(
         &self,
         route: RouteKey,
@@ -203,6 +316,7 @@ impl WorkspaceThreadManager {
             ))
             .await
             .context("append route attachment")?;
+        self.notify_change();
         Ok(())
     }
 
@@ -222,10 +336,36 @@ impl WorkspaceThreadManager {
             .append(&event)
             .await
             .context("append general workspace")?;
+        self.notify_change();
         Ok(WorkspaceProjection::from_events(&[event])?
             .get(&WorkspaceId::general())
             .cloned()
             .expect("registered general workspace"))
+    }
+
+    async fn ensure_workspace_for_cwd(&self, cwd: PathBuf) -> anyhow::Result<WorkspaceRecord> {
+        let projection = self.workspace_projection().await?;
+        if let Some(workspace) = projection.get_by_cwd(&cwd) {
+            return Ok(workspace.clone());
+        }
+
+        let name = cwd
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or("Workspace")
+            .to_string();
+        let event = WorkspaceEvent::registered(WorkspaceId::new(), cwd, name, false);
+        self.workspace_store
+            .append(&event)
+            .await
+            .context("append workspace")?;
+        self.notify_change();
+        Ok(WorkspaceProjection::from_events(&[event])?
+            .all()
+            .next()
+            .cloned()
+            .expect("registered workspace"))
     }
 
     async fn resolve_workspace(&self, token: &str) -> anyhow::Result<Option<WorkspaceRecord>> {
@@ -298,11 +438,20 @@ impl WorkspaceThreadManager {
             ))
             .await
             .context("append workspace thread")?;
+        self.notify_change();
         Ok(())
     }
 
     fn new_thread_record(&self, workspace_id: WorkspaceId) -> WorkspaceThread {
         let host_binding = default_host_binding();
+        self.new_thread_record_with_host(workspace_id, host_binding)
+    }
+
+    fn new_thread_record_with_host(
+        &self,
+        workspace_id: WorkspaceId,
+        host_binding: HostBinding,
+    ) -> WorkspaceThread {
         let event = ThreadEvent::created(WorkspaceThreadId::new(), workspace_id, host_binding);
         ThreadProjection::from_events(&[event])
             .expect("single created event should project")
@@ -337,10 +486,11 @@ impl WorkspaceThreadManager {
             .workspace(&thread.workspace_id)
             .await?
             .ok_or_else(|| anyhow!("workspace {} not found", thread.workspace_id))?;
-        let runtime = Arc::new(ThreadRuntime::new(
+        let runtime = Arc::new(ThreadRuntime::with_change_tx(
             thread.clone(),
             workspace.cwd,
             self.thread_store.clone(),
+            Some(self.change_tx.clone()),
         ));
         self.runtimes.insert(thread.id, Arc::clone(&runtime));
         Ok(runtime)
@@ -365,6 +515,37 @@ impl WorkspaceThreadManager {
             .load_projection()
             .await
             .map_err(|error| anyhow!(error.to_string()))
+    }
+
+    fn notify_change(&self) {
+        let _ = self.change_tx.send(());
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceThreadRuntimeEntry {
+    pub route: Option<RouteKey>,
+    pub state: ThreadRuntimeState,
+    pub first_user_prompt: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl crate::state::StateSource for WorkspaceThreadManager {
+    type Entry = WorkspaceThreadRuntimeEntry;
+
+    async fn list(&self) -> Vec<Self::Entry> {
+        match self.runtime_entries().await {
+            Ok(entries) => entries,
+            Err(error) => {
+                tracing::warn!(error = %error, "failed to list workspace thread runtimes");
+                Vec::new()
+            }
+        }
+    }
+
+    fn subscribe_changes(&self) -> broadcast::Receiver<()> {
+        self.change_tx.subscribe()
     }
 }
 

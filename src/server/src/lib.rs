@@ -17,7 +17,6 @@ use tokio::task::JoinHandle;
 use common::auth::{self, AuthToken};
 use common::channels::{handle_channel_input, ChannelManager, WebChannelManager};
 use common::config;
-use common::conversations::ConversationManager;
 use common::plugins;
 use common::process::registry::{self as child_registry, ChildRegistry};
 use common::pty::{PtySessionManager, Registry, SessionId};
@@ -37,7 +36,6 @@ pub struct ServerDaemon {
 
 pub struct RunningDaemon {
     pub channel_hub: Arc<ChannelManager>,
-    pub conversation_manager: Arc<ConversationManager>,
     pub workspace_thread_manager: Arc<WorkspaceThreadManager>,
     pub web_channel: Arc<WebChannelManager>,
     pub web_handle: JoinHandle<Result<(), String>>,
@@ -56,7 +54,7 @@ pub struct RunningDaemon {
 
 impl RunningDaemon {
     pub async fn stop(self) {
-        self.conversation_manager.shutdown_all().await;
+        self.workspace_thread_manager.shutdown_all().await;
         self.channel_hub.shutdown_all().await;
 
         // Safety net: synchronously kill any child process still registered
@@ -158,29 +156,22 @@ impl ServerDaemon {
             );
         }
 
-        // 1. Initialize hub architecture: ConversationManager → ChannelManager
-        let conversation_manager = Arc::new(ConversationManager::new());
+        // 1. Initialize workspace-thread routing and channel hub.
         let workspace_thread_manager = WorkspaceThreadManager::new_default();
-        let channel_hub = Arc::new(ChannelManager::new(
-            Arc::clone(&conversation_manager),
-            Arc::clone(&workspace_thread_manager),
-        ));
+        let channel_hub = Arc::new(ChannelManager::new(Arc::clone(&workspace_thread_manager)));
         let web_channel = WebChannelManager::new();
-
-        // 2. ChannelManager subscribes to SystemEvent for agent info forwarding
-        channel_hub.start_event_forwarder(conversation_manager.subscribe());
 
         // Register built-in internal channels.
         let (web_outbound_tx, mut web_outbound_rx) = web_channel.sender();
         channel_hub.start_internal_plugin("web", web_outbound_tx);
         let web_dispatch_handle = {
             let web_channel = Arc::clone(&web_channel);
-            let conversation_manager = Arc::clone(&conversation_manager);
+            let workspace_thread_manager = Arc::clone(&workspace_thread_manager);
             tokio::spawn(async move {
                 while let Some(output) = web_outbound_rx.recv().await {
                     if let Some(deadline) = web_channel.dispatch_output(output) {
                         web_channel
-                            .schedule_idle_close(Arc::clone(&conversation_manager), deadline);
+                            .schedule_idle_close(Arc::clone(&workspace_thread_manager), deadline);
                     }
                 }
             })
@@ -281,7 +272,6 @@ impl ServerDaemon {
 
         Ok(RunningDaemon {
             channel_hub,
-            conversation_manager,
             workspace_thread_manager,
             web_channel,
             web_handle,

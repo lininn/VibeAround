@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use agent_client_protocol::schema as acp;
 use anyhow::Context;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 
 use crate::agent::{Agent, AgentClientHandler};
 use crate::routing::RouteKey;
@@ -36,10 +36,20 @@ pub struct ThreadRuntime {
     busy: Mutex<bool>,
     failed: Mutex<Option<String>>,
     store: ThreadEventStore,
+    change_tx: Option<broadcast::Sender<()>>,
 }
 
 impl ThreadRuntime {
     pub fn new(thread: WorkspaceThread, workspace: PathBuf, store: ThreadEventStore) -> Self {
+        Self::with_change_tx(thread, workspace, store, None)
+    }
+
+    pub fn with_change_tx(
+        thread: WorkspaceThread,
+        workspace: PathBuf,
+        store: ThreadEventStore,
+        change_tx: Option<broadcast::Sender<()>>,
+    ) -> Self {
         let session_id = latest_session_for_host(&thread);
         Self {
             thread: Mutex::new(thread),
@@ -50,6 +60,7 @@ impl ThreadRuntime {
             busy: Mutex::new(false),
             failed: Mutex::new(None),
             store,
+            change_tx,
         }
     }
 
@@ -86,6 +97,7 @@ impl ThreadRuntime {
     ) -> acp::Result<acp::PromptResponse> {
         *self.busy.lock().await = true;
         *self.failed.lock().await = None;
+        self.notify_change();
 
         let result = async {
             self.maybe_record_first_prompt(&content_blocks).await?;
@@ -101,6 +113,7 @@ impl ThreadRuntime {
         if let Err(error) = &result {
             *self.failed.lock().await = Some(error.message.to_string());
         }
+        self.notify_change();
         result
     }
 
@@ -133,7 +146,20 @@ impl ThreadRuntime {
         self.apply_thread_event(&event).await?;
         *self.session_id.lock().await = None;
         *self.initialize.lock().await = None;
+        self.notify_change();
         Ok(())
+    }
+
+    pub async fn shutdown_host(&self) {
+        if let Some(session_id) = self.session_id.lock().await.clone() {
+            crate::previews::kill_by_session(&session_id);
+        }
+        if let Some(agent) = self.agent.lock().await.take() {
+            agent.shutdown().await;
+        }
+        *self.initialize.lock().await = None;
+        *self.busy.lock().await = false;
+        self.notify_change();
     }
 
     pub async fn switch_host(
@@ -155,6 +181,7 @@ impl ThreadRuntime {
         let next_session_id = latest_session_for_host(&thread);
         drop(thread);
         *self.session_id.lock().await = next_session_id;
+        self.notify_change();
         Ok(())
     }
 
@@ -237,6 +264,7 @@ impl ThreadRuntime {
         *self.initialize.lock().await = Some(ready.initialize.clone());
         *self.agent.lock().await = Some(Arc::clone(&ready.agent));
         *self.failed.lock().await = None;
+        self.notify_change();
 
         if let Some(session_id) = ready.startup_session_id {
             self.observe_session(&agent_id, thread.host_binding.profile_id, &session_id)
@@ -285,6 +313,7 @@ impl ThreadRuntime {
         append_thread_event(&self.store, &event).await?;
         self.apply_thread_event(&event).await?;
         *self.session_id.lock().await = Some(session_id.to_string());
+        self.notify_change();
         Ok(())
     }
 
@@ -301,7 +330,9 @@ impl ThreadRuntime {
         let thread_id = self.thread.lock().await.id.clone();
         let event = ThreadEvent::first_user_prompt_set(thread_id, prompt);
         append_thread_event(&self.store, &event).await?;
-        self.apply_thread_event(&event).await
+        let result = self.apply_thread_event(&event).await;
+        self.notify_change();
+        result
     }
 
     async fn apply_thread_event(&self, event: &ThreadEvent) -> acp::Result<()> {
@@ -352,6 +383,12 @@ impl ThreadRuntime {
             ThreadEvent::Created { .. } => {}
         }
         Ok(())
+    }
+
+    fn notify_change(&self) {
+        if let Some(tx) = &self.change_tx {
+            let _ = tx.send(());
+        }
     }
 }
 

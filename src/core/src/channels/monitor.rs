@@ -25,7 +25,6 @@ use std::time::Duration;
 use dashmap::DashMap;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::conversations::ConversationManager;
 use crate::process::bridge::{BridgeFactory, ProcessBridge};
 use crate::process::registry::ProcessKind;
 use crate::process::supervisor::{
@@ -103,7 +102,6 @@ pub struct ChannelStatusSnapshot {
 pub struct ChannelMonitor {
     supervisor: Arc<Supervisor>,
     kinds: DashMap<String, ProcessId>,
-    conversation_manager: Arc<ConversationManager>,
     workspace_thread_manager: Arc<WorkspaceThreadManager>,
     input_tx: mpsc::UnboundedSender<ChannelInput>,
     plugin_host: Arc<PluginHost>,
@@ -119,7 +117,6 @@ impl ChannelMonitor {
     ///
     /// [`StateSource::subscribe_changes`]: crate::state::StateSource::subscribe_changes
     pub fn new(
-        conversation_manager: Arc<ConversationManager>,
         workspace_thread_manager: Arc<WorkspaceThreadManager>,
         input_tx: mpsc::UnboundedSender<ChannelInput>,
         plugin_host: Arc<PluginHost>,
@@ -134,7 +131,6 @@ impl ChannelMonitor {
         Arc::new(Self {
             supervisor,
             kinds: DashMap::new(),
-            conversation_manager,
             workspace_thread_manager,
             input_tx,
             plugin_host,
@@ -156,7 +152,6 @@ impl ChannelMonitor {
         let factory = build_bridge_factory(
             manifest,
             Arc::clone(&self.input_tx_owned()),
-            Arc::clone(&self.conversation_manager),
             Arc::clone(&self.workspace_thread_manager),
             Arc::clone(&self.plugin_host),
         );
@@ -306,7 +301,6 @@ async fn forward_events(mut rx: broadcast::Receiver<ProcessEvent>, tx: broadcast
 fn build_bridge_factory(
     manifest: ChannelPluginManifest,
     input_tx: Arc<mpsc::UnboundedSender<ChannelInput>>,
-    conversation_manager: Arc<ConversationManager>,
     workspace_thread_manager: Arc<WorkspaceThreadManager>,
     plugin_host: Arc<PluginHost>,
 ) -> BridgeFactory {
@@ -325,7 +319,6 @@ fn build_bridge_factory(
             raw_config: manifest.raw_config.clone(),
             input_tx: (*input_tx).clone(),
             output_rx,
-            conversation_manager: Arc::clone(&conversation_manager),
             workspace_thread_manager: Arc::clone(&workspace_thread_manager),
             plugin_host: Arc::clone(&plugin_host),
         }) as Box<dyn ProcessBridge>

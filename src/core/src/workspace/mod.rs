@@ -4,6 +4,7 @@
 //! sessions remain implementation details of each thread runtime.
 
 pub mod context_transfer;
+pub mod handoff;
 pub mod manager;
 pub mod registry;
 pub mod store;

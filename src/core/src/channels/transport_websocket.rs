@@ -5,9 +5,9 @@ use std::time::Duration;
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
 
-use crate::conversations::ConversationManager;
 use crate::routing::ChannelKind;
 use crate::routing::RouteKey;
+use crate::workspace::WorkspaceThreadManager;
 
 use super::ChannelOutput;
 
@@ -237,7 +237,7 @@ impl WebChannelManager {
 
     pub fn schedule_idle_close(
         self: &Arc<Self>,
-        conversation_manager: Arc<ConversationManager>,
+        workspace_threads: Arc<WorkspaceThreadManager>,
         deadline: WebRouteIdleDeadline,
     ) {
         let manager = Arc::clone(self);
@@ -246,8 +246,8 @@ impl WebChannelManager {
             if !manager.is_idle_deadline_current(&deadline) {
                 return;
             }
-            conversation_manager
-                .close(&deadline.route, Some("web idle timeout".to_string()))
+            let _ = workspace_threads
+                .close_route(&deadline.route, Some("web idle timeout".to_string()))
                 .await;
         });
     }
