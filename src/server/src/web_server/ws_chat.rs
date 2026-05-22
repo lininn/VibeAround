@@ -597,7 +597,9 @@ async fn apply_web_session_resume_now(
             return;
         }
     };
+    let workspace_threads = state.channel_hub.workspace_thread_manager();
     if let Err(error) = common::channels::prompt::start_runtime_and_notify(
+        &workspace_threads,
         &runtime,
         &state.channel_hub.plugin_host(),
         route,
@@ -1036,6 +1038,11 @@ fn parse_web_session_workspace(value: &serde_json::Value) -> Option<String> {
 /// Translate a `ChannelOutput` into a wire `ChatEvent`.
 fn output_to_chat_event(output: ChannelOutput) -> ChatEvent {
     match output {
+        ChannelOutput::ThreadReply { reply, .. } => match reply.payload {
+            common::channels::types::ThreadReplyPayload::AcpSessionNotification {
+                notification,
+            } => acp_passthrough(notification),
+        },
         ChannelOutput::RawAcp { payload, .. } => acp_passthrough(payload),
         ChannelOutput::SystemText { text, .. } => ChatEvent::SystemText { text },
         ChannelOutput::AgentReady { agent, version, .. } => {

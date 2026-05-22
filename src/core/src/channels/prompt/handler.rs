@@ -10,8 +10,8 @@ use crate::channels::plugin_host::PluginHost;
 use crate::channels::types::ChannelOutput;
 use crate::routing::RouteKey;
 use crate::workspace::context_transfer;
-use crate::workspace::manager::{ThreadChoice, WorkspaceSwitch};
-use crate::workspace::threads::runtime::ThreadRuntime;
+use crate::workspace::manager::{PendingThreadSelection, ThreadChoice, WorkspaceSwitch};
+use crate::workspace::threads::runtime::{ThreadRuntime, ThreadRuntimeState};
 use crate::workspace::threads::store::HostBinding;
 use crate::workspace::WorkspaceThreadManager;
 
@@ -29,19 +29,35 @@ pub(crate) async fn handle_prompt(
         return handle_command(workspace_threads, plugin_host, &route, command).await;
     }
 
-    if let Some(runtime) = workspace_threads
+    match workspace_threads
         .select_pending_thread(&route, &text)
         .await
         .map_err(internal_error)?
     {
-        start_runtime_and_notify(&runtime, plugin_host, &route, true).await?;
-        send_system_text(
-            plugin_host,
-            &route,
-            &format!("Switched to thread {}.", runtime.state().await.thread_id),
-        )
-        .await;
-        return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
+        PendingThreadSelection::Selected(runtime) => {
+            start_runtime_and_notify(workspace_threads, &runtime, plugin_host, &route, true)
+                .await?;
+            send_system_text(
+                plugin_host,
+                &route,
+                &format!("Switched to thread {}.", runtime.state().await.thread_id),
+            )
+            .await;
+            return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
+        }
+        PendingThreadSelection::Invalid { threads } => {
+            send_system_text(
+                plugin_host,
+                &route,
+                &format!(
+                    "Invalid thread selection.\n{}",
+                    format_thread_choices("workspace", &threads)
+                ),
+            )
+            .await;
+            return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
+        }
+        PendingThreadSelection::NoPending => {}
     }
 
     if content_blocks.is_empty() {
@@ -52,11 +68,9 @@ pub(crate) async fn handle_prompt(
         .resolve_route_runtime(&route)
         .await
         .map_err(internal_error)?;
-    start_runtime_and_notify(&runtime, plugin_host, &route, false).await?;
-    let handler: Arc<dyn AgentClientHandler> = Arc::new(ChannelBridgeHandler::for_thread(
-        Arc::clone(plugin_host),
-        route.clone(),
-    ));
+    start_runtime_and_notify(workspace_threads, &runtime, plugin_host, &route, false).await?;
+    let state = runtime.state().await;
+    let handler = bridge_handler(workspace_threads, plugin_host, &state);
     runtime
         .prompt(&route, std::mem::take(&mut content_blocks), handler)
         .await
@@ -74,7 +88,7 @@ async fn handle_command(
                 .create_thread_in_current_workspace(route)
                 .await
                 .map_err(internal_error)?;
-            start_runtime_and_notify(&runtime, plugin_host, route, true).await?;
+            start_runtime_and_notify(workspace_threads, &runtime, plugin_host, route, true).await?;
             send_system_text(
                 plugin_host,
                 route,
@@ -110,7 +124,7 @@ async fn handle_command(
                 )
                 .await
                 .map_err(internal_error)?;
-            start_runtime_and_notify(&runtime, plugin_host, route, true).await?;
+            start_runtime_and_notify(workspace_threads, &runtime, plugin_host, route, true).await?;
             send_system_text(
                 plugin_host,
                 route,
@@ -125,7 +139,8 @@ async fn handle_command(
                 .map_err(internal_error)?
             {
                 WorkspaceSwitch::Started(runtime) => {
-                    start_runtime_and_notify(&runtime, plugin_host, route, true).await?;
+                    start_runtime_and_notify(workspace_threads, &runtime, plugin_host, route, true)
+                        .await?;
                     send_system_text(
                         plugin_host,
                         route,
@@ -187,14 +202,36 @@ async fn handle_command(
             runtime
                 .switch_host(target.clone(), package.is_some())
                 .await?;
-            start_runtime_and_notify(&runtime, plugin_host, route, true).await?;
+            start_runtime_and_notify(workspace_threads, &runtime, plugin_host, route, true).await?;
             if let Some(package) = package {
-                let blocks =
-                    context_transfer::bootstrap_prompt(&package).map_err(internal_error)?;
-                let handler: Arc<dyn AgentClientHandler> = Arc::new(
-                    ChannelBridgeHandler::for_thread(Arc::clone(plugin_host), route.clone()),
-                );
-                let _ = runtime.prompt(route, blocks, handler).await;
+                match context_transfer::bootstrap_prompt(&package) {
+                    Ok(blocks) => {
+                        let state = runtime.state().await;
+                        let handler = bridge_handler(workspace_threads, plugin_host, &state);
+                        if let Err(error) = runtime.prompt(route, blocks, handler).await {
+                            send_system_text(
+                                plugin_host,
+                                route,
+                                &format!(
+                                    "Context transfer bootstrap failed after switching host: {}",
+                                    error
+                                ),
+                            )
+                            .await;
+                        }
+                    }
+                    Err(error) => {
+                        send_system_text(
+                            plugin_host,
+                            route,
+                            &format!(
+                                "Context transfer bootstrap could not be prepared after switching host: {:#}",
+                                error
+                            ),
+                        )
+                        .await;
+                    }
+                }
             }
             send_system_text(
                 plugin_host,
@@ -219,16 +256,14 @@ async fn handle_command(
 }
 
 pub async fn start_runtime_and_notify(
+    workspace_threads: &Arc<WorkspaceThreadManager>,
     runtime: &Arc<ThreadRuntime>,
     plugin_host: &Arc<PluginHost>,
     route: &RouteKey,
     force_session_ready: bool,
 ) -> acp::Result<()> {
     let before = runtime.state().await;
-    let handler: Arc<dyn AgentClientHandler> = Arc::new(ChannelBridgeHandler::for_thread(
-        Arc::clone(plugin_host),
-        route.clone(),
-    ));
+    let handler = bridge_handler(workspace_threads, plugin_host, &before);
     let session_id = runtime.start(route, handler).await?;
     let after = runtime.state().await;
 
@@ -264,6 +299,20 @@ pub async fn start_runtime_and_notify(
             .await;
     }
     Ok(())
+}
+
+fn bridge_handler(
+    workspace_threads: &Arc<WorkspaceThreadManager>,
+    plugin_host: &Arc<PluginHost>,
+    state: &ThreadRuntimeState,
+) -> Arc<dyn AgentClientHandler> {
+    Arc::new(ChannelBridgeHandler::for_thread(
+        Arc::clone(plugin_host),
+        workspace_threads,
+        state.workspace_id.clone(),
+        state.thread_id.clone(),
+        state.host_binding.clone(),
+    ))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

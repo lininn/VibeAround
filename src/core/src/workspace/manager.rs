@@ -179,16 +179,18 @@ impl WorkspaceThreadManager {
                 .context("append external session host binding")?;
             self.notify_change();
         }
-        self.thread_store
-            .append(&ThreadEvent::agent_session_observed(
-                thread.id.clone(),
-                agent_id,
-                profile_id,
-                session_id,
-            ))
-            .await
-            .context("append external session")?;
-        self.notify_change();
+        if !thread.has_agent_session(&host_binding, &session_id) {
+            self.thread_store
+                .append(&ThreadEvent::agent_session_observed(
+                    thread.id.clone(),
+                    agent_id,
+                    profile_id,
+                    session_id,
+                ))
+                .await
+                .context("append external session")?;
+            self.notify_change();
+        }
         self.attach_route(route.clone(), workspace.id, thread.id.clone())
             .await?;
         let thread = self
@@ -225,17 +227,21 @@ impl WorkspaceThreadManager {
         &self,
         route: &RouteKey,
         text: &str,
-    ) -> anyhow::Result<Option<Arc<ThreadRuntime>>> {
+    ) -> anyhow::Result<PendingThreadSelection> {
         let Some((_, choices)) = self.pending_selections.remove(route) else {
-            return Ok(None);
+            return Ok(PendingThreadSelection::NoPending);
         };
         let token = text.trim();
         let selected = parse_thread_choice(token, &choices);
         match selected {
-            Some(thread_id) => self.attach_thread(route, &thread_id).await.map(Some),
+            Some(thread_id) => self
+                .attach_thread(route, &thread_id)
+                .await
+                .map(PendingThreadSelection::Selected),
             None => {
-                self.pending_selections.insert(route.clone(), choices);
-                Ok(None)
+                self.pending_selections
+                    .insert(route.clone(), choices.clone());
+                Ok(PendingThreadSelection::Invalid { threads: choices })
             }
         }
     }
@@ -263,6 +269,19 @@ impl WorkspaceThreadManager {
         route: &RouteKey,
     ) -> anyhow::Result<Option<super::threads::attachment::RouteAttachment>> {
         Ok(self.attachment_projection().await?.get(route).cloned())
+    }
+
+    pub async fn attached_routes_for_thread(
+        &self,
+        thread_id: &WorkspaceThreadId,
+    ) -> anyhow::Result<Vec<RouteKey>> {
+        Ok(self
+            .attachment_projection()
+            .await?
+            .all()
+            .filter(|attachment| &attachment.thread_id == thread_id)
+            .map(|attachment| attachment.route.clone())
+            .collect())
     }
 
     pub async fn runtime_entries(&self) -> anyhow::Result<Vec<WorkspaceThreadRuntimeEntry>> {
@@ -601,6 +620,12 @@ pub enum WorkspaceSwitch {
     },
 }
 
+pub enum PendingThreadSelection {
+    NoPending,
+    Selected(Arc<ThreadRuntime>),
+    Invalid { threads: Vec<ThreadChoice> },
+}
+
 fn default_host_binding() -> HostBinding {
     let cfg = crate::config::ensure_loaded();
     let prefs = agent_state::read_prefs();
@@ -738,5 +763,60 @@ mod tests {
             .unwrap()
             .get_by_cwd(&root.canonicalize().unwrap())
             .is_some());
+    }
+
+    #[tokio::test]
+    async fn invalid_pending_thread_selection_is_consumed() {
+        let (workspaces, threads, attachments) = temp_paths();
+        let manager = WorkspaceThreadManager::with_paths(workspaces, threads, attachments);
+        let root = std::env::temp_dir().join(format!("vibearound-ws-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let route = RouteKey::new("feishu", "chat-a");
+
+        let first = manager
+            .switch_workspace(&route, root.to_str().unwrap())
+            .await
+            .unwrap();
+        let WorkspaceSwitch::Started(first_runtime) = first else {
+            panic!("new workspace should start first thread");
+        };
+        let second_runtime = manager
+            .create_thread_in_current_workspace(&route)
+            .await
+            .unwrap();
+
+        let switch = manager
+            .switch_workspace(&route, root.to_str().unwrap())
+            .await
+            .unwrap();
+        let WorkspaceSwitch::NeedsSelection { threads, .. } = switch else {
+            panic!("existing workspace should ask for thread selection");
+        };
+        assert_eq!(threads.len(), 2);
+
+        let invalid = manager
+            .select_pending_thread(&route, "not-a-thread")
+            .await
+            .unwrap();
+        assert!(matches!(invalid, PendingThreadSelection::Invalid { .. }));
+        assert_eq!(
+            manager
+                .current_attachment(&route)
+                .await
+                .unwrap()
+                .unwrap()
+                .thread_id,
+            second_runtime.state().await.thread_id
+        );
+
+        let first_thread_id = first_runtime.state().await.thread_id;
+        let selected = manager
+            .select_pending_thread(&route, first_thread_id.as_str())
+            .await
+            .unwrap();
+        let PendingThreadSelection::Selected(runtime) = selected else {
+            panic!("expected pending selection to survive invalid input");
+        };
+        assert_eq!(runtime.state().await.thread_id, first_thread_id);
     }
 }

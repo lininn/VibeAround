@@ -1,8 +1,8 @@
 //! Stdio plugin transport using ACP protocol.
 //!
 //! The host acts as an ACP Agent toward the plugin (which acts as an ACP
-//! Client). Host sends `va/session_update` extension notifications to
-//! stream events back to the plugin and receives `prompt()` /
+//! Client). Host sends `va/thread_reply` extension notifications to
+//! stream workspace-thread replies back to the plugin and receives `prompt()` /
 //! `ext_notification` / `cancel` from it.
 //!
 //! ## Session ID convention
