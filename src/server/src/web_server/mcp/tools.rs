@@ -82,10 +82,14 @@ pub(super) async fn mcp_prepare_handover(
     // Validate cwd is a known workspace.
     // Built-in workspaces under ~/.vibearound/workspaces/ are always accepted.
     let config = common::config::ensure_loaded();
-    let cwd_path = std::path::PathBuf::from(cwd);
-    let builtin_dir = common::config::builtin_workspaces_dir();
+    let cwd_path = common::workspace::normalize_workspace_cwd(std::path::PathBuf::from(cwd));
+    let builtin_dir =
+        common::workspace::normalize_workspace_cwd(common::config::builtin_workspaces_dir());
     let is_builtin = cwd_path.starts_with(&builtin_dir);
-    let is_registered = config.all_workspaces().iter().any(|ws| ws == &cwd_path);
+    let is_registered = config
+        .all_workspaces()
+        .iter()
+        .any(|ws| common::workspace::normalize_workspace_cwd(ws) == cwd_path);
 
     if !is_builtin && !is_registered {
         return mcp_error_text(
@@ -93,7 +97,7 @@ pub(super) async fn mcp_prepare_handover(
             &format!(
                 "Workspace {} is not registered in VibeAround.\n\
              Use the `register_workspace` tool to add it first, then retry.",
-                cwd
+                cwd_path.to_string_lossy()
             ),
         );
     }
@@ -121,8 +125,11 @@ pub(super) async fn mcp_prepare_handover(
         },
     };
 
-    let code =
-        common::workspace::handoff::store(agent_kind_str.to_string(), session_id, cwd.to_string());
+    let code = common::workspace::handoff::store(
+        agent_kind_str.to_string(),
+        session_id,
+        cwd_path.to_string_lossy().to_string(),
+    );
     let pickup_cmd = format!("/pickup {}", code);
     mcp_text(
         id,

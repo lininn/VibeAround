@@ -10,5 +10,5 @@ pub mod registry;
 pub mod store;
 pub mod threads;
 
-pub use manager::WorkspaceThreadManager;
+pub use manager::{normalize_workspace_cwd, WorkspaceThreadManager};
 pub use registry::{WorkspaceId, WorkspaceProjection, WorkspaceRecord, GENERAL_WORKSPACE_ID};

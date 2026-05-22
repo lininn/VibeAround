@@ -326,8 +326,8 @@ impl WorkspaceThreadManager {
             return Ok(workspace.clone());
         }
 
-        let cwd = crate::config::builtin_workspaces_dir();
-        if let Some(workspace) = projection.get_by_cwd(&cwd) {
+        let cwd = normalize_workspace_cwd(crate::config::builtin_workspaces_dir());
+        if let Some(workspace) = workspace_by_cwd(&projection, &cwd) {
             return Ok(workspace.clone());
         }
 
@@ -344,8 +344,9 @@ impl WorkspaceThreadManager {
     }
 
     async fn ensure_workspace_for_cwd(&self, cwd: PathBuf) -> anyhow::Result<WorkspaceRecord> {
+        let cwd = normalize_workspace_cwd(cwd);
         let projection = self.workspace_projection().await?;
-        if let Some(workspace) = projection.get_by_cwd(&cwd) {
+        if let Some(workspace) = workspace_by_cwd(&projection, &cwd) {
             return Ok(workspace.clone());
         }
 
@@ -386,8 +387,8 @@ impl WorkspaceThreadManager {
             return Ok(Some(workspace.clone()));
         }
         if path.is_dir() {
-            let cwd = path.canonicalize().unwrap_or(path);
-            if let Some(workspace) = projection.get_by_cwd(&cwd) {
+            let cwd = normalize_workspace_cwd(path);
+            if let Some(workspace) = workspace_by_cwd(&projection, &cwd) {
                 return Ok(Some(workspace.clone()));
             }
             return self.ensure_workspace_for_cwd(cwd).await.map(Some);
@@ -609,6 +610,29 @@ fn default_host_binding() -> HostBinding {
     HostBinding::new(agent_id, profile_id)
 }
 
+pub fn normalize_workspace_cwd(cwd: impl AsRef<Path>) -> PathBuf {
+    let path = cwd.as_ref();
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|dir| dir.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+    absolute.canonicalize().unwrap_or(absolute)
+}
+
+fn workspace_by_cwd<'a>(
+    projection: &'a WorkspaceProjection,
+    cwd: &Path,
+) -> Option<&'a WorkspaceRecord> {
+    projection.get_by_cwd(cwd).or_else(|| {
+        projection
+            .active()
+            .find(|workspace| normalize_workspace_cwd(&workspace.cwd) == cwd)
+    })
+}
+
 #[allow(dead_code)]
 fn workspace_name_from_path(path: &Path) -> String {
     path.file_name()
@@ -673,6 +697,37 @@ mod tests {
         let WorkspaceSwitch::Started(runtime) = switch else {
             panic!("new workspace should start a thread immediately");
         };
+        assert_eq!(
+            runtime.state().await.workspace,
+            root.canonicalize().unwrap()
+        );
+        assert!(manager
+            .workspace_projection()
+            .await
+            .unwrap()
+            .get_by_cwd(&root.canonicalize().unwrap())
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn attach_external_session_normalizes_workspace_cwd() {
+        let (workspaces, threads, attachments) = temp_paths();
+        let manager = WorkspaceThreadManager::with_paths(workspaces, threads, attachments);
+        let root = std::env::temp_dir().join(format!("vibearound-ws-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let route = RouteKey::new("web", "chat-a");
+
+        let runtime = manager
+            .attach_external_session(
+                &route,
+                "codex".to_string(),
+                Some("direct".to_string()),
+                "session-1".to_string(),
+                root.join("."),
+            )
+            .await
+            .unwrap();
+
         assert_eq!(
             runtime.state().await.workspace,
             root.canonicalize().unwrap()
