@@ -130,6 +130,16 @@ impl WorkspaceThreadManager {
             .map_err(|error| anyhow!(error.to_string()))
     }
 
+    pub async fn detach_route(&self, route: &RouteKey) -> anyhow::Result<()> {
+        self.attachment_store
+            .append(&RouteAttachmentEvent::detached(route.clone()))
+            .await
+            .context("append route detach")?;
+        self.pending_selections.remove(route);
+        self.notify_change();
+        Ok(())
+    }
+
     pub async fn close_thread(
         &self,
         thread_id: &WorkspaceThreadId,
@@ -703,6 +713,24 @@ mod tests {
                 .unwrap()
                 .workspace_id,
             WorkspaceId::general()
+        );
+    }
+
+    #[tokio::test]
+    async fn detach_route_keeps_thread_open() {
+        let (workspaces, threads, attachments) = temp_paths();
+        let manager = WorkspaceThreadManager::with_paths(workspaces, threads, attachments);
+        let route = RouteKey::new("web", "chat-a");
+
+        let runtime = manager.resolve_route_runtime(&route).await.unwrap();
+        let thread_id = runtime.state().await.thread_id;
+
+        manager.detach_route(&route).await.unwrap();
+
+        assert!(manager.current_attachment(&route).await.unwrap().is_none());
+        assert_eq!(
+            manager.thread(&thread_id).await.unwrap().unwrap().status,
+            crate::workspace::threads::store::ThreadStatus::Open
         );
     }
 

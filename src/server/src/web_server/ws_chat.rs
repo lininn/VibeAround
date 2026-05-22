@@ -288,7 +288,7 @@ async fn handle_chat_socket(socket: WebSocket, state: AppState) {
         let _ = state
             .channel_hub
             .workspace_thread_manager()
-            .close_route(&active_route, None)
+            .detach_route(&active_route)
             .await;
     }
 }
@@ -310,7 +310,7 @@ async fn abort_direct_resume_task(
     let _ = state
         .channel_hub
         .workspace_thread_manager()
-        .close_route(route, Some("web resume aborted".to_string()))
+        .detach_route(route)
         .await;
 }
 
