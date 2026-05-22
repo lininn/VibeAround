@@ -1170,6 +1170,7 @@ export function ChatView({
           agentLabel={agentLabel}
           routeLabel={routeLabel}
           headerSessionLabel={headerSessionLabel}
+          workspacePath={activeWorkspacePath}
           sessionId={meta.sessionId}
           chatStatus={chatStatus}
           statusLabel={statusLabel}
