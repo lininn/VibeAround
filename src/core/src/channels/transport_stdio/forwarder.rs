@@ -2,7 +2,7 @@
 //!
 //! Each variant of `ChannelOutput` maps to a different ACP Client call:
 //!
-//! - `RawAcp`             → `session_notification` (after rewriting session_id)
+//! - `RawAcp`             → `ext_notification("va/session_update", ...)`
 //! - `SystemText`         → `ext_notification("va/system_text", ...)`
 //! - `AgentReady`         → `ext_notification("va/agent_ready", ...)`
 //! - `SessionReady`       → `ext_notification("va/session_ready", ...)`
@@ -31,15 +31,17 @@ pub(super) async fn forward_output_to_plugin(
     match output {
         ChannelOutput::RawAcp { route, payload } => {
             match serde_json::from_value::<schema::SessionNotification>(payload.clone()) {
-                Ok(mut notification) => {
-                    notification.session_id = route.chat_id.clone().into();
-                    if let Err(error) = conn.send_notification(notification) {
-                        tracing::info!(
-                            "[{}] failed to send session_notification: {}",
-                            channel_kind,
-                            error
-                        );
-                    }
+                Ok(notification) => {
+                    send_ext_notification(
+                        conn,
+                        channel_kind,
+                        "va/session_update",
+                        &serde_json::json!({
+                            "chatId": route.chat_id,
+                            "notification": notification,
+                        }),
+                    )
+                    .await;
                 }
                 Err(error) => {
                     tracing::info!(

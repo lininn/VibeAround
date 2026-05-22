@@ -1,9 +1,9 @@
 //! Stdio plugin transport using ACP protocol.
 //!
 //! The host acts as an ACP Agent toward the plugin (which acts as an ACP
-//! Client). Host sends `session_notification()` to stream events back to
-//! the plugin and receives `prompt()` / `ext_notification` / `cancel`
-//! from it.
+//! Client). Host sends `va/session_update` extension notifications to
+//! stream events back to the plugin and receives `prompt()` /
+//! `ext_notification` / `cancel` from it.
 //!
 //! ## Session ID convention
 //!
@@ -11,9 +11,9 @@
 //! **chat room identifier** (chatId) as the ACP `sessionId`. This is NOT
 //! the real agent session — the host maps `(channelKind, chatId)` to an
 //! internal `RouteKey` and manages the real agent session transparently.
-//! When forwarding `SessionNotification` back to the plugin, the host
-//! **replaces** the real agent's sessionId with the chatId so the plugin
-//! receives notifications matching what it sent.
+//! When forwarding `SessionNotification` back to the plugin, the host keeps
+//! the real agent `sessionId` in the notification payload and carries the
+//! plugin route separately as `chatId`.
 //!
 //! ## Prompt lifecycle
 //!
