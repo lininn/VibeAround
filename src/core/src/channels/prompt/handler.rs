@@ -27,39 +27,43 @@ pub(crate) async fn handle_prompt(
 ) -> acp::Result<acp::PromptResponse> {
     let text = first_text(&content_blocks).unwrap_or_default();
 
-    if let Some(command) = parse_thread_command(&text) {
-        return handle_command(workspace_threads, plugin_host, &route, command).await;
+    if commands_enabled_for_route(&route) {
+        if let Some(command) = parse_thread_command(&text) {
+            return handle_command(workspace_threads, plugin_host, &route, command).await;
+        }
     }
 
-    match workspace_threads
-        .select_pending_thread(&route, &text)
-        .await
-        .map_err(internal_error)?
-    {
-        PendingThreadSelection::Selected(runtime) => {
-            start_runtime_and_notify(workspace_threads, &runtime, plugin_host, &route, true)
-                .await?;
-            send_system_text(
-                plugin_host,
-                &route,
-                &format!("Switched to thread {}.", runtime.state().await.thread_id),
-            )
-            .await;
-            return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
+    if commands_enabled_for_route(&route) {
+        match workspace_threads
+            .select_pending_thread(&route, &text)
+            .await
+            .map_err(internal_error)?
+        {
+            PendingThreadSelection::Selected(runtime) => {
+                start_runtime_and_notify(workspace_threads, &runtime, plugin_host, &route, true)
+                    .await?;
+                send_system_text(
+                    plugin_host,
+                    &route,
+                    &format!("Switched to thread {}.", runtime.state().await.thread_id),
+                )
+                .await;
+                return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
+            }
+            PendingThreadSelection::Invalid { threads } => {
+                send_system_text(
+                    plugin_host,
+                    &route,
+                    &format!(
+                        "Invalid thread selection.\n{}",
+                        format_thread_choices("workspace", &threads)
+                    ),
+                )
+                .await;
+                return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
+            }
+            PendingThreadSelection::NoPending => {}
         }
-        PendingThreadSelection::Invalid { threads } => {
-            send_system_text(
-                plugin_host,
-                &route,
-                &format!(
-                    "Invalid thread selection.\n{}",
-                    format_thread_choices("workspace", &threads)
-                ),
-            )
-            .await;
-            return Ok(acp::PromptResponse::new(acp::StopReason::EndTurn));
-        }
-        PendingThreadSelection::NoPending => {}
     }
 
     if content_blocks.is_empty() {
@@ -412,6 +416,10 @@ fn canonical_thread_command(normalized: &str) -> String {
     normalized.to_string()
 }
 
+fn commands_enabled_for_route(route: &RouteKey) -> bool {
+    route.channel_kind != "web"
+}
+
 fn first_text(content_blocks: &[acp::ContentBlock]) -> Option<String> {
     content_blocks.iter().find_map(|block| match block {
         acp::ContentBlock::Text(text) => Some(text.text.clone()),
@@ -482,5 +490,16 @@ mod tests {
                 profile: Some("profileA".to_string())
             })
         );
+    }
+
+    #[test]
+    fn slash_commands_are_not_enabled_for_web_chat() {
+        assert!(!commands_enabled_for_route(&RouteKey::new("web", "chat-a")));
+        assert!(commands_enabled_for_route(&RouteKey::new(
+            "slack", "chat-a"
+        )));
+        assert!(commands_enabled_for_route(&RouteKey::new(
+            "feishu", "chat-a"
+        )));
     }
 }

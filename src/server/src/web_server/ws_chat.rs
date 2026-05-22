@@ -97,6 +97,7 @@ async fn handle_chat_socket(socket: WebSocket, state: AppState) {
                                 &active_route,
                             )
                             .await;
+                            let mut dispatch_input = true;
                             if let Some(route) = input_route(&input) {
                                 state.web_channel.mark_route_active(&route);
                                 remember_web_route_agent(&state, &route, input_agent(&input)).await;
@@ -117,15 +118,39 @@ async fn handle_chat_socket(socket: WebSocket, state: AppState) {
                                         .await;
                                     }
                                     Some(WebChatSessionIntent::New { cwd }) => {
-                                        apply_web_launch_selection(
-                                            &state, &route, &input, profile, cwd,
-                                        )
-                                        .await;
-                                        let _ = state
-                                            .channel_hub
-                                            .workspace_thread_manager()
-                                            .create_thread_in_current_workspace(&route)
-                                            .await;
+                                        let manager = state.channel_hub.workspace_thread_manager();
+                                        let created = match cwd {
+                                            Some(cwd) => {
+                                                manager
+                                                    .create_thread_for_cwd(
+                                                        &route,
+                                                        std::path::PathBuf::from(cwd),
+                                                    )
+                                                    .await
+                                            }
+                                            None => {
+                                                manager
+                                                    .create_thread_in_current_workspace(&route)
+                                                    .await
+                                            }
+                                        };
+                                        match created {
+                                            Ok(_) => {
+                                                apply_web_launch_selection(
+                                                    &state, &route, &input, profile, None,
+                                                )
+                                                .await;
+                                            }
+                                            Err(error) => {
+                                                dispatch_input = false;
+                                                send_web_system_text(
+                                                    &state,
+                                                    &route,
+                                                    &format!("❌ {}", error),
+                                                )
+                                                .await;
+                                            }
+                                        }
                                     }
                                     None => {
                                         apply_web_launch_selection(
@@ -144,7 +169,9 @@ async fn handle_chat_socket(socket: WebSocket, state: AppState) {
                                     wait_for_session_ready,
                                 );
                             }
-                            state.channel_hub.handle_input(input);
+                            if dispatch_input {
+                                state.channel_hub.handle_input(input);
+                            }
                         }
                         WebChatInput::SetMode { mode_id } => {
                             apply_web_session_mode(&state, &active_route, &mode_id).await;
