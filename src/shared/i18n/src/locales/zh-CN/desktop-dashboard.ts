@@ -20,6 +20,10 @@ export const zhCNDesktopDashboard: Record<string, string> = {
   Retry: "重试",
   "Open Config Wizard": "打开配置向导",
   "Open Web Dashboard": "打开 Web 控制台",
+  "Save & Restart Services": "保存并重启服务",
+  "Restarting services…": "正在重启服务…",
+  "Settings saved.": "设置已保存。",
+  "Settings applied.": "设置已应用。",
   "Runtime health for tunnels, agents, and messaging channels.":
     "查看隧道、Agent 和消息频道的运行状态。",
   "No tunnel running": "没有运行中的隧道",

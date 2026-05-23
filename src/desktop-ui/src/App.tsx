@@ -34,6 +34,7 @@ import { Splash } from "./Splash";
 import Onboarding from "./Onboarding";
 import { Previews } from "./Previews";
 import { Launch } from "./Launch";
+import { SettingsPage } from "./Settings";
 import { getLauncherPreferences, type LauncherPreferences } from "./Launch/api";
 import { LanguageMenu } from "./components/LanguageMenu";
 
@@ -324,7 +325,7 @@ function App() {
   return <Dashboard />;
 }
 
-type DashboardPage = "launch" | "status" | "previews";
+type DashboardPage = "launch" | "status" | "previews" | "settings";
 
 function Dashboard() {
   const { t } = useI18n();
@@ -479,13 +480,24 @@ function Dashboard() {
           </span>
           <LanguageMenu />
           <Button
-            onClick={() => window.location.replace("/onboarding")}
+            onClick={() => setPage("settings")}
             variant="ghost"
             size="icon-xs"
-            title={t("Open Config Wizard")}
-            aria-label={t("Open Config Wizard")}
+            title={t("Settings")}
+            aria-label={t("Settings")}
+            className={
+              effectivePage === "settings"
+                ? "bg-accent text-accent-foreground"
+                : undefined
+            }
           >
-            <Settings className="w-3.5 h-3.5 text-muted-foreground" />
+            <Settings
+              className={`w-3.5 h-3.5 ${
+                effectivePage === "settings"
+                  ? "text-accent-foreground"
+                  : "text-muted-foreground"
+              }`}
+            />
           </Button>
         </div>
       </header>
@@ -496,7 +508,11 @@ function Dashboard() {
         </div>
       )}
 
-      {effectivePage === "previews" ? (
+      {effectivePage === "settings" ? (
+        <div className="flex-1 overflow-y-auto">
+          <SettingsPage onServicesRestarted={refreshAll} />
+        </div>
+      ) : effectivePage === "previews" ? (
         <div className="flex-1 overflow-y-auto">
           <Previews />
         </div>
