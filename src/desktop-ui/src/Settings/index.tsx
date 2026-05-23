@@ -341,7 +341,7 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[780px]">
+      <DialogContent className="h-[85vh] w-[780px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <SettingsIcon className="h-4 w-4 text-primary" />
