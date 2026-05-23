@@ -357,8 +357,8 @@ export function SettingsDialog({
           </div>
         )}
 
-        <Tabs defaultValue="general" className="min-h-0 px-4 pb-4">
-          <TabsList className="mb-3">
+        <Tabs defaultValue="general" className="min-h-0 flex-1">
+          <TabsList className="mx-4 mb-3">
             <TabsTrigger value="general">
               <SettingsIcon className="h-3 w-3" />
               {t("General")}
@@ -373,7 +373,10 @@ export function SettingsDialog({
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="general" className="max-h-[62vh] overflow-y-auto">
+          <TabsContent
+            value="general"
+            className="min-h-0 overflow-y-auto px-4 pb-4 [scrollbar-gutter:stable]"
+          >
             <div className="space-y-2">
               <SettingsActionRow
                 label={t("Restart Services")}
@@ -409,7 +412,10 @@ export function SettingsDialog({
             </div>
           </TabsContent>
 
-          <TabsContent value="im" className="max-h-[62vh] overflow-y-auto pr-1">
+          <TabsContent
+            value="im"
+            className="min-h-0 overflow-y-auto px-4 pb-4 [scrollbar-gutter:stable]"
+          >
             {loading ? (
               <LoadingBlock />
             ) : (
@@ -445,7 +451,7 @@ export function SettingsDialog({
 
           <TabsContent
             value="tunnel"
-            className="max-h-[62vh] overflow-y-auto pr-1"
+            className="min-h-0 overflow-y-auto px-4 pb-4 [scrollbar-gutter:stable]"
           >
             {loading ? (
               <LoadingBlock />
