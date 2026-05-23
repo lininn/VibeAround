@@ -357,36 +357,38 @@ export function SettingsDialog({
           </div>
         )}
 
-        <Tabs defaultValue="general" className="min-h-0 flex-1">
-          <TabsList className="mx-6 mb-3 !h-8 shrink-0 rounded-md p-1">
-            <TabsTrigger
-              value="general"
-              className="!h-6 gap-1 px-2 text-xs [&_svg:not([class*='size-'])]:!size-3.5"
-            >
-              <SettingsIcon className="h-3 w-3" />
-              {t("General")}
-            </TabsTrigger>
-            <TabsTrigger
-              value="im"
-              className="!h-6 gap-1 px-2 text-xs [&_svg:not([class*='size-'])]:!size-3.5"
-            >
-              <MessageSquare className="h-3 w-3" />
-              {t("IM")}
-            </TabsTrigger>
-            <TabsTrigger
-              value="tunnel"
-              className="!h-6 gap-1 px-2 text-xs [&_svg:not([class*='size-'])]:!size-3.5"
-            >
-              <Globe className="h-3 w-3" />
-              {t("Tunnel")}
-            </TabsTrigger>
-          </TabsList>
+        <Tabs defaultValue="general" className="min-h-0 flex-1 gap-0">
+          <div className="shrink-0 border-b border-border px-6 pb-4">
+            <TabsList className="!h-8 rounded-md p-1">
+              <TabsTrigger
+                value="general"
+                className="!h-6 gap-1 px-2 text-xs [&_svg:not([class*='size-'])]:!size-3.5"
+              >
+                <SettingsIcon className="h-3 w-3" />
+                {t("General")}
+              </TabsTrigger>
+              <TabsTrigger
+                value="im"
+                className="!h-6 gap-1 px-2 text-xs [&_svg:not([class*='size-'])]:!size-3.5"
+              >
+                <MessageSquare className="h-3 w-3" />
+                {t("IM")}
+              </TabsTrigger>
+              <TabsTrigger
+                value="tunnel"
+                className="!h-6 gap-1 px-2 text-xs [&_svg:not([class*='size-'])]:!size-3.5"
+              >
+                <Globe className="h-3 w-3" />
+                {t("Tunnel")}
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent
             value="general"
             className="min-h-0 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col"
           >
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 [scrollbar-gutter:stable]">
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 [scrollbar-gutter:stable]">
               <div className="space-y-2">
                 <SettingsActionRow
                   label={t("Restart Services")}
@@ -428,12 +430,12 @@ export function SettingsDialog({
             className="min-h-0 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col"
           >
             {loading ? (
-              <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 [scrollbar-gutter:stable]">
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 [scrollbar-gutter:stable]">
                 <LoadingBlock />
               </div>
             ) : (
               <>
-                <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 [scrollbar-gutter:stable]">
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 [scrollbar-gutter:stable]">
                   <StepChannels
                     pluginRegistry={pluginRegistry}
                     discoveredPlugins={discoveredPlugins}
@@ -470,12 +472,12 @@ export function SettingsDialog({
             className="min-h-0 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col"
           >
             {loading ? (
-              <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 [scrollbar-gutter:stable]">
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 [scrollbar-gutter:stable]">
                 <LoadingBlock />
               </div>
             ) : (
               <>
-                <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 [scrollbar-gutter:stable]">
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 [scrollbar-gutter:stable]">
                   <StepTunnel
                     tunnels={tunnels}
                     provider={tunnelProvider}
