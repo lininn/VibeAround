@@ -341,182 +341,183 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!flex h-[85vh] w-[min(780px,calc(100vw-32px))] max-w-[calc(100vw-32px)] flex-col overflow-hidden p-0 sm:max-w-[min(780px,calc(100vw-32px))]">
-        <DialogHeader className="shrink-0 px-6 pt-6 pr-12">
-          <DialogTitle className="flex items-center gap-2">
-            <SettingsIcon className="h-4 w-4 text-primary" />
-            {t("Settings")}
-          </DialogTitle>
-        </DialogHeader>
-
-        {notice && (
-          <div className="shrink-0 px-6 pb-2">
-            <StatusBanner variant={notice.variant}>
-              {t(notice.message)}
-            </StatusBanner>
-          </div>
-        )}
-
-        <Tabs defaultValue="general" className="min-h-0 flex-1 gap-0">
-          <div className="shrink-0 border-b border-border px-6 pb-4">
-            <TabsList className="!h-8 rounded-md p-1">
+      <DialogContent className="!flex h-[680px] min-h-[520px] w-[min(860px,calc(100vw-32px))] max-h-[calc(100vh-64px)] max-w-[calc(100vw-32px)] overflow-hidden p-0 sm:max-w-[min(860px,calc(100vw-32px))]">
+        <Tabs orientation="vertical" defaultValue="general" className="min-h-0 flex-1 gap-0">
+          <aside className="flex w-44 shrink-0 flex-col border-r border-border bg-muted/20 px-4 py-4">
+            <DialogHeader className="mb-4 pr-8">
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <SettingsIcon className="h-4 w-4 text-primary" />
+                {t("Settings")}
+              </DialogTitle>
+            </DialogHeader>
+            <TabsList className="!h-auto w-full flex-col items-stretch justify-start gap-1 rounded-none bg-transparent p-0">
               <TabsTrigger
                 value="general"
-                className="!h-6 gap-1 px-2 text-xs [&_svg:not([class*='size-'])]:!size-3.5"
+                className="!h-8 w-full justify-start gap-2 px-2 text-xs [&_svg:not([class*='size-'])]:!size-3.5"
               >
                 <SettingsIcon className="h-3 w-3" />
                 {t("General")}
               </TabsTrigger>
               <TabsTrigger
                 value="im"
-                className="!h-6 gap-1 px-2 text-xs [&_svg:not([class*='size-'])]:!size-3.5"
+                className="!h-8 w-full justify-start gap-2 px-2 text-xs [&_svg:not([class*='size-'])]:!size-3.5"
               >
                 <MessageSquare className="h-3 w-3" />
                 {t("IM")}
               </TabsTrigger>
               <TabsTrigger
                 value="tunnel"
-                className="!h-6 gap-1 px-2 text-xs [&_svg:not([class*='size-'])]:!size-3.5"
+                className="!h-8 w-full justify-start gap-2 px-2 text-xs [&_svg:not([class*='size-'])]:!size-3.5"
               >
                 <Globe className="h-3 w-3" />
                 {t("Tunnel")}
               </TabsTrigger>
             </TabsList>
-          </div>
+          </aside>
 
-          <TabsContent
-            value="general"
-            className="min-h-0 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col"
-          >
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 [scrollbar-gutter:stable]">
-              <div className="space-y-2">
-                <SettingsActionRow
-                  label={t("Restart Services")}
-                  action={
+          <div className="flex min-w-0 flex-1 flex-col">
+            {notice && (
+              <div className="shrink-0 px-5 pt-4">
+                <StatusBanner variant={notice.variant}>
+                  {t(notice.message)}
+                </StatusBanner>
+              </div>
+            )}
+
+            <TabsContent
+              value="general"
+              className="min-h-0 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col"
+            >
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 [scrollbar-gutter:stable]">
+                <div className="space-y-2">
+                  <SettingsActionRow
+                    label={t("Restart Services")}
+                    action={
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={saving !== "idle"}
+                        onClick={() => void restartServices()}
+                      >
+                        <RotateCw className="h-3 w-3" />
+                        {saving === "restart-services"
+                          ? t("Restarting services…")
+                          : t("Restart")}
+                      </Button>
+                    }
+                  />
+                  <SettingsActionRow
+                    label={t("Rerun Onboarding")}
+                    action={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={saving !== "idle"}
+                        onClick={() => window.location.replace("/onboarding")}
+                      >
+                        <WandSparkles className="h-3 w-3" />
+                        {t("Open Config Wizard")}
+                      </Button>
+                    }
+                  />
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent
+              value="im"
+              className="min-h-0 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col"
+            >
+              {loading ? (
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 [scrollbar-gutter:stable]">
+                  <LoadingBlock />
+                </div>
+              ) : (
+                <>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 [scrollbar-gutter:stable]">
+                    <StepChannels
+                      pluginRegistry={pluginRegistry}
+                      discoveredPlugins={discoveredPlugins}
+                      enabledChannels={enabledChannels}
+                      channelConfigs={channelConfigs}
+                      channelVerbose={channelVerbose}
+                      installingPlugins={installingPlugins}
+                      authStates={authStates}
+                      onToggleChannel={toggleChannel}
+                      onConfigChange={updateChannelConfig}
+                      onVerboseChange={updateChannelVerbose}
+                      onInstallPlugin={installPlugin}
+                      onStartAuth={(pluginId) => void startAuth(pluginId)}
+                      onCancelAuth={(pluginId) => void cancelAuth(pluginId)}
+                      switchSize="sm"
+                    />
+                  </div>
+                  <div className="flex shrink-0 justify-end border-t border-border px-5 py-3">
                     <Button
                       type="button"
                       size="sm"
-                      disabled={saving !== "idle"}
-                      onClick={() => void restartServices()}
+                      disabled={!canSubmit}
+                      onClick={() => void applyImSettings()}
                     >
-                      <RotateCw className="h-3 w-3" />
-                      {saving === "restart-services"
-                        ? t("Restarting services…")
-                        : t("Restart")}
+                      {saving === "im" ? t("Applying…") : t("Apply IM Settings")}
                     </Button>
-                  }
-                />
-                <SettingsActionRow
-                  label={t("Rerun Onboarding")}
-                  action={
+                  </div>
+                </>
+              )}
+            </TabsContent>
+
+            <TabsContent
+              value="tunnel"
+              className="min-h-0 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col"
+            >
+              {loading ? (
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 [scrollbar-gutter:stable]">
+                  <LoadingBlock />
+                </div>
+              ) : (
+                <>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 [scrollbar-gutter:stable]">
+                    <StepTunnel
+                      tunnels={tunnels}
+                      provider={tunnelProvider}
+                      onProvider={setTunnelProvider}
+                      ngrokToken={ngrokToken}
+                      onNgrokToken={setNgrokToken}
+                      ngrokDomain={ngrokDomain}
+                      onNgrokDomain={setNgrokDomain}
+                      cfToken={cfToken}
+                      onCfToken={setCfToken}
+                      cfHostname={cfHostname}
+                      onCfHostname={setCfHostname}
+                    />
+                  </div>
+                  <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-5 py-3">
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      disabled={saving !== "idle"}
-                      onClick={() => window.location.replace("/onboarding")}
+                      disabled={!canSubmit}
+                      onClick={() => void saveTunnelSettings(false)}
                     >
-                      <WandSparkles className="h-3 w-3" />
-                      {t("Open Config Wizard")}
+                      {saving === "tunnel" ? t("Saving…") : t("Save")}
                     </Button>
-                  }
-                />
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent
-            value="im"
-            className="min-h-0 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col"
-          >
-            {loading ? (
-              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 [scrollbar-gutter:stable]">
-                <LoadingBlock />
-              </div>
-            ) : (
-              <>
-                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 [scrollbar-gutter:stable]">
-                  <StepChannels
-                    pluginRegistry={pluginRegistry}
-                    discoveredPlugins={discoveredPlugins}
-                    enabledChannels={enabledChannels}
-                    channelConfigs={channelConfigs}
-                    channelVerbose={channelVerbose}
-                    installingPlugins={installingPlugins}
-                    authStates={authStates}
-                    onToggleChannel={toggleChannel}
-                    onConfigChange={updateChannelConfig}
-                    onVerboseChange={updateChannelVerbose}
-                    onInstallPlugin={installPlugin}
-                    onStartAuth={(pluginId) => void startAuth(pluginId)}
-                    onCancelAuth={(pluginId) => void cancelAuth(pluginId)}
-                    switchSize="sm"
-                  />
-                </div>
-                <div className="flex shrink-0 justify-end border-t border-border px-6 py-4">
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={!canSubmit}
-                    onClick={() => void applyImSettings()}
-                  >
-                    {saving === "im" ? t("Applying…") : t("Apply IM Settings")}
-                  </Button>
-                </div>
-              </>
-            )}
-          </TabsContent>
-
-          <TabsContent
-            value="tunnel"
-            className="min-h-0 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col"
-          >
-            {loading ? (
-              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 [scrollbar-gutter:stable]">
-                <LoadingBlock />
-              </div>
-            ) : (
-              <>
-                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 [scrollbar-gutter:stable]">
-                  <StepTunnel
-                    tunnels={tunnels}
-                    provider={tunnelProvider}
-                    onProvider={setTunnelProvider}
-                    ngrokToken={ngrokToken}
-                    onNgrokToken={setNgrokToken}
-                    ngrokDomain={ngrokDomain}
-                    onNgrokDomain={setNgrokDomain}
-                    cfToken={cfToken}
-                    onCfToken={setCfToken}
-                    cfHostname={cfHostname}
-                    onCfHostname={setCfHostname}
-                  />
-                </div>
-                <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-6 py-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={!canSubmit}
-                    onClick={() => void saveTunnelSettings(false)}
-                  >
-                    {saving === "tunnel" ? t("Saving…") : t("Save")}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={!canSubmit}
-                    onClick={() => void saveTunnelSettings(true)}
-                  >
-                    <RotateCw className="h-3 w-3" />
-                    {saving === "tunnel-restart"
-                      ? t("Restarting services…")
-                      : t("Save & Restart Services")}
-                  </Button>
-                </div>
-              </>
-            )}
-          </TabsContent>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!canSubmit}
+                      onClick={() => void saveTunnelSettings(true)}
+                    >
+                      <RotateCw className="h-3 w-3" />
+                      {saving === "tunnel-restart"
+                        ? t("Restarting services…")
+                        : t("Save & Restart Services")}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </TabsContent>
+          </div>
         </Tabs>
       </DialogContent>
     </Dialog>
