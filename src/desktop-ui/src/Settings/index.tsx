@@ -341,8 +341,8 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!flex h-[85vh] w-[min(780px,calc(100vw-32px))] max-w-[calc(100vw-32px)] flex-col overflow-hidden p-4 sm:max-w-[min(780px,calc(100vw-32px))]">
-        <DialogHeader className="shrink-0">
+      <DialogContent className="!flex h-[85vh] w-[min(780px,calc(100vw-32px))] max-w-[calc(100vw-32px)] flex-col overflow-hidden p-0 sm:max-w-[min(780px,calc(100vw-32px))]">
+        <DialogHeader className="shrink-0 px-6 pt-6 pr-12">
           <DialogTitle className="flex items-center gap-2">
             <SettingsIcon className="h-4 w-4 text-primary" />
             {t("Settings")}
@@ -350,7 +350,7 @@ export function SettingsDialog({
         </DialogHeader>
 
         {notice && (
-          <div className="px-4 pb-2">
+          <div className="shrink-0 px-6 pb-2">
             <StatusBanner variant={notice.variant}>
               {t(notice.message)}
             </StatusBanner>
@@ -358,7 +358,7 @@ export function SettingsDialog({
         )}
 
         <Tabs defaultValue="general" className="min-h-0 flex-1">
-          <TabsList className="mb-3 !h-8 shrink-0 rounded-md p-1">
+          <TabsList className="mx-6 mb-3 !h-8 shrink-0 rounded-md p-1">
             <TabsTrigger
               value="general"
               className="!h-6 gap-1 px-2 text-xs [&_svg:not([class*='size-'])]:!size-3.5"
@@ -384,7 +384,7 @@ export function SettingsDialog({
 
           <TabsContent
             value="general"
-            className="min-h-0 overflow-y-auto pr-3 pb-1 [scrollbar-gutter:stable]"
+            className="min-h-0 overflow-y-auto px-6 pb-6 [scrollbar-gutter:stable]"
           >
             <div className="space-y-2">
               <SettingsActionRow
@@ -423,7 +423,7 @@ export function SettingsDialog({
 
           <TabsContent
             value="im"
-            className="min-h-0 overflow-y-auto pr-3 pb-1 [scrollbar-gutter:stable]"
+            className="min-h-0 overflow-y-auto px-6 pb-6 [scrollbar-gutter:stable]"
           >
             {loading ? (
               <LoadingBlock />
@@ -461,7 +461,7 @@ export function SettingsDialog({
 
           <TabsContent
             value="tunnel"
-            className="min-h-0 overflow-y-auto pr-3 pb-1 [scrollbar-gutter:stable]"
+            className="min-h-0 overflow-y-auto px-6 pb-6 [scrollbar-gutter:stable]"
           >
             {loading ? (
               <LoadingBlock />
