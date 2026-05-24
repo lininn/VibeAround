@@ -1163,9 +1163,9 @@ export function AgentLaunchBuilder({
                     disabledReason={launchDisabledReason}
                     onClick={() => void launchSelected()}
                     size="lg"
-                    className="h-full min-h-[115px] w-full rounded-md justify-center text-base font-semibold tracking-[0.12em] shadow-md shadow-primary/15"
+                    className="h-full min-h-[115px] w-full rounded-md justify-center text-[22px] font-semibold tracking-[0.12em] shadow-md shadow-primary/15"
                   >
-                    <Rocket className="h-5 w-5" />
+                    <Rocket className="h-6 w-6" />
                     {t("LAUNCH")}
                   </TooltipButton>
                 </div>
