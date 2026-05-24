@@ -124,6 +124,7 @@ mod tests {
         };
         let bridge = agent_state::ProfileBridgePreference {
             enabled: true,
+            use_proxy: false,
             target_api_type: Some("openai-chat".to_string()),
             upstream_model: Some("gemini-3.1-pro".to_string()),
             fake_model_id: None,

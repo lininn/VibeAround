@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, FileText, Info, Plug, ShieldCheck } from "lucide-react";
+import { AlertTriangle, FileText, Info, Network, Plug, ShieldCheck } from "lucide-react";
 import { useI18n } from "@va/i18n";
 
 import { BrandIcon } from "@/components/brand-icon";
@@ -476,6 +476,41 @@ export function ProfileConnectionDialog({
                                   </SelectContent>
                                 </Select>
                               </label>
+                            </div>
+                            <div className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-2.5 py-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 text-[11px] font-medium">
+                                  <Network className="h-3 w-3 text-primary" />
+                                  {t("Use Settings proxy")}
+                                </div>
+                                <div className="mt-0.5 text-[10px] text-muted-foreground">
+                                  {t("Route this bridge's upstream requests through the configured HTTP proxy.")}
+                                </div>
+                              </div>
+                              <Switch
+                                checked={!!currentBridge.useProxy}
+                                disabled={saving}
+                                onCheckedChange={(checked) => {
+                                  setDraft((prev) => ({
+                                    ...prev,
+                                    [agent.id]: {
+                                      ...prev[agent.id],
+                                      selectedApiType:
+                                        prev[agent.id].selectedApiType ?? client.apiType,
+                                      bridge: {
+                                        ...(prev[agent.id].bridge ?? {}),
+                                        [client.apiType]: {
+                                          ...(prev[agent.id].bridge?.[client.apiType] ?? {}),
+                                          enabled: true,
+                                          targetApiType: bridgeTarget,
+                                          upstreamModel,
+                                          useProxy: checked,
+                                        },
+                                      },
+                                    },
+                                  }));
+                                }}
+                              />
                             </div>
                             <div className="font-mono text-[11px] leading-5 text-primary">
                               {apiTypeProtocolDisplayLabel(client.apiType)} -&gt;{" "}

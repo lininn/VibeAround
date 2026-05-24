@@ -41,6 +41,7 @@ export interface ProfileConnectionPreference {
 
 export interface ProfileBridgePreference {
   enabled?: boolean | null;
+  useProxy?: boolean | null;
   targetApiType?: string | null;
   upstreamModel?: string | null;
   fakeModelId?: string | null;

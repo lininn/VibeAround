@@ -2,6 +2,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use common::profiles::headers::merged_upstream_headers;
+use common::{agent_state, config};
 use serde_json::{json, Value};
 
 mod completion;
@@ -122,8 +123,11 @@ pub(super) async fn bridge_handler(
             Ok(headers) => headers,
             Err(error) => return json_error(StatusCode::BAD_REQUEST, &error.to_string()),
         };
-        let request = state
-            .preview_client
+        let upstream_client = match upstream_http_client(&state, bridge_preference.as_ref()) {
+            Ok(client) => client,
+            Err(message) => return json_error(StatusCode::BAD_REQUEST, &message),
+        };
+        let request = upstream_client
             .post(&upstream.url)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .headers(upstream_headers)
@@ -225,8 +229,11 @@ pub(super) async fn bridge_handler(
         Err(error) => return json_error(StatusCode::BAD_REQUEST, &error.to_string()),
     };
 
-    let request = state
-        .preview_client
+    let upstream_client = match upstream_http_client(&state, bridge_preference.as_ref()) {
+        Ok(client) => client,
+        Err(message) => return json_error(StatusCode::BAD_REQUEST, &message),
+    };
+    let request = upstream_client
         .post(&upstream.url)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .headers(upstream_headers)
@@ -289,6 +296,36 @@ pub(super) async fn bridge_handler(
     }
 }
 
+fn upstream_http_client(
+    state: &AppState,
+    bridge_preference: Option<&agent_state::ProfileBridgePreference>,
+) -> Result<reqwest::Client, String> {
+    if !bridge_preference
+        .map(|preference| preference.use_proxy)
+        .unwrap_or(false)
+    {
+        return Ok(state.preview_client.clone());
+    }
+    let cfg = config::ensure_loaded();
+    proxy_http_client(&cfg.proxy)
+}
+
+fn proxy_http_client(proxy: &config::HttpProxyConfig) -> Result<reqwest::Client, String> {
+    let proxy_url = proxy.http_proxy.as_deref().ok_or_else(|| {
+        "API bridge proxy is enabled but Settings proxy HTTP URL is empty".to_string()
+    })?;
+    let mut proxy_rule = reqwest::Proxy::all(proxy_url)
+        .map_err(|error| format!("invalid Settings proxy HTTP URL: {error}"))?;
+    if let Some(no_proxy) = proxy.no_proxy.as_deref() {
+        proxy_rule = proxy_rule.no_proxy(reqwest::NoProxy::from_string(no_proxy));
+    }
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .proxy(proxy_rule)
+        .build()
+        .map_err(|error| format!("failed to build API bridge proxy client: {error}"))
+}
+
 fn validate_manual_scope(scope: &str) -> Result<(), Response> {
     if scope.is_empty() {
         return Err(json_error(
@@ -330,7 +367,9 @@ fn json_error(status: StatusCode, message: &str) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_manual_scope;
+    use common::config::HttpProxyConfig;
+
+    use super::{proxy_http_client, validate_manual_scope};
 
     #[test]
     fn accepts_manual_bridge_scope() {
@@ -343,5 +382,21 @@ mod tests {
         assert!(validate_manual_scope("codex/project").is_err());
         assert!(validate_manual_scope("codex project").is_err());
         assert!(validate_manual_scope(&"a".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn proxy_client_requires_configured_proxy_url() {
+        let error = proxy_http_client(&HttpProxyConfig::default()).unwrap_err();
+
+        assert!(error.contains("proxy HTTP URL is empty"));
+    }
+
+    #[test]
+    fn proxy_client_accepts_settings_proxy_with_no_proxy() {
+        proxy_http_client(&HttpProxyConfig {
+            http_proxy: Some("http://127.0.0.1:7890".to_string()),
+            no_proxy: Some("localhost,127.0.0.1".to_string()),
+        })
+        .expect("proxy client builds");
     }
 }

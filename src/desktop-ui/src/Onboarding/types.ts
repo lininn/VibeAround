@@ -29,6 +29,10 @@ export interface Settings {
   default_agent?: string;
   default_profiles?: Record<string, string>;
   enabled_agents?: string[];
+  proxy?: {
+    http_proxy?: string;
+    no_proxy?: string;
+  };
   tunnel?: {
     provider?: string;
     ngrok?: { auth_token?: string; domain?: string };

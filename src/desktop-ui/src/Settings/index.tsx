@@ -4,6 +4,7 @@ import {
   Bot,
   Globe,
   MessageSquare,
+  Network,
   RotateCw,
   Settings as SettingsIcon,
   WandSparkles,
@@ -26,6 +27,7 @@ import type {
 import { apiFetch } from "../lib/api";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { BrandIcon } from "@/components/brand-icon";
 import {
   Dialog,
@@ -50,6 +52,7 @@ type Notice = {
 type SaveState =
   | "idle"
   | "agents"
+  | "proxy"
   | "im"
   | "tunnel"
   | "tunnel-restart"
@@ -93,6 +96,8 @@ export function SettingsDialog({
   >({});
   const [tunnelProvider, setTunnelProvider] =
     useState<TunnelProvider>("none");
+  const [proxyHttp, setProxyHttp] = useState("");
+  const [proxyNoProxy, setProxyNoProxy] = useState("");
   const [ngrokToken, setNgrokToken] = useState("");
   const [ngrokDomain, setNgrokDomain] = useState("");
   const [cfToken, setCfToken] = useState("");
@@ -164,6 +169,12 @@ export function SettingsDialog({
     setCfHostname(tunnel?.cloudflare?.hostname ?? "");
   }, []);
 
+  const hydrateProxy = useCallback((loadedSettings: AppSettings) => {
+    const proxy = loadedSettings.proxy;
+    setProxyHttp(proxy?.http_proxy ?? "");
+    setProxyNoProxy(proxy?.no_proxy ?? "");
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setSettingsLoaded(false);
@@ -186,6 +197,7 @@ export function SettingsDialog({
       hydrateAgents(loadedSettings, orderedAgents);
       hydrateChannels(loadedSettings, registry, discovered);
       hydrateTunnel(loadedSettings);
+      hydrateProxy(loadedSettings);
       setSettingsLoaded(true);
     } catch (error) {
       setNotice({
@@ -195,7 +207,7 @@ export function SettingsDialog({
     } finally {
       setLoading(false);
     }
-  }, [hydrateAgents, hydrateChannels, hydrateTunnel]);
+  }, [hydrateAgents, hydrateChannels, hydrateProxy, hydrateTunnel]);
 
   useEffect(() => {
     if (open) void load();
@@ -331,6 +343,30 @@ export function SettingsDialog({
     }
   }, [settings, agents, enabledAgents, onServicesRestarted]);
 
+  const applyProxySettings = useCallback(async () => {
+    setSaving("proxy");
+    setNotice(null);
+    try {
+      const nextSettings = buildProxySettings({
+        settings,
+        proxyHttp,
+        proxyNoProxy,
+      });
+      await invoke("save_settings", { settings: nextSettings });
+      setSettings(nextSettings);
+      const response = await apiFetch("/api/settings/reload", { method: "POST" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setNotice({ variant: "success", message: "Proxy settings applied." });
+    } catch (error) {
+      setNotice({
+        variant: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setSaving("idle");
+    }
+  }, [settings, proxyHttp, proxyNoProxy]);
+
   const applyImSettings = useCallback(async () => {
     setSaving("im");
     setNotice(null);
@@ -435,6 +471,13 @@ export function SettingsDialog({
               >
                 <Bot className="h-3 w-3" />
                 {t("Agents")}
+              </TabsTrigger>
+              <TabsTrigger
+                value="proxy"
+                className="!h-8 w-full justify-start gap-2 px-2 text-xs data-[state=active]:border-transparent data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none [&_svg:not([class*='size-'])]:!size-3.5"
+              >
+                <Network className="h-3 w-3" />
+                {t("Proxy")}
               </TabsTrigger>
               <TabsTrigger
                 value="im"
@@ -590,6 +633,40 @@ export function SettingsDialog({
             </TabsContent>
 
             <TabsContent
+              value="proxy"
+              className="min-h-0 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col"
+            >
+              {loading ? (
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 [scrollbar-gutter:stable]">
+                  <LoadingBlock />
+                </div>
+              ) : (
+                <>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 [scrollbar-gutter:stable]">
+                    <ProxySettingsPanel
+                      proxyHttp={proxyHttp}
+                      proxyNoProxy={proxyNoProxy}
+                      onProxyHttpChange={setProxyHttp}
+                      onProxyNoProxyChange={setProxyNoProxy}
+                    />
+                  </div>
+                  <div className="flex shrink-0 justify-end border-t border-border px-5 py-3">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!canSubmit}
+                      onClick={() => void applyProxySettings()}
+                    >
+                      {saving === "proxy"
+                        ? t("Applying…")
+                        : t("Apply Proxy Settings")}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </TabsContent>
+
+            <TabsContent
               value="tunnel"
               className="min-h-0 overflow-hidden data-[state=active]:flex data-[state=active]:flex-col"
             >
@@ -721,6 +798,61 @@ function AgentSettingsPanel({
   );
 }
 
+function ProxySettingsPanel({
+  proxyHttp,
+  proxyNoProxy,
+  onProxyHttpChange,
+  onProxyNoProxyChange,
+}: {
+  proxyHttp: string;
+  proxyNoProxy: string;
+  onProxyHttpChange: (value: string) => void;
+  onProxyNoProxyChange: (value: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="flex items-center gap-2 text-base font-semibold">
+          <Network className="h-4 w-4 text-primary" />
+          {t("Proxy")}
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {t(
+            "Configure the HTTP proxy used by API bridge routes that opt in from profile connection settings.",
+          )}
+        </p>
+      </div>
+      <div className="rounded-md border border-border">
+        <div className="grid gap-3 border-b border-border px-4 py-3 last:border-b-0">
+          <label className="grid gap-1.5">
+            <span className="text-xs font-medium">{t("HTTP proxy URL")}</span>
+            <Input
+              type="text"
+              value={proxyHttp}
+              onChange={(event) => onProxyHttpChange(event.currentTarget.value)}
+              placeholder="http://127.0.0.1:7890"
+              className="h-8 font-mono text-xs"
+            />
+          </label>
+        </div>
+        <div className="grid gap-3 border-b border-border px-4 py-3 last:border-b-0">
+          <label className="grid gap-1.5">
+            <span className="text-xs font-medium">{t("No proxy")}</span>
+            <Input
+              type="text"
+              value={proxyNoProxy}
+              onChange={(event) => onProxyNoProxyChange(event.currentTarget.value)}
+              placeholder="localhost,127.0.0.1,::1"
+              className="h-8 font-mono text-xs"
+            />
+          </label>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SettingsActionRow({
   label,
   description,
@@ -767,6 +899,27 @@ function buildAgentSettings({
   result.enabled_agents = agents
     .map((agent) => agent.id)
     .filter((id) => enabledAgents.has(id));
+  return result;
+}
+
+function buildProxySettings({
+  settings,
+  proxyHttp,
+  proxyNoProxy,
+}: {
+  settings: AppSettings;
+  proxyHttp: string;
+  proxyNoProxy: string;
+}): AppSettings {
+  const result: AppSettings = { ...settings };
+  const proxy: NonNullable<AppSettings["proxy"]> = {};
+  if (proxyHttp.trim()) proxy.http_proxy = proxyHttp.trim();
+  if (proxyNoProxy.trim()) proxy.no_proxy = proxyNoProxy.trim();
+  if (Object.keys(proxy).length > 0) {
+    result.proxy = proxy;
+  } else {
+    delete result.proxy;
+  }
   return result;
 }
 
