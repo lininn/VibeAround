@@ -1165,7 +1165,7 @@ export function AgentLaunchBuilder({
                     size="lg"
                     className="h-full min-h-[115px] w-full rounded-md justify-center text-[22px] font-semibold tracking-[0.12em] shadow-md shadow-primary/15"
                   >
-                    <Rocket className="h-6 w-6" />
+                    <Rocket className="h-7 w-7" />
                     {t("LAUNCH")}
                   </TooltipButton>
                 </div>
