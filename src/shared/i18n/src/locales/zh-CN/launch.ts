@@ -74,6 +74,7 @@ export const zhCNLaunch: Record<string, string> = {
   "Add your provider's API key once. From then on it's one click to launch claude or codex with that key already wired up — VibeAround opens a fresh Terminal window and stays out of the way.":
     "只需保存一次服务商 API key，之后一键即可用该 key 启动 Claude 或 Codex。VibeAround 会打开新的终端窗口，其余交给 CLI 自己运行。",
   "Add your first profile": "添加第一个配置",
+  "Add a provider profile": "添加服务商配置",
   "Direct launch": "直接启动",
   "Direct launch stays pinned above profiles":
     "直接启动固定显示在配置上方",

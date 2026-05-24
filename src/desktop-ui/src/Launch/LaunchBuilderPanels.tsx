@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent, type Ref } from "react";
+import { type KeyboardEvent, type Ref } from "react";
 import { DragDropProvider, type DragEndEvent } from "@dnd-kit/react";
 import { isSortable } from "@dnd-kit/react/sortable";
 import {
@@ -8,14 +8,11 @@ import {
   History,
   MessageCircle,
   Plus,
-  Search,
   Terminal,
 } from "lucide-react";
 import { useI18n } from "@va/i18n";
 
 import { BrandIcon } from "@/components/brand-icon";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -90,115 +87,82 @@ export function ProfilePanel({
   busy: boolean;
 }) {
   const { t } = useI18n();
-  const [profileSearch, setProfileSearch] = useState("");
   const directIsGlobalDefault = isGlobalDefaultDirect(prefs, agentId);
   const directActive = selected.kind === "direct";
-  const normalizedProfileSearch = profileSearch.trim().toLowerCase();
-  const directVisible =
-    !normalizedProfileSearch ||
-    [t("Direct"), t("Use existing CLI login"), "direct", "native cli"]
-      .join(" ")
-      .toLowerCase()
-      .includes(normalizedProfileSearch);
-  const visibleProfiles = useMemo(() => {
-    if (!normalizedProfileSearch) return profiles;
-    return profiles.filter((profile) => {
-      const summary = profileSummary(profile, agentId, prefs, t);
-      return [
-        profile.label,
-        profile.provider,
-        profile.providerLabel,
-        summary.route,
-        summary.detail,
-        ...profile.apiTypes,
-        ...profile.launchTargets.map((target) => `${target.label} ${target.id}`),
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalizedProfileSearch);
-    });
-  }, [agentId, normalizedProfileSearch, prefs, profiles, t]);
 
   function handleProfileDragEnd(event: DragEndEvent) {
     if (event.canceled || busy) return;
     const { source } = event.operation;
     if (!isSortable(source) || source.initialIndex === source.index) return;
-    const from = visibleProfiles[source.initialIndex]?.id;
-    const to = visibleProfiles[source.index]?.id;
+    const from = profiles[source.initialIndex]?.id;
+    const to = profiles[source.index]?.id;
     if (from && to) onReorderProfile(from, to);
   }
 
   return (
     <section className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-8 shrink-0 text-xs"
-          onClick={onNewProfile}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          {t("New profile")}
-        </Button>
-        <div className="relative ml-auto w-[min(320px,42vw)] min-w-[180px]">
-          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={profileSearch}
-            onChange={(event) => setProfileSearch(event.target.value)}
-            placeholder={t("Search profiles")}
-            className="h-8 pl-8 text-xs"
-          />
-        </div>
-      </div>
-
       <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-2">
-        {directVisible && (
-          <SelectableItemCard
-            active={directActive}
-            disabled={busy}
-            onSelect={() => onSelect({ kind: "direct" })}
-          >
-            <DragHandle
-              disabled
-              label={t("Direct")}
-              disabledReason={t("Direct profile is fixed")}
-            />
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background text-muted-foreground">
-              <Terminal className="h-6 w-6" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="truncate text-[13px] font-semibold">
-                  {t("Direct")}
-                </span>
-                {directIsGlobalDefault && <DefaultBadge />}
-              </div>
-              <div className="truncate text-[11px] text-muted-foreground">
-                {t("Use existing CLI login")}
-              </div>
+        <SelectableItemCard
+          active={false}
+          disabled={busy}
+          onSelect={onNewProfile}
+        >
+          <DragHandle
+            disabled
+            label={t("New profile")}
+            disabledReason={t("This item cannot be reordered")}
+          />
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-dashed border-primary/40 bg-primary/5 text-primary">
+            <Plus className="h-6 w-6" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13px] font-semibold text-primary">
+              {t("New profile")}
             </div>
-            <div
-              className="flex shrink-0 flex-wrap justify-end gap-2"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <DirectProfileActionsMenu
-                isDefault={directIsGlobalDefault}
-                disabled={busy}
-                onMakeDefault={() => void onMakeDefault({ kind: "direct" })}
-              />
+            <div className="truncate text-[11px] text-muted-foreground">
+              {t("Add a provider profile")}
             </div>
-          </SelectableItemCard>
-        )}
+          </div>
+        </SelectableItemCard>
 
-        {!directVisible && visibleProfiles.length === 0 && (
-          <p className="col-span-full rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-            {t("No matching profiles")}
-          </p>
-        )}
+        <SelectableItemCard
+          active={directActive}
+          disabled={busy}
+          onSelect={() => onSelect({ kind: "direct" })}
+        >
+          <DragHandle
+            disabled
+            label={t("Direct")}
+            disabledReason={t("Direct profile is fixed")}
+          />
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background text-muted-foreground">
+            <Terminal className="h-6 w-6" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="truncate text-[13px] font-semibold">
+                {t("Direct")}
+              </span>
+              {directIsGlobalDefault && <DefaultBadge />}
+            </div>
+            <div className="truncate text-[11px] text-muted-foreground">
+              {t("Use existing CLI login")}
+            </div>
+          </div>
+          <div
+            className="flex shrink-0 flex-wrap justify-end gap-2"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <DirectProfileActionsMenu
+              isDefault={directIsGlobalDefault}
+              disabled={busy}
+              onMakeDefault={() => void onMakeDefault({ kind: "direct" })}
+            />
+          </div>
+        </SelectableItemCard>
 
         <DragDropProvider onDragEnd={handleProfileDragEnd}>
-          {visibleProfiles.map((profile, index) => {
+          {profiles.map((profile, index) => {
             const availability = profileAvailability(profile, agentId, prefs, t);
             return (
               <SortableItem

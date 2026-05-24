@@ -981,9 +981,9 @@ export function AgentLaunchBuilder({
 
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1 flex-col">
-            <header className="bg-card/20 p-3">
-              <div className="grid grid-cols-[minmax(0,1fr)_190px] items-stretch gap-2">
-                <div className="overflow-visible rounded-xl border border-border bg-card p-3 shadow-sm">
+            <header className="bg-card/20 p-2">
+              <div className="grid grid-cols-4 items-stretch gap-2">
+                <div className="col-span-3 overflow-visible rounded-md border border-border bg-card p-3 shadow-sm">
                   <AgentSummaryHeader
                     agentId={agentId}
                     agentLabelText={selectedAgent.display_name}
@@ -1084,13 +1084,7 @@ export function AgentLaunchBuilder({
                           }
                           label={t("Workspace")}
                           title={selectedWorkspace.label}
-                          detail={
-                            workspacesLoading
-                              ? t("Loading…")
-                              : t("{{count}} sessions", {
-                                  count: visibleSessions.length,
-                                })
-                          }
+                          detail={workspacesLoading ? t("Loading…") : undefined}
                         />
                       }
                     >
@@ -1162,14 +1156,14 @@ export function AgentLaunchBuilder({
                     </SelectorPopup>
                   </div>
                 </div>
-                <div className="flex">
+                <div className="col-span-1 flex">
                   <TooltipButton
                     type="button"
                     disabled={busy || !selectionLaunchable}
                     disabledReason={launchDisabledReason}
                     onClick={() => void launchSelected()}
                     size="lg"
-                    className="h-full min-h-[115px] w-full rounded-xl justify-center text-base font-semibold tracking-[0.12em] shadow-md shadow-primary/15"
+                    className="h-full min-h-[115px] w-full rounded-md justify-center text-base font-semibold tracking-[0.12em] shadow-md shadow-primary/15"
                   >
                     <Rocket className="h-5 w-5" />
                     {t("LAUNCH")}
