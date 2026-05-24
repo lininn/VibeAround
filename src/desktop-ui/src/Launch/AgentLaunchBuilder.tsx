@@ -271,13 +271,13 @@ function AgentSummaryHeader({
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2.5">
-      <span className="flex h-12 w-12 shrink-0 items-center justify-center text-primary">
+      <span className="flex h-14 w-14 shrink-0 items-center justify-center text-primary">
         <BrandIcon
           kind="cli"
           id={agentId}
           label={agentLabelText}
           framed={false}
-          className="h-10 w-10"
+          className="h-12 w-12"
         />
       </span>
       <span className="min-w-0">
@@ -1146,14 +1146,14 @@ export function AgentLaunchBuilder({
                     </SelectorPopup>
                   </div>
                 </div>
-                <div className="rounded-xl border border-border bg-card p-3 shadow-sm">
+                <div className="flex">
                   <TooltipButton
                     type="button"
                     disabled={busy || !selectionLaunchable}
                     disabledReason={launchDisabledReason}
                     onClick={() => void launchSelected()}
                     size="lg"
-                    className="h-full min-h-[91px] w-full justify-center text-sm font-semibold tracking-[0.1em] shadow-md shadow-primary/15"
+                    className="h-full min-h-[115px] w-full rounded-xl justify-center text-sm font-semibold tracking-[0.1em] shadow-md shadow-primary/15"
                   >
                     <Rocket className="h-4 w-4" />
                     {t("LAUNCH")}
