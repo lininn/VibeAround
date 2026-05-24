@@ -360,14 +360,13 @@ fn add_codex_model_catalog(
     let Some(provider_label) = ctx.get("provider_label").filter(|value| !value.is_empty()) else {
         return Ok(());
     };
-    let Some(model_catalog_json) =
-        codex_metadata::build_model_catalog_json(CodexModelCatalogSpec {
-            model,
-            provider_label,
-            context_window: metadata.context_window,
-            capabilities: &metadata.capabilities,
-        })
-    else {
+    let spec = CodexModelCatalogSpec {
+        model,
+        provider_label,
+        context_window: Some(metadata.context_window),
+        capabilities: &metadata.capabilities,
+    };
+    let Some(model_catalog_json) = codex_metadata::build_model_catalog_json(&[spec]) else {
         return Ok(());
     };
 

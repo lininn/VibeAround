@@ -302,6 +302,15 @@ pub fn find_model<'a>(endpoint: &'a EndpointDef, model_id: &str) -> Option<&'a M
         .find(|model| model_matches(model, model_id))
 }
 
+pub fn canonical_model_id(endpoint: &EndpointDef, model_id: &str) -> Option<String> {
+    if let Some(base_model) = model_id.trim().strip_suffix("[1m]").map(str::trim) {
+        if let Some(model) = find_model(endpoint, base_model) {
+            return Some(model.id.clone());
+        }
+    }
+    find_model(endpoint, model_id).map(|model| model.id.clone())
+}
+
 pub fn model_matches(model: &ModelDef, model_id: &str) -> bool {
     let model_id = model_id.trim();
     if model_id.is_empty() {
