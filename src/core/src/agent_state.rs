@@ -56,6 +56,8 @@ pub struct ProfileConnectionPreference {
 pub struct ProfileBridgePreference {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub use_proxy: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_api_type: Option<String>,
     /// The real upstream model this bridge route should run.
@@ -69,6 +71,10 @@ pub struct ProfileBridgePreference {
     /// remain owned by the provider catalog and cannot be overridden here.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 pub type ProfileConnectionPreferences =
