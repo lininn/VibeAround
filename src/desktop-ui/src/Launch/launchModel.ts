@@ -19,6 +19,7 @@ const PROXY_AGENTS = new Set<string>(["claude", "codex", "gemini", "opencode"]);
 const SESSION_RESUME_AGENTS = new Set<string>([
   "claude",
   "codex",
+  "pi",
   "cursor",
   "gemini",
   "opencode",
@@ -324,6 +325,8 @@ export function agentLabel(agentId: string): string {
       return "Claude";
     case "codex":
       return "Codex";
+    case "pi":
+      return "Pi";
     case "gemini":
       return "Gemini";
     case "cursor":
