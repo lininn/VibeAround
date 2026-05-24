@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { ChevronDown, History, Rocket, Terminal } from "lucide-react";
+import { ChevronDown, Rocket, Terminal } from "lucide-react";
 import { useI18n } from "@va/i18n";
 
 import { BrandIcon } from "@/components/brand-icon";
@@ -263,25 +263,28 @@ function LaunchSummaryPill({
 function AgentSummaryHeader({
   agentId,
   agentLabelText,
+  children,
 }: {
   agentId: string;
   agentLabelText: string;
+  children?: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-3">
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center text-primary">
+    <div className="flex min-w-0 items-center gap-2.5">
+      <span className="flex h-12 w-12 shrink-0 items-center justify-center text-primary">
         <BrandIcon
           kind="cli"
           id={agentId}
           label={agentLabelText}
           framed={false}
-          className="h-9 w-9"
+          className="h-10 w-10"
         />
       </span>
       <span className="min-w-0">
         <span className="block truncate text-[17px] font-semibold leading-tight">
           {agentLabelText}
         </span>
+        {children}
       </span>
     </div>
   );
@@ -966,133 +969,195 @@ export function AgentLaunchBuilder({
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1 flex-col">
             <header className="border-b border-border bg-card/20 p-3">
-              <div className="overflow-visible rounded-xl border border-border bg-card p-3 shadow-sm">
-                <AgentSummaryHeader
-                  agentId={agentId}
-                  agentLabelText={selectedAgent.display_name}
-                />
-                <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
-                  <SelectorPopup
-                    id="profile"
-                    openSelector={openSelector}
-                    onOpenChange={setOpenSelector}
-                    widthClassName="w-[min(360px,calc(100vw-1rem))]"
-                    widthPx={360}
-                    trigger={
-                      <LaunchSummaryPill
-                        active={openSelector === "profile"}
-                        className="w-[min(360px,100%)]"
-                        onClick={() =>
-                          setOpenSelector(
-                            openSelector === "profile" ? null : "profile",
-                          )
-                        }
-                        label={t("Profile")}
-                        title={selectedProfileSummary.title}
-                        detail={selectedProfileSummary.route}
-                      />
-                    }
+              <div className="grid grid-cols-[minmax(0,1fr)_190px] items-stretch gap-2">
+                <div className="overflow-visible rounded-xl border border-border bg-card p-3 shadow-sm">
+                  <AgentSummaryHeader
+                    agentId={agentId}
+                    agentLabelText={selectedAgent.display_name}
                   >
-                    <ProfileInfoPanel
-                      agentId={agentId}
-                      prefs={viewPrefs}
-                      profile={selectedProfile}
-                      summary={selectedProfileSummary}
-                    />
-                  </SelectorPopup>
-                  <SelectorPopup
-                    id="workspace"
-                    openSelector={openSelector}
-                    onOpenChange={setOpenSelector}
-                    widthClassName="w-[min(400px,calc(100vw-1rem))]"
-                    widthPx={400}
-                    trigger={
-                      <LaunchSummaryPill
-                        active={openSelector === "workspace"}
-                        chevron
-                        className="w-[250px]"
-                        onClick={() =>
-                          setOpenSelector(
-                            openSelector === "workspace" ? null : "workspace",
-                          )
-                        }
-                        label={t("Workspace")}
-                        title={selectedWorkspace.label}
-                        detail={
-                          workspacesLoading
-                            ? t("Loading…")
-                            : t("{{count}} sessions", {
-                                count: visibleSessions.length,
-                              })
-                        }
+                    <SelectorPopup
+                      id="profile"
+                      openSelector={openSelector}
+                      onOpenChange={setOpenSelector}
+                      widthClassName="w-[min(340px,calc(100vw-1rem))]"
+                      widthPx={340}
+                      trigger={
+                        <button
+                          type="button"
+                          className={`mt-0.5 flex max-w-[520px] min-w-0 items-center gap-1 rounded-sm text-left text-[12px] leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                            openSelector === "profile"
+                              ? "text-primary"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                          onClick={() =>
+                            setOpenSelector(
+                              openSelector === "profile" ? null : "profile",
+                            )
+                          }
+                        >
+                          <span className="shrink-0">{t("Profile")}</span>
+                          <span className="min-w-0 truncate font-semibold text-foreground">
+                            {selectedProfileSummary.title}
+                          </span>
+                          <span className="min-w-0 truncate text-muted-foreground">
+                            <span className="px-0.5">·</span>
+                            {selectedProfileSummary.route}
+                          </span>
+                        </button>
+                      }
+                    >
+                      <ProfileInfoPanel
+                        agentId={agentId}
+                        prefs={viewPrefs}
+                        profile={selectedProfile}
+                        summary={selectedProfileSummary}
                       />
-                    }
-                  >
-                    <WorkspacePanel
-                      prefs={viewPrefs}
-                      loading={workspacesLoading}
-                      onSelect={(path) => {
-                        setOpenSelector(null);
-                        void chooseWorkspace(path);
-                      }}
-                      onDelete={(path, label) =>
-                        void removeWorkspace(path, label)
+                    </SelectorPopup>
+                  </AgentSummaryHeader>
+                  <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
+                    <Select
+                      value={viewPrefs.terminal}
+                      disabled={busy}
+                      onValueChange={(terminalId) =>
+                        void chooseTerminal(terminalId)
                       }
-                      onReorder={(fromPath, toPath) =>
-                        void reorderWorkspace(fromPath, toPath)
-                      }
-                      onCreate={() => {
-                        setOpenSelector(null);
-                        void chooseFolder();
-                      }}
-                      sessionCounts={workspaceSessionCounts}
-                      busy={busy}
-                    />
-                  </SelectorPopup>
-                  <SelectorPopup
-                    id="session"
-                    openSelector={openSelector}
-                    onOpenChange={setOpenSelector}
-                    align="end"
-                    widthClassName="w-[min(420px,calc(100vw-1rem))]"
-                    widthPx={420}
-                    trigger={
-                      <LaunchSummaryPill
-                        active={openSelector === "session"}
-                        chevron
-                        disabled={!sessionResumeSupported}
-                        className="w-[210px]"
-                        onClick={() =>
-                          setOpenSelector(
-                            openSelector === "session" ? null : "session",
-                          )
-                        }
-                        label={t("Session")}
-                        title={
-                          !sessionResumeSupported
-                            ? t("Session resume unavailable")
-                            : sessionsLoading
+                    >
+                      <SelectTrigger
+                        size="sm"
+                        className="!h-9 w-[160px] justify-start gap-1.5 border-border/70 bg-transparent px-2.5 text-xs shadow-none hover:border-primary/35 [&>svg:last-child]:ml-auto"
+                      >
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {t("Terminal")}
+                        </span>
+                        <SelectValue
+                          className="min-w-0 truncate font-semibold text-foreground"
+                          placeholder={selectedTerminal?.label ?? t("Terminal")}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {viewPrefs.options.map((option) => (
+                          <SelectItem
+                            key={option.id}
+                            value={option.id}
+                            disabled={!option.installed}
+                            className="text-xs"
+                          >
+                            {option.installed
+                              ? option.label
+                              : t("{{label}} (not installed)", {
+                                  label: option.label,
+                                })}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <SelectorPopup
+                      id="workspace"
+                      openSelector={openSelector}
+                      onOpenChange={setOpenSelector}
+                      widthClassName="w-[min(400px,calc(100vw-1rem))]"
+                      widthPx={400}
+                      trigger={
+                        <LaunchSummaryPill
+                          active={openSelector === "workspace"}
+                          chevron
+                          className="w-[250px]"
+                          onClick={() =>
+                            setOpenSelector(
+                              openSelector === "workspace" ? null : "workspace",
+                            )
+                          }
+                          label={t("Workspace")}
+                          title={selectedWorkspace.label}
+                          detail={
+                            workspacesLoading
                               ? t("Loading…")
-                              : sessionTitle
+                              : t("{{count}} sessions", {
+                                  count: visibleSessions.length,
+                                })
+                          }
+                        />
+                      }
+                    >
+                      <WorkspacePanel
+                        prefs={viewPrefs}
+                        loading={workspacesLoading}
+                        onSelect={(path) => {
+                          setOpenSelector(null);
+                          void chooseWorkspace(path);
+                        }}
+                        onDelete={(path, label) =>
+                          void removeWorkspace(path, label)
                         }
-                        detail={selectedSession ? t("resume") : undefined}
+                        onReorder={(fromPath, toPath) =>
+                          void reorderWorkspace(fromPath, toPath)
+                        }
+                        onCreate={() => {
+                          setOpenSelector(null);
+                          void chooseFolder();
+                        }}
+                        sessionCounts={workspaceSessionCounts}
+                        busy={busy}
                       />
-                    }
+                    </SelectorPopup>
+                    <SelectorPopup
+                      id="session"
+                      openSelector={openSelector}
+                      onOpenChange={setOpenSelector}
+                      align="end"
+                      widthClassName="w-[min(420px,calc(100vw-1rem))]"
+                      widthPx={420}
+                      trigger={
+                        <LaunchSummaryPill
+                          active={openSelector === "session"}
+                          chevron
+                          disabled={!sessionResumeSupported}
+                          className="w-[210px]"
+                          onClick={() =>
+                            setOpenSelector(
+                              openSelector === "session" ? null : "session",
+                            )
+                          }
+                          label={t("Session")}
+                          title={
+                            !sessionResumeSupported
+                              ? t("Session resume unavailable")
+                              : sessionsLoading
+                                ? t("Loading…")
+                                : sessionTitle
+                          }
+                          detail={selectedSession ? t("resume") : undefined}
+                        />
+                      }
+                    >
+                      <SessionPanel
+                        sessions={visibleSessions}
+                        selected={sessionChoice}
+                        archiveFilterAvailable={agentId === "codex"}
+                        resumeSupported={sessionResumeSupported}
+                        unsupportedReason={sessionResumeUnsupportedReason}
+                        showArchived={showArchivedSessions}
+                        onShowArchivedChange={setShowArchivedSessions}
+                        onSelect={(choice) => {
+                          setOpenSelector(null);
+                          setSessionChoice(choice);
+                        }}
+                      />
+                    </SelectorPopup>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-3 shadow-sm">
+                  <TooltipButton
+                    type="button"
+                    disabled={busy || !selectionLaunchable}
+                    disabledReason={launchDisabledReason}
+                    onClick={() => void launchSelected()}
+                    size="lg"
+                    className="h-full min-h-[91px] w-full justify-center text-sm font-semibold tracking-[0.1em] shadow-md shadow-primary/15"
                   >
-                    <SessionPanel
-                      sessions={visibleSessions}
-                      selected={sessionChoice}
-                      archiveFilterAvailable={agentId === "codex"}
-                      resumeSupported={sessionResumeSupported}
-                      unsupportedReason={sessionResumeUnsupportedReason}
-                      showArchived={showArchivedSessions}
-                      onShowArchivedChange={setShowArchivedSessions}
-                      onSelect={(choice) => {
-                        setOpenSelector(null);
-                        setSessionChoice(choice);
-                      }}
-                    />
-                  </SelectorPopup>
+                    <Rocket className="h-4 w-4" />
+                    {t("LAUNCH")}
+                  </TooltipButton>
                 </div>
               </div>
             </header>
@@ -1118,48 +1183,6 @@ export function AgentLaunchBuilder({
                 busy={busy}
               />
             </section>
-
-            <footer className="flex items-center justify-end gap-2 border-t border-border bg-card/30 px-4 py-3">
-              <Select
-                value={viewPrefs.terminal}
-                disabled={busy}
-                onValueChange={(terminalId) => void chooseTerminal(terminalId)}
-              >
-                <SelectTrigger size="sm" className="!h-10 w-[120px] px-3 text-xs">
-                  <Terminal className="h-3.5 w-3.5" />
-                  <SelectValue placeholder={selectedTerminal?.label ?? t("Terminal")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {viewPrefs.options.map((option) => (
-                    <SelectItem
-                      key={option.id}
-                      value={option.id}
-                      disabled={!option.installed}
-                      className="text-xs"
-                    >
-                      {option.installed
-                        ? option.label
-                        : t("{{label}} (not installed)", { label: option.label })}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <TooltipButton
-                type="button"
-                disabled={busy || !selectionLaunchable}
-                disabledReason={launchDisabledReason}
-                onClick={() => void launchSelected()}
-                size="lg"
-                className="min-w-[160px] justify-center text-xs font-semibold"
-              >
-                {selectedSession ? (
-                  <History className="h-3.5 w-3.5" />
-                ) : (
-                  <Rocket className="h-3.5 w-3.5" />
-                )}
-                {t("LAUNCH")}
-              </TooltipButton>
-            </footer>
           </div>
         </main>
       </div>
