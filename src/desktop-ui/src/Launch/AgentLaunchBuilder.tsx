@@ -17,7 +17,6 @@ import {
 import { useI18n } from "@va/i18n";
 
 import { BrandIcon } from "@/components/brand-icon";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -30,7 +29,6 @@ import {
   AgentRailButton,
   DefaultBadge,
   BridgeBadge,
-  SelectorTile,
   TooltipButton,
 } from "./LaunchBuilderPrimitives";
 import {
@@ -166,6 +164,83 @@ function SelectorPopup({
         </div>
       )}
     </div>
+  );
+}
+
+function LaunchSummarySegment({
+  active = false,
+  disabled = false,
+  icon,
+  label,
+  title,
+  detail,
+  badges,
+  className = "",
+  onClick,
+}: {
+  active?: boolean;
+  disabled?: boolean;
+  icon: ReactNode;
+  label: string;
+  title: string;
+  detail: string;
+  badges?: ReactNode;
+  className?: string;
+  onClick?: () => void;
+}) {
+  const content = (
+    <>
+      <span
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${
+          active
+            ? "border-primary/35 bg-background text-primary"
+            : "border-border/70 bg-background text-muted-foreground"
+        }`}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span
+            className={`text-[10px] font-semibold uppercase ${active ? "text-primary" : "text-muted-foreground"}`}
+          >
+            {label}
+          </span>
+          {badges}
+        </span>
+        <span className="block truncate text-[12px] font-semibold">{title}</span>
+        <span className="block truncate text-[10px] text-muted-foreground">
+          {detail}
+        </span>
+      </span>
+    </>
+  );
+  const baseClassName = `flex h-full min-h-[58px] w-full min-w-0 items-center gap-2 px-2.5 py-1.5 text-left transition-colors ${
+    disabled
+      ? "cursor-not-allowed text-muted-foreground opacity-60"
+      : active
+        ? "bg-primary/10 text-primary"
+        : onClick
+          ? "text-foreground hover:bg-accent/50"
+          : "text-foreground"
+  } ${className}`;
+
+  if (!onClick) {
+    return <div className={baseClassName}>{content}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      aria-disabled={disabled}
+      tabIndex={disabled ? -1 : 0}
+      className={baseClassName}
+      onClick={() => {
+        if (!disabled) onClick();
+      }}
+    >
+      {content}
+    </button>
   );
 }
 
@@ -691,134 +766,137 @@ export function AgentLaunchBuilder({
 
         <main className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1 flex-col">
-            <header className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-stretch gap-2 border-b border-border bg-card/20 p-2">
-              <SelectorTile
-                active
-                icon={
-                  selectedProfile ? (
-                    <BrandIcon
-                      kind="provider"
-                      id={selectedProfile.provider}
-                      label={selectedProfile.providerLabel}
-                      fallback={selectedProfile.providerIcon}
-                      framed={false}
-                      className="h-8 w-8"
-                    />
-                  ) : (
-                    <Terminal className="h-4 w-4" />
-                  )
-                }
-                label={t("Profile")}
-                title={selectedProfileSummary.title}
-                detail={selectedProfileSummary.route}
-                badges={
-                  <>
-                    {selectedProfileSummary.bridge && <BridgeBadge />}
-                    {profileIsGlobalDefault && <DefaultBadge />}
-                  </>
-                }
-              />
-              <SelectorPopup
-                id="workspace"
-                openSelector={openSelector}
-                onOpenChange={setOpenSelector}
-                widthClassName="w-[min(400px,calc(100vw-1rem))]"
-                trigger={
-                  <SelectorTile
-                    active={openSelector === "workspace"}
-                    onClick={() =>
-                      setOpenSelector(
-                        openSelector === "workspace" ? null : "workspace",
-                      )
-                    }
-                    icon={<FolderOpen className="h-4 w-4" />}
-                    label={t("Workspace")}
-                    title={selectedWorkspace.label}
-                    detail={
-                      workspacesLoading
-                        ? t("Loading…")
-                        : t("{{count}} sessions", {
-                            count: visibleSessions.length,
-                          })
-                    }
-                    badges={
-                      selectedWorkspace.isDefault ? <DefaultBadge /> : null
-                    }
-                  />
-                }
-              >
-                <WorkspacePanel
-                  prefs={viewPrefs}
-                  loading={workspacesLoading}
-                  onSelect={(path) => {
-                    setOpenSelector(null);
-                    void chooseWorkspace(path);
-                  }}
-                  onDelete={(path, label) => void removeWorkspace(path, label)}
-                  onReorder={(fromPath, toPath) =>
-                    void reorderWorkspace(fromPath, toPath)
+            <header className="border-b border-border bg-card/20 p-2">
+              <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1fr)_auto] overflow-visible rounded-md border border-border bg-card shadow-sm">
+                <LaunchSummarySegment
+                  active
+                  icon={
+                    selectedProfile ? (
+                      <BrandIcon
+                        kind="provider"
+                        id={selectedProfile.provider}
+                        label={selectedProfile.providerLabel}
+                        fallback={selectedProfile.providerIcon}
+                        framed={false}
+                        className="h-7 w-7"
+                      />
+                    ) : (
+                      <Terminal className="h-4 w-4" />
+                    )
                   }
-                  onCreate={() => {
-                    setOpenSelector(null);
-                    void chooseFolder();
-                  }}
-                  sessionCounts={workspaceSessionCounts}
-                  busy={busy}
+                  label={t("Profile")}
+                  title={selectedProfileSummary.title}
+                  detail={selectedProfileSummary.route}
+                  badges={
+                    <>
+                      {selectedProfileSummary.bridge && <BridgeBadge />}
+                      {profileIsGlobalDefault && <DefaultBadge />}
+                    </>
+                  }
                 />
-              </SelectorPopup>
-              <SelectorPopup
-                id="session"
-                openSelector={openSelector}
-                onOpenChange={setOpenSelector}
-                align="end"
-                widthClassName="w-[min(420px,calc(100vw-1rem))]"
-                trigger={
-                  <SelectorTile
-                    active={openSelector === "session"}
-                    onClick={() =>
-                      setOpenSelector(
-                        openSelector === "session" ? null : "session",
-                      )
-                    }
-                    icon={<MessageCircle className="h-4 w-4" />}
-                    label={t("Session")}
-                    title={
-                      !sessionResumeSupported
-                        ? t("Session resume unavailable")
-                        : sessionsLoading
+                <SelectorPopup
+                  id="workspace"
+                  openSelector={openSelector}
+                  onOpenChange={setOpenSelector}
+                  widthClassName="w-[min(400px,calc(100vw-1rem))]"
+                  trigger={
+                    <LaunchSummarySegment
+                      className="border-l border-border/70"
+                      active={openSelector === "workspace"}
+                      onClick={() =>
+                        setOpenSelector(
+                          openSelector === "workspace" ? null : "workspace",
+                        )
+                      }
+                      icon={<FolderOpen className="h-4 w-4" />}
+                      label={t("Workspace")}
+                      title={selectedWorkspace.label}
+                      detail={
+                        workspacesLoading
                           ? t("Loading…")
-                          : sessionTitle
+                          : t("{{count}} sessions", {
+                              count: visibleSessions.length,
+                            })
+                      }
+                      badges={
+                        selectedWorkspace.isDefault ? <DefaultBadge /> : null
+                      }
+                    />
+                  }
+                >
+                  <WorkspacePanel
+                    prefs={viewPrefs}
+                    loading={workspacesLoading}
+                    onSelect={(path) => {
+                      setOpenSelector(null);
+                      void chooseWorkspace(path);
+                    }}
+                    onDelete={(path, label) =>
+                      void removeWorkspace(path, label)
                     }
-                    detail={sessionDetail}
-                    disabled={!sessionResumeSupported}
-                    disabledReason={sessionResumeUnsupportedReason}
+                    onReorder={(fromPath, toPath) =>
+                      void reorderWorkspace(fromPath, toPath)
+                    }
+                    onCreate={() => {
+                      setOpenSelector(null);
+                      void chooseFolder();
+                    }}
+                    sessionCounts={workspaceSessionCounts}
+                    busy={busy}
                   />
-                }
-              >
-                <SessionPanel
-                  sessions={visibleSessions}
-                  selected={sessionChoice}
-                  archiveFilterAvailable={agentId === "codex"}
-                  resumeSupported={sessionResumeSupported}
-                  unsupportedReason={sessionResumeUnsupportedReason}
-                  showArchived={showArchivedSessions}
-                  onShowArchivedChange={setShowArchivedSessions}
-                  onSelect={(choice) => {
-                    setOpenSelector(null);
-                    setSessionChoice(choice);
-                  }}
-                />
-              </SelectorPopup>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-full min-h-[62px] justify-center px-3 text-xs"
-                onClick={onNewProfile}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                {t("New profile")}
-              </Button>
+                </SelectorPopup>
+                <SelectorPopup
+                  id="session"
+                  openSelector={openSelector}
+                  onOpenChange={setOpenSelector}
+                  align="end"
+                  widthClassName="w-[min(420px,calc(100vw-1rem))]"
+                  trigger={
+                    <LaunchSummarySegment
+                      className="border-l border-border/70"
+                      active={openSelector === "session"}
+                      disabled={!sessionResumeSupported}
+                      onClick={() =>
+                        setOpenSelector(
+                          openSelector === "session" ? null : "session",
+                        )
+                      }
+                      icon={<MessageCircle className="h-4 w-4" />}
+                      label={t("Session")}
+                      title={
+                        !sessionResumeSupported
+                          ? t("Session resume unavailable")
+                          : sessionsLoading
+                            ? t("Loading…")
+                            : sessionTitle
+                      }
+                      detail={sessionDetail}
+                    />
+                  }
+                >
+                  <SessionPanel
+                    sessions={visibleSessions}
+                    selected={sessionChoice}
+                    archiveFilterAvailable={agentId === "codex"}
+                    resumeSupported={sessionResumeSupported}
+                    unsupportedReason={sessionResumeUnsupportedReason}
+                    showArchived={showArchivedSessions}
+                    onShowArchivedChange={setShowArchivedSessions}
+                    onSelect={(choice) => {
+                      setOpenSelector(null);
+                      setSessionChoice(choice);
+                    }}
+                  />
+                </SelectorPopup>
+                <button
+                  type="button"
+                  className="flex min-h-[58px] items-center justify-center gap-2 border-l border-border/70 px-3 text-xs font-semibold text-foreground transition-colors hover:bg-accent/50"
+                  onClick={onNewProfile}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  {t("New profile")}
+                </button>
+              </div>
             </header>
 
             <section className="min-h-0 flex-1 overflow-y-auto p-2">
