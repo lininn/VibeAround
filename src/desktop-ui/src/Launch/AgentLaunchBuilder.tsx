@@ -1,10 +1,4 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   FolderOpen,
@@ -27,13 +21,13 @@ import {
 } from "@/components/ui/select";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
+  AgentRailButton,
   DefaultBadge,
   BridgeBadge,
   SelectorTile,
   TooltipButton,
 } from "./LaunchBuilderPrimitives";
 import {
-  AgentPanel,
   ProfilePanel,
   SessionPanel,
   WorkspacePanel,
@@ -83,12 +77,11 @@ import {
   relativeTime,
   resolveSelectedSession,
   selectionUnavailableReason,
+  type ExpandedBlock,
   type ProfileChoice,
   type SessionChoice,
 } from "./launchModel";
 import type { ConnectionAgentId, ProfileSummary } from "./types";
-
-type SelectorPopupId = "agent" | "profile" | "workspace" | "session";
 
 const AGENT_ORDER = [
   "codex",
@@ -115,60 +108,6 @@ interface Props {
   onToast: (message: string | null) => void;
 }
 
-function SelectorPopup({
-  id,
-  openSelector,
-  onOpenChange,
-  align = "start",
-  widthClassName = "w-[min(420px,calc(100vw-2rem))]",
-  content,
-  tile,
-}: {
-  id: SelectorPopupId;
-  openSelector: SelectorPopupId | null;
-  onOpenChange: (id: SelectorPopupId | null) => void;
-  align?: "start" | "end";
-  widthClassName?: string;
-  content: ReactNode;
-  tile: ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const open = openSelector === id;
-
-  useEffect(() => {
-    if (!open) return;
-    function closeOnOutsideClick(event: MouseEvent) {
-      if (!ref.current?.contains(event.target as Node)) {
-        onOpenChange(null);
-      }
-    }
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") onOpenChange(null);
-    }
-    document.addEventListener("mousedown", closeOnOutsideClick);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutsideClick);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [onOpenChange, open]);
-
-  return (
-    <div ref={ref} className="relative min-w-0">
-      {tile}
-      {open && (
-        <div
-          className={`absolute top-full z-50 mt-2 ${align === "end" ? "right-0" : "left-0"} ${widthClassName}`}
-        >
-          <div className="max-h-[min(64vh,480px)] overflow-y-auto rounded-md bg-background shadow-xl ring-1 ring-border">
-            {content}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function AgentLaunchBuilder({
   profiles,
   prefs,
@@ -187,9 +126,7 @@ export function AgentLaunchBuilder({
   const [profileChoice, setProfileChoice] = useState<ProfileChoice>({
     kind: "direct",
   });
-  const [openSelector, setOpenSelector] = useState<SelectorPopupId | null>(
-    null,
-  );
+  const [expanded, setExpanded] = useState<ExpandedBlock>("profile");
   const [workspaceOptions, setWorkspaceOptions] = useState<
     WorkspaceOption[] | null
   >(null);
@@ -430,6 +367,7 @@ export function AgentLaunchBuilder({
 
   async function chooseAgent(nextAgentId: string) {
     setAgentId(nextAgentId);
+    setExpanded("profile");
     setSessionChoice(null);
     onError(null);
     try {
@@ -691,226 +629,148 @@ export function AgentLaunchBuilder({
 
   return (
     <TooltipProvider>
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <BrandIcon
-                kind="cli"
-                id={agentId}
-                label={selectedAgent.display_name}
-                className="h-6 w-6"
+      <div className="flex min-h-0 flex-1">
+        <aside className="w-[74px] shrink-0 border-r border-border bg-card/50 px-2 py-3">
+          <div className="flex flex-col gap-2">
+            {agents.map((agent) => (
+              <AgentRailButton
+                key={agent.id}
+                agent={agent}
+                active={agent.id === agentId}
+                isDefault={viewPrefs.defaultAgent === agent.id}
+                onClick={() => void chooseAgent(agent.id)}
               />
-              <div className="min-w-0">
-                <h2 className="truncate text-[15px] font-semibold">
-                  {selectedAgent.display_name}
-                </h2>
+            ))}
+          </div>
+        </aside>
+
+        <main className="flex min-w-0 flex-1 flex-col">
+          <header className="flex items-center justify-between border-b border-border px-4 py-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <BrandIcon
+                  kind="cli"
+                  id={agentId}
+                  label={selectedAgent.display_name}
+                  className="h-7 w-7"
+                />
+                <div className="min-w-0">
+                  <h2 className="truncate text-[15px] font-semibold">
+                    {selectedAgent.display_name}
+                  </h2>
+                </div>
               </div>
             </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs"
-              onClick={onNewProfile}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              {t("New profile")}
-            </Button>
-          </div>
-        </header>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={onNewProfile}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t("New profile")}
+              </Button>
+            </div>
+          </header>
 
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="grid grid-cols-4 gap-1.5 border-b border-border bg-card/20 p-2">
-            <SelectorPopup
-              id="agent"
-              openSelector={openSelector}
-              onOpenChange={setOpenSelector}
-              widthClassName="w-[min(500px,calc(100vw-1rem))]"
-              tile={
-                <SelectorTile
-                  active={openSelector === "agent"}
-                  onClick={() =>
-                    setOpenSelector(openSelector === "agent" ? null : "agent")
-                  }
-                  icon={
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="grid grid-cols-3 gap-2 border-b border-border bg-card/20 p-3">
+              <SelectorTile
+                active={expanded === "profile"}
+                onClick={() => setExpanded("profile")}
+                icon={
+                  selectedProfile ? (
                     <BrandIcon
-                      kind="cli"
-                      id={agentId}
-                      label={selectedAgent.display_name}
+                      kind="provider"
+                      id={selectedProfile.provider}
+                      label={selectedProfile.providerLabel}
+                      fallback={selectedProfile.providerIcon}
                       framed={false}
-                      className="h-7 w-7"
+                      className="h-8 w-8"
                     />
-                  }
-                  label={t("Agent")}
-                  title={selectedAgent.display_name}
-                  detail={
-                    viewPrefs.defaultAgent === agentId
-                      ? t("Default agent")
-                      : t("Launch agent")
-                  }
-                  badges={
-                    viewPrefs.defaultAgent === agentId ? <DefaultBadge /> : null
-                  }
-                />
-              }
-              content={
-                <div className="p-1.5">
-                  <AgentPanel
-                    agents={agents}
-                    selectedAgentId={agentId}
-                    defaultAgentId={viewPrefs.defaultAgent}
-                    busy={busy}
-                    onSelect={(nextAgentId) => {
-                      setOpenSelector(null);
-                      void chooseAgent(nextAgentId);
-                    }}
-                  />
-                </div>
-              }
-            />
-            <SelectorPopup
-              id="profile"
-              openSelector={openSelector}
-              onOpenChange={setOpenSelector}
-              widthClassName="w-[min(560px,calc(100vw-1rem))]"
-              tile={
-                <SelectorTile
-                  active={openSelector === "profile"}
-                  onClick={() =>
-                    setOpenSelector(
-                      openSelector === "profile" ? null : "profile",
-                    )
-                  }
-                  icon={
-                    selectedProfile ? (
-                      <BrandIcon
-                        kind="provider"
-                        id={selectedProfile.provider}
-                        label={selectedProfile.providerLabel}
-                        fallback={selectedProfile.providerIcon}
-                        framed={false}
-                        className="h-7 w-7"
-                      />
-                    ) : (
-                      <Terminal className="h-4 w-4" />
-                    )
-                  }
-                  label={t("Profile")}
-                  title={selectedProfileSummary.title}
-                  detail={selectedProfileSummary.route}
-                  badges={
-                    <>
-                      {selectedProfileSummary.bridge && <BridgeBadge />}
-                      {profileIsGlobalDefault && <DefaultBadge />}
-                    </>
-                  }
-                />
-              }
-              content={
-                <div className="p-1.5">
-                  <ProfilePanel
-                    agentId={agentId}
-                    prefs={viewPrefs}
-                    selected={profileChoice}
-                    profiles={profileOptions}
-                    onSelect={(choice) => {
-                      setOpenSelector(null);
-                      void chooseProfileChoice(choice);
-                    }}
-                    onSelectApiType={(profile, apiType) =>
-                      void chooseProfileApiType(profile, apiType)
-                    }
-                    onMakeDefault={makeDefault}
-                    onEditProfile={onEditProfile}
-                    onConnectionSettings={onConnectionSettings}
-                    onDeleteProfile={(profile) => void removeProfile(profile)}
-                    onReorderProfile={(fromId, toId) =>
-                      void reorderProfile(fromId, toId)
-                    }
-                    busy={busy}
-                  />
-                </div>
-              }
-            />
-            <SelectorPopup
-              id="workspace"
-              openSelector={openSelector}
-              onOpenChange={setOpenSelector}
-              widthClassName="w-[min(400px,calc(100vw-1rem))]"
-              tile={
-                <SelectorTile
-                  active={openSelector === "workspace"}
-                  onClick={() =>
-                    setOpenSelector(
-                      openSelector === "workspace" ? null : "workspace",
-                    )
-                  }
-                  icon={<FolderOpen className="h-4 w-4" />}
-                  label={t("Workspace")}
-                  title={selectedWorkspace.label}
-                  detail={
-                    workspacesLoading
+                  ) : (
+                    <Terminal className="h-4 w-4" />
+                  )
+                }
+                label={t("Profile")}
+                title={selectedProfileSummary.title}
+                detail={selectedProfileSummary.route}
+                badges={
+                  <>
+                    {selectedProfileSummary.bridge && <BridgeBadge />}
+                    {profileIsGlobalDefault && <DefaultBadge />}
+                  </>
+                }
+              />
+              <SelectorTile
+                active={expanded === "workspace"}
+                onClick={() => setExpanded("workspace")}
+                icon={<FolderOpen className="h-4 w-4" />}
+                label={t("Workspace")}
+                title={selectedWorkspace.label}
+                detail={
+                  workspacesLoading
+                    ? t("Loading…")
+                    : t("{{count}} sessions", { count: visibleSessions.length })
+                }
+                badges={selectedWorkspace.isDefault ? <DefaultBadge /> : null}
+              />
+              <SelectorTile
+                active={expanded === "session"}
+                onClick={() => setExpanded("session")}
+                icon={<MessageCircle className="h-4 w-4" />}
+                label={t("Session")}
+                title={
+                  !sessionResumeSupported
+                    ? t("Session resume unavailable")
+                    : sessionsLoading
                       ? t("Loading…")
-                      : t("{{count}} sessions", {
-                          count: visibleSessions.length,
-                        })
+                      : sessionTitle
+                }
+                detail={sessionDetail}
+                disabled={!sessionResumeSupported}
+                disabledReason={sessionResumeUnsupportedReason}
+              />
+            </div>
+
+            <section className="min-h-0 flex-1 overflow-y-auto p-3">
+              {expanded === "profile" && (
+                <ProfilePanel
+                  agentId={agentId}
+                  prefs={viewPrefs}
+                  selected={profileChoice}
+                  profiles={profileOptions}
+                  onSelect={(choice) => void chooseProfileChoice(choice)}
+                  onSelectApiType={(profile, apiType) =>
+                    void chooseProfileApiType(profile, apiType)
                   }
-                  badges={selectedWorkspace.isDefault ? <DefaultBadge /> : null}
+                  onMakeDefault={makeDefault}
+                  onEditProfile={onEditProfile}
+                  onConnectionSettings={onConnectionSettings}
+                  onDeleteProfile={(profile) => void removeProfile(profile)}
+                  onReorderProfile={(fromId, toId) =>
+                    void reorderProfile(fromId, toId)
+                  }
+                  busy={busy}
                 />
-              }
-              content={
+              )}
+              {expanded === "workspace" && (
                 <WorkspacePanel
                   prefs={viewPrefs}
                   loading={workspacesLoading}
-                  onSelect={(path) => {
-                    setOpenSelector(null);
-                    void chooseWorkspace(path);
-                  }}
+                  onSelect={(path) => void chooseWorkspace(path)}
                   onDelete={(path, label) => void removeWorkspace(path, label)}
                   onReorder={(fromPath, toPath) =>
                     void reorderWorkspace(fromPath, toPath)
                   }
-                  onCreate={() => {
-                    setOpenSelector(null);
-                    void chooseFolder();
-                  }}
+                  onCreate={() => void chooseFolder()}
                   sessionCounts={workspaceSessionCounts}
                   busy={busy}
                 />
-              }
-            />
-            <SelectorPopup
-              id="session"
-              openSelector={openSelector}
-              onOpenChange={setOpenSelector}
-              align="end"
-              widthClassName="w-[min(420px,calc(100vw-1rem))]"
-              tile={
-                <SelectorTile
-                  active={openSelector === "session"}
-                  onClick={() =>
-                    setOpenSelector(
-                      openSelector === "session" ? null : "session",
-                    )
-                  }
-                  icon={<MessageCircle className="h-4 w-4" />}
-                  label={t("Session")}
-                  title={
-                    !sessionResumeSupported
-                      ? t("Session resume unavailable")
-                      : sessionsLoading
-                        ? t("Loading…")
-                        : sessionTitle
-                  }
-                  detail={sessionDetail}
-                  disabled={!sessionResumeSupported}
-                  disabledReason={sessionResumeUnsupportedReason}
-                />
-              }
-              content={
+              )}
+              {expanded === "session" && (
                 <SessionPanel
                   sessions={visibleSessions}
                   selected={sessionChoice}
@@ -919,18 +779,12 @@ export function AgentLaunchBuilder({
                   unsupportedReason={sessionResumeUnsupportedReason}
                   showArchived={showArchivedSessions}
                   onShowArchivedChange={setShowArchivedSessions}
-                  onSelect={(choice) => {
-                    setOpenSelector(null);
-                    setSessionChoice(choice);
-                  }}
+                  onSelect={setSessionChoice}
                 />
-              }
-            />
-          </div>
+              )}
+            </section>
 
-          <section className="min-h-0 flex-1 bg-background" />
-
-          <footer className="flex items-center justify-end gap-2 border-t border-border bg-card/30 px-4 py-2.5">
+            <footer className="flex items-center justify-end gap-2 border-t border-border bg-card/30 px-4 py-3">
               <Select
                 value={viewPrefs.terminal}
                 disabled={busy}
@@ -978,9 +832,10 @@ export function AgentLaunchBuilder({
                 <Rocket className="h-3.5 w-3.5" />
                 {t("Quick Launch")}
               </TooltipButton>
-          </footer>
-        </div>
-      </main>
+            </footer>
+          </div>
+        </main>
+      </div>
     </TooltipProvider>
   );
 }
