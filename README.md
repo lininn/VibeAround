@@ -46,6 +46,17 @@ Coding agents are powerful, but their working state is usually trapped inside on
 | **Previews** | Share local dev servers, Markdown, and HTML through short-lived authenticated URLs |
 | **Settings** | Manage enabled agents, plugins, tunnel providers, proxy settings, IM verbosity, language, and update checks |
 
+## Screenshots
+
+<p align="center">
+  <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.6.5/screenshots/web-chat.webp" width="49%" alt="VibeAround Web Chat and browser dashboard" />
+  <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.6.5/screenshots/model-bridge-terminals.webp" width="49%" alt="Codex terminals launched with bridged model profiles" />
+</p>
+
+<p align="center">
+  <img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/documents/v0.6.5/screenshots/provider-catalog.webp" width="72%" alt="Provider catalog with supported API shapes" />
+</p>
+
 ## Quick Start
 
 1. Download the latest desktop package for your platform.
@@ -202,7 +213,7 @@ Ask questions, share workflows, or tell us which agent/provider/channel should b
 
 WeChat group for Chinese-language discussion:
 
-<img src="docs/assets/wechat-group-qr.jpeg" width="180" alt="VibeAround WeChat group QR code" />
+<img src="https://pub-806a1b8456464ce7a6c110f84946697e.r2.dev/community/wechat-group-qr.webp" width="180" alt="VibeAround WeChat group QR code" />
 
 The WeChat QR code expires periodically. If it has expired, use Discord or GitHub Issues to ask for the latest one.
 
