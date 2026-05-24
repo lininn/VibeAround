@@ -45,6 +45,7 @@ const DEFAULT_ENABLED_AGENT_IDS = new Set<AgentId>(["claude", "codex"]);
 const AGENT_DISPLAY_ORDER = [
   "claude",
   "codex",
+  "pi",
   "gemini",
   "opencode",
   "cursor",

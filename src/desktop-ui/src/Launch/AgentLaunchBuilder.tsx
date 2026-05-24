@@ -87,6 +87,7 @@ import type { ConnectionAgentId, ProfileSummary } from "./types";
 const AGENT_ORDER = [
   "codex",
   "claude",
+  "pi",
   "gemini",
   "cursor",
   "kiro",
