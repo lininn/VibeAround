@@ -408,15 +408,7 @@ export function AgentLaunchBuilder({
     "{{agent}} does not support selecting a session to resume",
     { agent: agentLabel(agentId) },
   );
-  const canResume = sessionResumeSupported && Boolean(selectedSession);
-  const resumeDisabledReason = busy
-    ? t("Launch is already in progress")
-    : !sessionResumeSupported
-      ? sessionResumeUnsupportedReason
-      : !selectedSession
-        ? t("No session to resume")
-        : selectionDisabledReason;
-  const quickLaunchDisabledReason = busy
+  const launchDisabledReason = busy
     ? t("Launch is already in progress")
     : selectionDisabledReason;
 
@@ -619,39 +611,30 @@ export function AgentLaunchBuilder({
     }
   }
 
-  async function launchNew() {
+  async function launchSelected() {
     if (!agentId) return;
     setBusy(true);
     onError(null);
     try {
-      if (profileChoice.kind === "profile") {
-        await launchProfile(profileChoice.profileId, agentId);
+      if (selectedSession) {
+        if (profileChoice.kind === "profile") {
+          await launchProfileResume(
+            profileChoice.profileId,
+            agentId,
+            selectedSession.sessionId,
+          );
+        } else {
+          await launchDirectResume(agentId, selectedSession.sessionId);
+        }
+        onToast(t("Resume launch opened"));
       } else {
-        await launchDirect(agentId);
+        if (profileChoice.kind === "profile") {
+          await launchProfile(profileChoice.profileId, agentId);
+        } else {
+          await launchDirect(agentId);
+        }
+        onToast(t("Quick launch opened"));
       }
-      onToast(t("Quick launch opened"));
-    } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function launchResume() {
-    if (!agentId || !selectedSession) return;
-    setBusy(true);
-    onError(null);
-    try {
-      if (profileChoice.kind === "profile") {
-        await launchProfileResume(
-          profileChoice.profileId,
-          agentId,
-          selectedSession.sessionId,
-        );
-      } else {
-        await launchDirectResume(agentId, selectedSession.sessionId);
-      }
-      onToast(t("Resume launch opened"));
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -682,7 +665,7 @@ export function AgentLaunchBuilder({
     profileChoice.kind === "profile"
       ? isGlobalDefaultProfile(viewPrefs, agentId, profileChoice.profileId)
       : isGlobalDefaultDirect(viewPrefs, agentId);
-  const sessionTitle = selectedSession?.title ?? t("No session to resume");
+  const sessionTitle = selectedSession?.title ?? t("New session");
   const sessionDetail = selectedSession
     ? `${selectedSession.shortId} · ${relativeTime(selectedSession.updatedAt, t)}`
     : sessionResumeSupported
@@ -886,26 +869,18 @@ export function AgentLaunchBuilder({
               </Select>
               <TooltipButton
                 type="button"
-                disabled={busy || !canResume || !selectionLaunchable}
-                disabledReason={resumeDisabledReason}
-                onClick={() => void launchResume()}
-                size="lg"
-                variant="outline"
-                className="min-w-[160px] justify-center text-xs font-semibold"
-              >
-                <History className="h-3.5 w-3.5" />
-                {t("Resume Session")}
-              </TooltipButton>
-              <TooltipButton
-                type="button"
                 disabled={busy || !selectionLaunchable}
-                disabledReason={quickLaunchDisabledReason}
-                onClick={() => void launchNew()}
+                disabledReason={launchDisabledReason}
+                onClick={() => void launchSelected()}
                 size="lg"
                 className="min-w-[160px] justify-center text-xs font-semibold"
               >
-                <Rocket className="h-3.5 w-3.5" />
-                {t("Quick Launch")}
+                {selectedSession ? (
+                  <History className="h-3.5 w-3.5" />
+                ) : (
+                  <Rocket className="h-3.5 w-3.5" />
+                )}
+                {selectedSession ? t("Resume Session") : t("Quick Launch")}
               </TooltipButton>
             </footer>
           </div>

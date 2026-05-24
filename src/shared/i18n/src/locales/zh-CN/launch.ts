@@ -17,6 +17,7 @@ export const zhCNLaunch: Record<string, string> = {
   "Resume launch opened": "已打开恢复启动",
   "Resume Session": "恢复会话",
   Session: "会话",
+  "New session": "新会话",
   "Session resume unavailable": "会话恢复不可用",
   "{{agent}} does not support selecting a session to resume":
     "{{agent}} 不支持选择会话恢复",

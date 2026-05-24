@@ -524,18 +524,43 @@ export function SessionPanel({
           </label>
         )}
       </div>
-      {sessions.length === 0 && (
-        <p className="px-3 py-2 text-xs text-muted-foreground">
-          {t("No session in this workspace")}
-        </p>
-      )}
       <div className="divide-y divide-border/60">
+        <button
+          type="button"
+          className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors ${
+            selected === null
+              ? "bg-primary/10 text-primary"
+              : "text-foreground hover:bg-accent/50"
+          }`}
+          onClick={() => onSelect(null)}
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background text-muted-foreground">
+            <Plus className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13px] font-semibold">
+              {t("New session")}
+            </span>
+            <span className="block truncate text-[11px] text-muted-foreground">
+              {t("Quick Launch will start a new session")}
+            </span>
+          </span>
+          {selected === null ? (
+            <Check className="h-4 w-4 shrink-0 text-primary" />
+          ) : (
+            <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+          )}
+        </button>
+        {sessions.length === 0 && (
+          <p className="px-3 py-2 text-xs text-muted-foreground">
+            {t("No session in this workspace")}
+          </p>
+        )}
         {sessions.map((session) => {
           const isLast = session === sessions[0];
           const active =
-            selected?.kind === "session"
-              ? selected.sessionId === session.sessionId
-              : isLast;
+            selected?.kind === "session" &&
+            selected.sessionId === session.sessionId;
           return (
             <button
               type="button"

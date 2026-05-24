@@ -281,13 +281,9 @@ export function resolveSelectedSession(
   sessions: LaunchSessionSummary[],
 ): LaunchSessionSummary | null {
   if (choice?.kind === "session") {
-    return (
-      sessions.find((session) => session.sessionId === choice.sessionId) ??
-      sessions[0] ??
-      null
-    );
+    return sessions.find((session) => session.sessionId === choice.sessionId) ?? null;
   }
-  return sessions[0] ?? null;
+  return null;
 }
 
 export function apiTypeProtocolDisplayLabel(apiType: string): string {
