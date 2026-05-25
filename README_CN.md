@@ -6,7 +6,7 @@
 
 **让你的 AI 编程 Agent 一直在身边。**
 
-从一个地方启动 Claude Code、Codex CLI、Gemini CLI、Pi Agent 等工具。让它们并排运行，然后从 Web、移动端和消息平台随时接上刚才的工作。
+从一个地方启动 Claude Code、Codex CLI、Gemini CLI、Pi Agent 等工具：并排运行，保持连接，随处可达，并且随时可以在 Web、移动端和消息平台继续工作。
 
 [下载](https://github.com/jazzenchen/VibeAround/releases/latest) | [演示](https://youtu.be/6kxNKTMz-AM) | [Wiki](https://github.com/jazzenchen/VibeAround/wiki) | [Discord](https://discord.gg/KsJWkY64GN) | [English](README.md)
 

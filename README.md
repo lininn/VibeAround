@@ -6,7 +6,7 @@
 
 **Keep your AI coding agents around.**
 
-Launch Claude Code, Codex CLI, Gemini CLI, Pi Agent, and more from one place. Run them side by side, then pick up where you left off from anywhere — across web, mobile, and messaging.
+Launch Claude Code, Codex CLI, Gemini CLI, Pi Agent, and more from one place — side by side, connected, reachable, and ready to work across web, mobile, and messaging.
 
 [Download](https://github.com/jazzenchen/VibeAround/releases/latest) | [Demo](https://youtu.be/6kxNKTMz-AM) | [Wiki](https://github.com/jazzenchen/VibeAround/wiki) | [Discord](https://discord.gg/KsJWkY64GN) | [WeChat](#community) | [简体中文](README_CN.md)
 
