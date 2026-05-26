@@ -5,10 +5,9 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::{json, Value};
 use va_ai_api_bridge::{
-    ContentBlock, FinishReason, UniversalEvent, UniversalItem, UniversalResponse, Usage,
+    ContentBlock, FinishReason, ProviderBridgeAdapter, UniversalEvent, UniversalItem,
+    UniversalResponse, Usage,
 };
-
-use crate::openai_bridge::providers::ProviderBridgeAdapter;
 
 use super::{json_error, BridgeProtocol};
 
@@ -28,7 +27,7 @@ pub(super) async fn translated_completion_response(
             );
         }
     };
-    let raw = match serde_json::from_slice::<Value>(&bytes) {
+    let mut raw = match serde_json::from_slice::<Value>(&bytes) {
         Ok(value) => value,
         Err(e) => {
             return json_error(
@@ -37,6 +36,9 @@ pub(super) async fn translated_completion_response(
             );
         }
     };
+    if upstream_protocol == BridgeProtocol::OpenAiChat {
+        provider_adapter.normalize_chat_response(&mut raw);
+    }
     let mut events = match upstream_protocol.decode_upstream_response(raw) {
         Ok(events) => events,
         Err(error) => return json_error(StatusCode::BAD_GATEWAY, &error.to_string()),

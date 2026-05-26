@@ -8,9 +8,9 @@ use axum::response::Response;
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use serde_json::Value;
-use va_ai_api_bridge::{DecodeState, EncodeState, UniversalEvent, WireEvent};
-
-use crate::openai_bridge::providers::ProviderBridgeAdapter;
+use va_ai_api_bridge::{
+    DecodeState, EncodeState, ProviderBridgeAdapter, UniversalEvent, WireEvent,
+};
 
 use super::{json_error, BridgeProtocol};
 
@@ -128,13 +128,16 @@ impl SseMapState {
             return;
         }
 
-        let raw = match serde_json::from_str::<Value>(&data) {
+        let mut raw = match serde_json::from_str::<Value>(&data) {
             Ok(value) => value,
             Err(e) => {
                 self.fail(format!("upstream sent invalid SSE JSON: {e}"));
                 return;
             }
         };
+        if self.upstream_protocol == BridgeProtocol::OpenAiChat {
+            self.provider_adapter.normalize_chat_response(&mut raw);
+        }
         let mut events = match self
             .upstream_protocol
             .decode_upstream_stream_chunk(raw, &mut self.decode_state)

@@ -13,6 +13,14 @@ use tokio::sync::{Mutex, Notify};
 
 use onboarding::{OnboardingGate, OnboardingInstallState, OnboardingSessions};
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppInfo {
+    version: &'static str,
+    os: &'static str,
+    arch: &'static str,
+}
+
 /// Shared `TunnelManager` handle, injected into Tauri state for the
 /// tray (live tunnel menu item) and any IPC command that needs the
 /// current tunnel URL.
@@ -97,6 +105,15 @@ fn get_auth_token() -> Option<common::auth::AuthFile> {
     common::auth::read_token_file()
 }
 
+#[tauri::command]
+fn get_app_info() -> AppInfo {
+    AppInfo {
+        version: env!("CARGO_PKG_VERSION"),
+        os: std::env::consts::OS,
+        arch: std::env::consts::ARCH,
+    }
+}
+
 /// Open an HTTP URL in the user's default external browser.
 ///
 /// We can't use `window.open` from the desktop-ui because it creates a
@@ -104,9 +121,8 @@ fn get_auth_token() -> Option<common::auth::AuthFile> {
 /// command shells out via the `open` crate, which is what the tray also
 /// uses for "Open Local Dashboard".
 ///
-/// Used for dashboard + tunnel links that need the session auth token
-/// appended — the desktop-ui calls `authedDashboardUrl()` to build the
-/// URL, then passes it here.
+/// Used for dashboard/tunnel links and trusted app-owned external links such
+/// as GitHub release downloads.
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
     // Minimal guard: only allow http/https schemes. Prevents a rogue
@@ -117,6 +133,11 @@ fn open_external_url(url: String) -> Result<(), String> {
     open::that(&url)
         .map(|_| ())
         .map_err(|e| format!("failed to open url: {e}"))
+}
+
+#[tauri::command]
+async fn restart_services<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    restart_daemon(&app).await
 }
 
 #[tauri::command]
@@ -193,7 +214,9 @@ fn main() {
         .manage(OnboardingInstallState::default())
         .invoke_handler(tauri::generate_handler![
             get_auth_token,
+            get_app_info,
             open_external_url,
+            restart_services,
             set_ui_locale,
             onboarding::get_settings,
             onboarding::list_channel_plugins,

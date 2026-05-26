@@ -9,6 +9,7 @@ import {
   createProfile,
   getLauncherPreferences,
   getProfile,
+  getSettings,
   listCatalog,
   listProfiles,
   setProfileConnection,
@@ -26,17 +27,19 @@ import type {
   ProfileDef,
   ProfileSummary,
 } from "./types";
+import type { Settings } from "../Onboarding/types";
 
 type ConnectionEditing = {
   profile: ProfileSummary;
   agentId: ConnectionAgentId;
 };
 
-export function Launch() {
+export function Launch({ refreshToken = 0 }: { refreshToken?: number }) {
   const { t } = useI18n();
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
   const [prefs, setPrefs] = useState<LauncherPreferences | null>(null);
+  const [settingsProxyEnabled, setSettingsProxyEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -48,14 +51,16 @@ export function Launch() {
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [nextCatalog, nextProfiles, nextPrefs] = await Promise.all([
+      const [nextCatalog, nextProfiles, nextPrefs, nextSettings] = await Promise.all([
         listCatalog(),
         listProfiles(),
         getLauncherPreferences(),
+        getSettings(),
       ]);
       setCatalog(nextCatalog);
       setProfiles(nextProfiles);
       setPrefs(nextPrefs);
+      setSettingsProxyEnabled(isSettingsProxyEnabled(nextSettings));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -65,7 +70,7 @@ export function Launch() {
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, refreshToken]);
 
   useEffect(() => {
     if (!toast) return;
@@ -112,15 +117,26 @@ export function Launch() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      {error && (
-        <div className="shrink-0 bg-destructive/10 px-3 py-1 text-xs text-destructive">
-          {error}
-        </div>
-      )}
-      {toast && (
-        <div className="shrink-0 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-600">
-          {toast}
+    <div className="relative flex h-full flex-col">
+      {(error || toast) && (
+        <div className="pointer-events-none absolute inset-x-3 top-3 z-40 flex flex-col items-center gap-2">
+          {error && (
+            <div
+              role="alert"
+              className="max-w-[min(720px,100%)] rounded-md border border-destructive/25 bg-background/95 px-3 py-2 text-xs text-destructive shadow-lg shadow-destructive/10 backdrop-blur"
+            >
+              {error}
+            </div>
+          )}
+          {toast && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="max-w-[min(520px,100%)] rounded-md border border-emerald-500/20 bg-background/95 px-3 py-2 text-xs text-emerald-600 shadow-lg shadow-emerald-500/10 backdrop-blur"
+            >
+              {toast}
+            </div>
+          )}
         </div>
       )}
 
@@ -160,8 +176,14 @@ export function Launch() {
           connections={prefs?.profileConnections}
           onClose={() => setConnectionEditing(null)}
           onSave={handleSaveConnection}
+          settingsProxyEnabled={settingsProxyEnabled}
         />
       )}
     </div>
   );
+}
+
+function isSettingsProxyEnabled(settings: Settings): boolean {
+  const proxy = settings.proxy;
+  return Boolean(proxy?.enabled ?? proxy?.http_proxy);
 }

@@ -5,6 +5,7 @@ import { useI18n } from "@va/i18n";
 
 import { Button } from "@/components/ui/button";
 import { LanguageMenu } from "@/components/LanguageMenu";
+import { cn } from "@/lib/utils";
 
 import { STEPS } from "./constants";
 import { StepAgents } from "./components/StepAgents";
@@ -27,6 +28,7 @@ import type { ProfileFormSubmit } from "../Launch/ProfileFormDialog";
 import type { CatalogEntry, ProfileSummary } from "../Launch/types";
 import type {
   AgentSummary,
+  ChannelVerboseConfig,
   DiscoveredChannelPlugin,
   PluginRegistryEntry,
   Settings,
@@ -43,6 +45,7 @@ const DEFAULT_ENABLED_AGENT_IDS = new Set<AgentId>(["claude", "codex"]);
 const AGENT_DISPLAY_ORDER = [
   "claude",
   "codex",
+  "pi",
   "gemini",
   "opencode",
   "cursor",
@@ -73,6 +76,8 @@ function visibleStepsForGoals(
 
 export default function Onboarding() {
   const { t } = useI18n();
+  const isMacTitlebar =
+    typeof navigator !== "undefined" && /Mac/.test(navigator.platform);
   const [step, setStep] = useState(0);
   const [selectedGoals, setSelectedGoals] = useState<Set<OnboardingGoal>>(
     () => new Set<OnboardingGoal>(),
@@ -101,6 +106,9 @@ export default function Onboarding() {
   );
   const [channelConfigs, setChannelConfigs] = useState<
     Record<string, Record<string, string>>
+  >({});
+  const [channelVerbose, setChannelVerbose] = useState<
+    Record<string, ChannelVerboseConfig>
   >({});
   const [installingPlugins, setInstallingPlugins] = useState<Set<string>>(
     new Set(),
@@ -173,6 +181,7 @@ export default function Onboarding() {
           const channels = loadedSettings.channels ?? {};
           const enabled = new Set<string>();
           const configs: Record<string, Record<string, string>> = {};
+          const verbose: Record<string, ChannelVerboseConfig> = {};
           for (const [id, channelConfig] of Object.entries(channels)) {
             if (!registryPluginIds.has(id)) continue;
             enabled.add(id);
@@ -183,9 +192,11 @@ export default function Onboarding() {
               }
             }
             configs[id] = configMap;
+            verbose[id] = parseChannelVerbose(channelConfig.verbose);
           }
           setEnabledChannels(enabled);
           setChannelConfigs(configs);
+          setChannelVerbose(verbose);
 
           const provider = loadedSettings.tunnel?.provider;
           if (
@@ -219,6 +230,11 @@ export default function Onboarding() {
       else next.delete(pluginId);
       return next;
     });
+    if (enabled) {
+      setChannelVerbose((prev) =>
+        prev[pluginId] ? prev : { ...prev, [pluginId]: defaultChannelVerbose() },
+      );
+    }
   }, []);
 
   const updateChannelConfig = useCallback(
@@ -226,6 +242,23 @@ export default function Onboarding() {
       setChannelConfigs((prev) => ({
         ...prev,
         [pluginId]: { ...(prev[pluginId] ?? {}), [key]: value },
+      }));
+    },
+    [],
+  );
+
+  const updateChannelVerbose = useCallback(
+    (
+      pluginId: string,
+      key: keyof ChannelVerboseConfig,
+      value: boolean,
+    ) => {
+      setChannelVerbose((prev) => ({
+        ...prev,
+        [pluginId]: {
+          ...(prev[pluginId] ?? defaultChannelVerbose()),
+          [key]: value,
+        },
       }));
     },
     [],
@@ -288,6 +321,7 @@ export default function Onboarding() {
       enabledChannels,
       registryPluginIds: new Set(pluginRegistry.map((plugin) => plugin.id)),
       channelConfigs,
+      channelVerbose,
       discoveredPlugins,
       tunnelProvider,
       ngrokToken,
@@ -302,6 +336,7 @@ export default function Onboarding() {
     enabledAgents,
     enabledChannels,
     channelConfigs,
+    channelVerbose,
     discoveredPlugins,
     tunnelProvider,
     ngrokToken,
@@ -376,8 +411,26 @@ export default function Onboarding() {
 
   return (
     <div className="flex flex-col h-full bg-background">
-      <div className="flex items-center gap-2 px-6 pt-5 pb-2">
-        <div className="flex items-center gap-1 flex-1">
+      <div
+        className={cn(
+          "relative flex h-12 items-center gap-3 pr-6",
+          isMacTitlebar ? "pl-[82px]" : "pl-6",
+        )}
+      >
+        <div
+          data-tauri-drag-region
+          aria-hidden="true"
+          className="absolute inset-0 z-0"
+        />
+        <div className="relative z-10 flex shrink-0 items-baseline gap-1.5 whitespace-nowrap">
+          <span className="text-[13px] font-semibold text-foreground">
+            VibeAround
+          </span>
+          <span className="font-mono text-[10px] text-muted-foreground/60">
+            @{__APP_VERSION_LABEL__}
+          </span>
+        </div>
+        <div className="relative z-10 flex items-center gap-1 flex-1">
           {visibleSteps.map((label, index) => (
             <div key={label} className="flex items-center gap-1 flex-1">
               <div
@@ -388,10 +441,9 @@ export default function Onboarding() {
             </div>
           ))}
         </div>
-        <span className="font-mono text-[10px] text-muted-foreground/60">
-          v{__APP_VERSION_LABEL__}
-        </span>
-        <LanguageMenu />
+        <div className="relative z-10">
+          <LanguageMenu />
+        </div>
       </div>
       <div className="px-6 pb-3">
         <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
@@ -428,10 +480,12 @@ export default function Onboarding() {
             discoveredPlugins={discoveredPlugins}
             enabledChannels={enabledChannels}
             channelConfigs={channelConfigs}
+            channelVerbose={channelVerbose}
             installingPlugins={installingPlugins}
             authStates={authStates}
             onToggleChannel={toggleChannel}
             onConfigChange={updateChannelConfig}
+            onVerboseChange={updateChannelVerbose}
             onInstallPlugin={installPlugin}
             onStartAuth={startAuth}
             onCancelAuth={cancelAuth}
@@ -533,4 +587,28 @@ export default function Onboarding() {
       )}
     </div>
   );
+}
+
+function defaultChannelVerbose(): ChannelVerboseConfig {
+  return {
+    show_thinking: false,
+    show_tool_use: false,
+  };
+}
+
+function parseChannelVerbose(value: unknown): ChannelVerboseConfig {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return defaultChannelVerbose();
+  }
+  const verbose = value as Record<string, unknown>;
+  return {
+    show_thinking:
+      typeof verbose.show_thinking === "boolean"
+        ? verbose.show_thinking
+        : false,
+    show_tool_use:
+      typeof verbose.show_tool_use === "boolean"
+        ? verbose.show_tool_use
+        : false,
+  };
 }

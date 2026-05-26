@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { AgentId, OnboardingGoal, TunnelProvider } from "./constants";
 import type { ProfileSummary } from "../Launch/types";
 
@@ -29,6 +30,11 @@ export interface Settings {
   default_agent?: string;
   default_profiles?: Record<string, string>;
   enabled_agents?: string[];
+  proxy?: {
+    enabled?: boolean;
+    http_proxy?: string;
+    no_proxy?: string;
+  };
   tunnel?: {
     provider?: string;
     ngrok?: { auth_token?: string; domain?: string };
@@ -36,6 +42,11 @@ export interface Settings {
   };
   channels?: Record<string, Record<string, unknown>>;
   [key: string]: unknown;
+}
+
+export interface ChannelVerboseConfig {
+  show_thinking: boolean;
+  show_tool_use: boolean;
 }
 
 export interface PluginAuthCapabilities {
@@ -110,13 +121,21 @@ export interface StepChannelsProps {
   discoveredPlugins: DiscoveredChannelPlugin[];
   enabledChannels: Set<string>;
   channelConfigs: Record<string, Record<string, string>>;
+  channelVerbose: Record<string, ChannelVerboseConfig>;
   installingPlugins: Set<string>;
   authStates: Record<string, AuthFlowState>;
   onToggleChannel: (pluginId: string, enabled: boolean) => void;
   onConfigChange: (pluginId: string, key: string, value: string) => void;
+  onVerboseChange: (
+    pluginId: string,
+    key: keyof ChannelVerboseConfig,
+    value: boolean,
+  ) => void;
   onInstallPlugin: (pluginId: string, githubUrl: string) => void;
   onStartAuth: (pluginId: string) => void;
   onCancelAuth: (pluginId: string) => void;
+  switchSize?: "sm" | "default";
+  notice?: ReactNode;
 }
 
 export interface StepTunnelProps {
@@ -131,6 +150,7 @@ export interface StepTunnelProps {
   onCfToken: (value: string) => void;
   cfHostname: string;
   onCfHostname: (value: string) => void;
+  notice?: ReactNode;
 }
 
 export interface StepConfirmProps {
