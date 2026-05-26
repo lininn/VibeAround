@@ -52,11 +52,6 @@ pub(super) async fn bridge_handler(
         client_protocol.api_type(),
         &target_api_type,
     );
-    let model_mapping = bridge_model_mapping(
-        &upstream.profile,
-        bridge_preference.as_ref(),
-        &target_api_type,
-    );
     if let Some(scope) = manual_scope.as_deref() {
         if let Err(response) = validate_manual_scope(scope) {
             return response;
@@ -72,6 +67,13 @@ pub(super) async fn bridge_handler(
 
     if client_protocol == upstream.protocol {
         let original_agent_request = agent_request.clone();
+        let requested_model = wire_model(&agent_request);
+        let model_mapping = bridge_model_mapping(
+            &upstream.profile,
+            bridge_preference.as_ref(),
+            &target_api_type,
+            requested_model.as_deref(),
+        );
         if let Some(mapping) = &model_mapping {
             apply_wire_model(&mut agent_request, &mapping.upstream_model);
         }
@@ -169,6 +171,12 @@ pub(super) async fn bridge_handler(
         Ok(request) => request,
         Err(error) => return json_error(StatusCode::BAD_REQUEST, &error.to_string()),
     };
+    let model_mapping = bridge_model_mapping(
+        &upstream.profile,
+        bridge_preference.as_ref(),
+        &target_api_type,
+        universal_request.model.as_deref(),
+    );
     if let Some(mapping) = &model_mapping {
         universal_request.model = Some(mapping.upstream_model.clone());
     }
@@ -309,6 +317,15 @@ fn apply_wire_model(request: &mut Value, model: &str) {
     if let Some(object) = request.as_object_mut() {
         object.insert("model".to_string(), Value::String(model.to_string()));
     }
+}
+
+fn wire_model(request: &Value) -> Option<String> {
+    request
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn is_manual_scope_char(ch: char) -> bool {

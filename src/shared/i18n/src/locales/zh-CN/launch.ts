@@ -171,6 +171,7 @@ export const zhCNLaunch: Record<string, string> = {
   "{{clientApi}} -> {{targetApi}} (API bridge off)":
     "{{clientApi}} -> {{targetApi}}（API 转接关闭）",
   "Fake model id": "伪装模型 ID",
+  "Default target model": "默认目标模型",
   "Target model": "目标模型",
   "Select model": "选择模型",
   Headers: "请求头",

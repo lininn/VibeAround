@@ -433,7 +433,7 @@ export function ProfileConnectionDialog({
                                 />
                               </label>
                               <label className="grid min-w-0 gap-1 text-[11px] text-muted-foreground">
-                                <span>{t("Target model")}</span>
+                                <span>{t("Default target model")}</span>
                                 <Select
                                   value={upstreamModel}
                                   disabled={saving}

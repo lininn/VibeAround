@@ -31,14 +31,22 @@ pub(super) fn bridge_model_mapping(
     profile: &ProfileDef,
     bridge: Option<&agent_state::ProfileBridgePreference>,
     target_api_type: &str,
+    requested_model: Option<&str>,
 ) -> Option<BridgeModelMapping> {
     let bridge = bridge?;
-    let requested_upstream_model = clean_model_id(bridge.upstream_model.as_deref())
+    if let Some(requested_model) = clean_model_id(requested_model) {
+        return Some(BridgeModelMapping {
+            upstream_model: requested_model.clone(),
+            agent_model: requested_model,
+        });
+    }
+
+    let configured_upstream_model = clean_model_id(bridge.upstream_model.as_deref())
         .or_else(|| default_model(profile, target_api_type))?;
-    let upstream_model = canonical_model(profile, target_api_type, &requested_upstream_model)
-        .unwrap_or_else(|| requested_upstream_model.clone());
+    let upstream_model = canonical_model(profile, target_api_type, &configured_upstream_model)
+        .unwrap_or_else(|| configured_upstream_model.clone());
     let agent_model =
-        clean_model_id(bridge.fake_model_id.as_deref()).unwrap_or(requested_upstream_model);
+        clean_model_id(bridge.fake_model_id.as_deref()).unwrap_or(configured_upstream_model);
     Some(BridgeModelMapping {
         upstream_model,
         agent_model,
@@ -130,10 +138,37 @@ mod tests {
             headers: BTreeMap::new(),
         };
 
-        let mapping = bridge_model_mapping(&profile, Some(&bridge), "openai-chat")
+        let mapping = bridge_model_mapping(&profile, Some(&bridge), "openai-chat", None)
             .expect("mapping should resolve");
 
         assert_eq!(mapping.upstream_model, "gemini-3.1-pro-preview");
         assert_eq!(mapping.agent_model, "gemini-3.1-pro");
+    }
+
+    #[test]
+    fn bridge_mapping_uses_requested_model_instead_of_configured_fake_model() {
+        let profile = ProfileDef {
+            id: "custom-test".to_string(),
+            label: "Custom Test".to_string(),
+            provider: "custom".to_string(),
+            auth_mode: AuthMode::ApiKey,
+            api_types: vec!["openai-chat".to_string()],
+            credentials: BTreeMap::new(),
+            overrides: BTreeMap::new(),
+            provider_settings: Default::default(),
+        };
+        let bridge = agent_state::ProfileBridgePreference {
+            enabled: true,
+            target_api_type: Some("openai-chat".to_string()),
+            upstream_model: Some("a".to_string()),
+            fake_model_id: Some("a".to_string()),
+            headers: BTreeMap::new(),
+        };
+
+        let mapping = bridge_model_mapping(&profile, Some(&bridge), "openai-chat", Some("b"))
+            .expect("mapping should resolve");
+
+        assert_eq!(mapping.upstream_model, "b");
+        assert_eq!(mapping.agent_model, "b");
     }
 }
