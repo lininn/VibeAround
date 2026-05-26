@@ -309,7 +309,7 @@ export function ProfileActionsMenu({
   makeDefaultDisabled = false,
   onConnectionSettings,
   onEditProfile,
-  onCopyProfile,
+  onDuplicateProfile,
   onDeleteProfile,
 }: {
   profile: ProfileSummary;
@@ -319,7 +319,7 @@ export function ProfileActionsMenu({
   makeDefaultDisabled?: boolean;
   onConnectionSettings: (profile: ProfileSummary) => void;
   onEditProfile: (profile: ProfileSummary) => void;
-  onCopyProfile: (profile: ProfileSummary) => void;
+  onDuplicateProfile: (profile: ProfileSummary) => void;
   onDeleteProfile: (profile: ProfileSummary) => void;
 }) {
   const { t } = useI18n();
@@ -370,10 +370,10 @@ export function ProfileActionsMenu({
         <DropdownMenuItem
           className="text-xs"
           disabled={disabled}
-          onSelect={() => onCopyProfile(profile)}
+          onSelect={() => onDuplicateProfile(profile)}
         >
           <Copy className="h-3 w-3" />
-          {t("Copy")}
+          {t("Duplicate")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem

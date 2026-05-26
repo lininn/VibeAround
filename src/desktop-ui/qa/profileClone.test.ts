@@ -34,7 +34,8 @@ test("copyProfileLabel appends a localized copy suffix", () => {
   expect(copyProfileLabel("DeepSeek", "Copy")).toBe("DeepSeek Copy");
   expect(copyProfileLabel("DeepSeek Copy", "Copy")).toBe("DeepSeek Copy 2");
   expect(copyProfileLabel("DeepSeek Copy 2", "Copy")).toBe("DeepSeek Copy 3");
-  expect(copyProfileLabel("DeepSeek", "复制")).toBe("DeepSeek 复制");
+  expect(copyProfileLabel("DeepSeek", "副本")).toBe("DeepSeek 副本");
+  expect(copyProfileLabel("DeepSeek 副本", "副本")).toBe("DeepSeek 副本 2");
 });
 
 test("copyProfileLabel skips labels that already exist", () => {
@@ -54,6 +55,12 @@ test("copyProfileLabel skips labels that already exist", () => {
       "DeepSeek Copy+ 2",
     ]),
   ).toBe("DeepSeek Copy+ 3");
+  expect(
+    copyProfileLabel("DeepSeek", "副本", [
+      "DeepSeek 副本",
+      "DeepSeek 副本 2",
+    ]),
+  ).toBe("DeepSeek 副本 3");
 });
 
 test("buildProfileCopyDraft clones editable profile fields without the id", () => {

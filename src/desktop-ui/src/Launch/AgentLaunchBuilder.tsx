@@ -118,7 +118,7 @@ export function AgentLaunchBuilder({
   onError,
   onToast,
 }: Props) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [agentId, setAgentId] = useState<string>("");
   const [profileChoiceAgentId, setProfileChoiceAgentId] = useState<string>("");
@@ -526,7 +526,7 @@ export function AgentLaunchBuilder({
     }
   }
 
-  async function copyProfile(profile: ProfileSummary) {
+  async function duplicateProfile(profile: ProfileSummary) {
     if (!prefs) return;
     setBusy(true);
     onError(null);
@@ -536,7 +536,7 @@ export function AgentLaunchBuilder({
       const copiedProfile = await createProfile(
         buildProfileCopyDraft(
           fullProfile,
-          t("Copy"),
+          locale === "zh-CN" ? "副本" : "Copy",
           profiles.map((candidate) => candidate.label),
         ),
       );
@@ -562,7 +562,7 @@ export function AgentLaunchBuilder({
       }
       copiedProfileId = null;
       await Promise.all([refreshProfiles(), refreshPrefs()]);
-      onToast(t("Profile copied"));
+      onToast(t("Profile duplicated"));
     } catch (error) {
       let message = errorMessage(error);
       if (copiedProfileId) {
@@ -870,7 +870,7 @@ export function AgentLaunchBuilder({
                 }
                 onMakeDefault={makeDefault}
                 onEditProfile={onEditProfile}
-                onCopyProfile={(profile) => void copyProfile(profile)}
+                onDuplicateProfile={(profile) => void duplicateProfile(profile)}
                 onConnectionSettings={onConnectionSettings}
                 onDeleteProfile={(profile) => void removeProfile(profile)}
                 onReorderProfile={(fromId, toId) =>
